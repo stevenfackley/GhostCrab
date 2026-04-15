@@ -43,11 +43,19 @@ android {
         compose = true
         buildConfig = true
     }
+
+    testOptions {
+        unitTests.all {
+            it.useJUnitPlatform()
+        }
+    }
 }
 
 dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation(libs.androidx.lifecycle.viewmodel.ktx)
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.activity.compose)
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
@@ -89,6 +97,7 @@ dependencies {
     debugImplementation(libs.compose.ui.test.manifest)
 
     testImplementation(libs.junit.jupiter)
+    testRuntimeOnly(libs.junit.jupiter.engine)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.turbine)
     testImplementation(libs.mockk)

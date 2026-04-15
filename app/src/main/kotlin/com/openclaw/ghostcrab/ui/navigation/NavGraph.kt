@@ -9,13 +9,9 @@ import androidx.compose.ui.Modifier
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.openclaw.ghostcrab.ui.connection.ConnectionPickerScreen
+import com.openclaw.ghostcrab.ui.connection.ManualEntryScreen
 
-/**
- * Root navigation graph.
- *
- * Each destination is a placeholder until the corresponding phase implements its screen.
- * Start destination is [Routes.ConnectionPicker]; onboarding (Phase 5) intercepts on first launch.
- */
 @Composable
 fun NavGraph() {
     val navController = rememberNavController()
@@ -24,8 +20,27 @@ fun NavGraph() {
         navController = navController,
         startDestination = "connection_picker",
     ) {
-        composable("connection_picker") { Placeholder("Connection Picker\n(Phase 2)") }
-        composable("manual_entry") { Placeholder("Manual Entry\n(Phase 2)") }
+        composable("connection_picker") {
+            ConnectionPickerScreen(
+                onNavigateToManualEntry = { navController.navigate("manual_entry") },
+                onNavigateToScan = { navController.navigate("scan") },
+                onNavigateToDashboard = {
+                    navController.navigate("dashboard") {
+                        popUpTo("connection_picker") { inclusive = true }
+                    }
+                },
+            )
+        }
+        composable("manual_entry") {
+            ManualEntryScreen(
+                onNavigateBack = { navController.popBackStack() },
+                onNavigateToDashboard = {
+                    navController.navigate("dashboard") {
+                        popUpTo("connection_picker") { inclusive = true }
+                    }
+                },
+            )
+        }
         composable("scan") { Placeholder("LAN Scan\n(Phase 3)") }
         composable("dashboard") { Placeholder("Dashboard\n(Phase 4)") }
         composable("onboarding") { Placeholder("Onboarding\n(Phase 5)") }

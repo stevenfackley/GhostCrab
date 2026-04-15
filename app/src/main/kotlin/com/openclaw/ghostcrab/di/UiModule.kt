@@ -1,10 +1,13 @@
 package com.openclaw.ghostcrab.di
 
+import com.openclaw.ghostcrab.ui.connection.ConnectionPickerViewModel
+import com.openclaw.ghostcrab.ui.connection.ManualEntryViewModel
+import org.koin.androidx.viewmodel.dsl.viewModel
 import org.koin.dsl.module
 
-// ViewModels are registered per-phase as they are implemented.
 val uiModule = module {
-    // Phase 2: ConnectionPickerViewModel, ManualEntryViewModel
+    viewModel { ConnectionPickerViewModel(get(), get()) }
+    viewModel { ManualEntryViewModel(get(), get()) }
     // Phase 3: ScanViewModel
     // Phase 4: DashboardViewModel
     // Phase 5: OnboardingViewModel
