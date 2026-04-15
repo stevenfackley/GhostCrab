@@ -41,7 +41,7 @@ This plan is designed for **stateless execution**. Each phase below is a self-co
 | 1 | Domain Contracts, Theme, DI | 🟢 Done | — | — | b5d939a | Sonnet 4.6 | — |
 | 2 | Connection: Manual Entry + Auth Probe | 🟢 Done | — | — | 61e1ba9 | Sonnet 4.6 | — |
 | 3 | Discovery: NsdManager + Scan UI | 🟢 Done | 2026-04-15 | 2026-04-15 | — | Sonnet 4.6 | Added material-icons-extended; fixed android:Theme.Material.NoTitleBar→NoActionBar; fixed missing dp import; fixed disconnect test |
-| 4 | Dashboard, Health Polling, Security Banners | 🟢 Done | 2026-04-15 | 2026-04-15 | TBD | Sonnet 4.6 | ModelRepositoryStub; DomainModule fix (DiscoveryService clash removed); binary results dir workaround for Windows IDE lock; NSC cleartext deferred to Phase 9 (CIDR not supported in NSC) |
+| 4 | Dashboard, Health Polling, Security Banners | 🟢 Done | 2026-04-15 | 2026-04-15 | fd40cae | Sonnet 4.6 | ModelRepositoryStub; DomainModule fix (DiscoveryService clash removed); binary results dir workaround for Windows IDE lock; NSC cleartext deferred to Phase 9 (CIDR not supported in NSC) |
 | 5 | **Onboarding Walkthrough (Noob Mode)** | ⬜ Not Started | — | — | — | — | — |
 | 6 | Config Editor (Forms over `openclaw.json`) | ⬜ Not Started | — | — | — | — | — |
 | 7 | Model Manager | ⬜ Not Started | — | — | — | — | — |
