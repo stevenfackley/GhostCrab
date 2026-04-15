@@ -16,6 +16,7 @@ import com.openclaw.ghostcrab.ui.connection.ConnectionPickerScreen
 import com.openclaw.ghostcrab.ui.connection.ManualEntryScreen
 import com.openclaw.ghostcrab.ui.connection.ScanScreen
 import com.openclaw.ghostcrab.ui.dashboard.DashboardScreen
+import com.openclaw.ghostcrab.ui.onboarding.OnboardingScreen
 
 @Composable
 fun NavGraph() {
@@ -34,40 +35,73 @@ fun NavGraph() {
                         popUpTo("connection_picker") { inclusive = true }
                     }
                 },
-            )
-        }
-
-        composable(
-            route = "manual_entry?prefillUrl={prefillUrl}",
-            arguments = listOf(
-                navArgument("prefillUrl") {
-                    nullable = true
-                    defaultValue = null
-                    type = NavType.StringType
-                }
-            ),
-        ) { backStackEntry ->
-            val prefillUrl = backStackEntry.arguments?.getString("prefillUrl")
-            ManualEntryScreen(
-                prefillUrl = prefillUrl,
-                onNavigateBack = { navController.popBackStack() },
-                onNavigateToDashboard = {
-                    navController.navigate("dashboard") {
-                        popUpTo("connection_picker") { inclusive = true }
+                onNavigateToOnboarding = {
+                    navController.navigate("onboarding") {
+                        popUpTo("connection_picker") { inclusive = false }
                     }
                 },
             )
         }
 
-        composable("scan") {
+        composable(
+            route = "manual_entry?prefillUrl={prefillUrl}&onboarding={onboarding}",
+            arguments = listOf(
+                navArgument("prefillUrl") {
+                    nullable = true
+                    defaultValue = null
+                    type = NavType.StringType
+                },
+                navArgument("onboarding") {
+                    defaultValue = false
+                    type = NavType.BoolType
+                },
+            ),
+        ) { backStackEntry ->
+            val prefillUrl = backStackEntry.arguments?.getString("prefillUrl")
+            val isOnboarding = backStackEntry.arguments?.getBoolean("onboarding") ?: false
+            ManualEntryScreen(
+                prefillUrl = prefillUrl,
+                onNavigateBack = { navController.popBackStack() },
+                onNavigateToDashboard = {
+                    if (isOnboarding) {
+                        // Pop back to onboarding so it can call markOnboardingConnected()
+                        navController.navigate("onboarding") {
+                            popUpTo("onboarding") { inclusive = false }
+                        }
+                    } else {
+                        navController.navigate("dashboard") {
+                            popUpTo("connection_picker") { inclusive = true }
+                        }
+                    }
+                },
+            )
+        }
+
+        composable(
+            route = "scan?onboarding={onboarding}",
+            arguments = listOf(
+                navArgument("onboarding") {
+                    defaultValue = false
+                    type = NavType.BoolType
+                },
+            ),
+        ) { backStackEntry ->
+            val isOnboarding = backStackEntry.arguments?.getBoolean("onboarding") ?: false
             ScanScreen(
                 onNavigateBack = { navController.popBackStack() },
                 onNavigateToManualEntry = { url ->
-                    navController.navigate("manual_entry?prefillUrl=${Uri.encode(url)}")
+                    val encoded = Uri.encode(url)
+                    navController.navigate("manual_entry?prefillUrl=$encoded&onboarding=$isOnboarding")
                 },
                 onNavigateToDashboard = {
-                    navController.navigate("dashboard") {
-                        popUpTo("connection_picker") { inclusive = true }
+                    if (isOnboarding) {
+                        navController.navigate("onboarding") {
+                            popUpTo("onboarding") { inclusive = false }
+                        }
+                    } else {
+                        navController.navigate("dashboard") {
+                            popUpTo("connection_picker") { inclusive = true }
+                        }
                     }
                 },
             )
@@ -85,7 +119,28 @@ fun NavGraph() {
                 onNavigateToAiRecommend = { navController.navigate("ai_recommendation") },
             )
         }
-        composable("onboarding") { Placeholder("Onboarding\n(Phase 5)") }
+
+        composable("onboarding") {
+            OnboardingScreen(
+                onSkip = {
+                    navController.navigate("connection_picker") {
+                        popUpTo("onboarding") { inclusive = true }
+                    }
+                },
+                onScan = {
+                    navController.navigate("scan?onboarding=true")
+                },
+                onManualEntry = {
+                    navController.navigate("manual_entry?onboarding=true")
+                },
+                onDone = {
+                    navController.navigate("connection_picker") {
+                        popUpTo("onboarding") { inclusive = true }
+                    }
+                },
+            )
+        }
+
         composable("config_editor") { Placeholder("Config Editor\n(Phase 6)") }
         composable("model_manager") { Placeholder("Model Manager\n(Phase 7)") }
         composable("ai_recommendation") { Placeholder("AI Recommendations\n(Phase 8)") }

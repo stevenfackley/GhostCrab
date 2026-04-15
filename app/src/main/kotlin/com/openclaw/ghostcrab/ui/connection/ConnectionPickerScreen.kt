@@ -35,6 +35,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -56,12 +57,17 @@ fun ConnectionPickerScreen(
     onNavigateToManualEntry: () -> Unit,
     onNavigateToScan: () -> Unit,
     onNavigateToDashboard: () -> Unit,
+    onNavigateToOnboarding: () -> Unit = {},
     viewModel: ConnectionPickerViewModel = koinViewModel(),
 ) {
     val profiles by viewModel.profiles.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     var connectingId by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(Unit) {
+        viewModel.navigateToOnboarding.collect { onNavigateToOnboarding() }
+    }
 
     Scaffold(
         topBar = {

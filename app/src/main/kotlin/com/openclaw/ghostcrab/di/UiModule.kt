@@ -5,11 +5,12 @@ import com.openclaw.ghostcrab.ui.connection.ConnectionPickerViewModel
 import com.openclaw.ghostcrab.ui.connection.ManualEntryViewModel
 import com.openclaw.ghostcrab.ui.connection.ScanViewModel
 import com.openclaw.ghostcrab.ui.dashboard.DashboardViewModel
+import com.openclaw.ghostcrab.ui.onboarding.OnboardingViewModel
 import org.koin.androidx.viewmodel.dsl.viewModel
 import org.koin.dsl.module
 
 val uiModule = module {
-    viewModel { ConnectionPickerViewModel(get(), get()) }
+    viewModel { ConnectionPickerViewModel(get(), get(), get()) }
     viewModel { ManualEntryViewModel(get(), get()) }
     viewModel { ScanViewModel(get(), get(), get()) }
     viewModel {
@@ -19,11 +20,9 @@ val uiModule = module {
             healthChecker = { url -> OpenClawApiClient.unauthenticated(url).health() },
         )
     }
-    // Phase 5: OnboardingViewModel
-    // Phase 5: OnboardingViewModel
+    viewModel { OnboardingViewModel(get()) }
     // Phase 6: ConfigEditorViewModel
     // Phase 7: ModelManagerViewModel
     // Phase 8: AIRecommendationViewModel
     // Phase 9: SettingsViewModel
 }
-

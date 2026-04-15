@@ -28,4 +28,47 @@
     <!-- Security banners -->
     <string name="banner_http_message">Connection is unencrypted (HTTP). Anyone on this network can read configuration data.</string>
     <string name="banner_no_auth_message">This gateway accepts unauthenticated requests. Ensure it is not publicly reachable.</string>
+
+    <!-- Onboarding -->
+    <string name="onboarding_welcome_title">Welcome to GhostCrab</string>
+    <string name="onboarding_welcome_body">GhostCrab is a remote control for OpenClaw Gateway. Let\'s get you connected.</string>
+    <string name="onboarding_what_title">What is OpenClaw?</string>
+    <string name="onboarding_bullet_gateway">Gateway — a lightweight server that runs on any machine and proxies AI models.</string>
+    <string name="onboarding_bullet_models">Models — connect OpenAI, Anthropic, local LLMs, and more through one gateway.</string>
+    <string name="onboarding_bullet_auth">Auth — protect your gateway with a bearer token or run open for local-only use.</string>
+    <string name="onboarding_bullet_mdns">mDNS — GhostCrab auto-discovers gateways on your local Wi-Fi network.</string>
+    <string name="onboarding_install_title">Install the Gateway</string>
+    <string name="onboarding_install_docs_link">Open install docs in browser</string>
+    <string name="onboarding_install_copy_toast">Copied. Paste this into a terminal on the host machine.</string>
+    <string name="onboarding_start_title">Start the Gateway</string>
+    <string name="onboarding_start_body">Run this command on the host machine:</string>
+    <string name="onboarding_start_token_intro">To secure your gateway, add a token to openclaw.json:</string>
+    <string name="onboarding_start_token_warning">Keep this token secret. Anyone with it can control your gateway.</string>
+    <string name="onboarding_verify_title">Verify It\'s Running</string>
+    <string name="onboarding_verify_body">On the host machine, open a browser and navigate to:</string>
+    <string name="onboarding_verify_expected">You should see:</string>
+    <string name="onboarding_verify_cta">It\'s running!</string>
+    <string name="onboarding_find_title">Find It on Your Phone</string>
+    <string name="onboarding_find_body">Make sure your phone is on the same Wi-Fi network as the host machine.</string>
+    <string name="onboarding_find_auto">Auto-discover</string>
+    <string name="onboarding_find_manual">Enter URL manually</string>
+    <string name="onboarding_connected_title">You\'re Connected!</string>
+    <string name="onboarding_connected_body">Try editing config or asking the AI for recommendations.</string>
+    <string name="onboarding_connected_cta">Go to Dashboard</string>
+    <string name="onboarding_skip">Skip</string>
+    <string name="onboarding_next">Next</string>
+    <string name="onboarding_back_cd">Back</string>
+    <string name="onboarding_troubleshoot_title">Troubleshooting</string>
+    <string name="onboarding_troubleshoot_health_title">Health check fails</string>
+    <string name="onboarding_troubleshoot_health_1">Is the gateway process running?</string>
+    <string name="onboarding_troubleshoot_health_2">Is port 18789 open in your firewall?</string>
+    <string name="onboarding_troubleshoot_health_3">Is the gateway bound to 0.0.0.0 (not just localhost)?</string>
+    <string name="onboarding_troubleshoot_health_4">Check: openclaw gateway status</string>
+    <string name="onboarding_troubleshoot_scan_title">No gateways found in scan</string>
+    <string name="onboarding_troubleshoot_scan_1">Is your phone on the same Wi-Fi as the host?</string>
+    <string name="onboarding_troubleshoot_scan_2">Does your router allow mDNS / multicast?</string>
+    <string name="onboarding_troubleshoot_scan_3">Is client isolation disabled on the access point?</string>
+    <string name="onboarding_troubleshoot_auth_title">Auth error</string>
+    <string name="onboarding_troubleshoot_auth_1">Does the token in openclaw.json match what you entered in GhostCrab?</string>
+    <string name="onboarding_troubleshoot_auth_2">Try restarting the gateway after editing openclaw.json.</string>
 </resources>
