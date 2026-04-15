@@ -85,9 +85,11 @@ class GatewayConnectionManagerImplTest {
 
     @Test
     fun `disconnect transitions to Disconnected`() = runTest {
+        // Connect WITH token so sessionClient becomes the active client
         coEvery { probeClient.health() } returns HealthResponse("ok")
-        coEvery { probeClient.status() } returns statusOk
-        manager.connect(url, null)
+        coEvery { probeClient.status() } throws GatewayAuthException(url, 401)
+        coEvery { sessionClient.status() } returns statusOk
+        manager.connect(url, token)
 
         manager.disconnect()
 

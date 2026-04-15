@@ -37,10 +37,10 @@ This plan is designed for **stateless execution**. Each phase below is a self-co
 
 | # | Phase | Status | Started | Completed | Commit SHA | Implementer | Notes |
 |---|-------|--------|---------|-----------|------------|-------------|-------|
-| 0 | Repo Scaffold & Tooling | ⬜ Not Started | — | — | — | — | — |
-| 1 | Domain Contracts, Theme, DI | ⬜ Not Started | — | — | — | — | — |
-| 2 | Connection: Manual Entry + Auth Probe | ⬜ Not Started | — | — | — | — | — |
-| 3 | Discovery: NsdManager + Scan UI | ⬜ Not Started | — | — | — | — | — |
+| 0 | Repo Scaffold & Tooling | 🟢 Done | — | — | b5d939a | Sonnet 4.6 | — |
+| 1 | Domain Contracts, Theme, DI | 🟢 Done | — | — | b5d939a | Sonnet 4.6 | — |
+| 2 | Connection: Manual Entry + Auth Probe | 🟢 Done | — | — | 61e1ba9 | Sonnet 4.6 | — |
+| 3 | Discovery: NsdManager + Scan UI | 🟢 Done | 2026-04-15 | 2026-04-15 | — | Sonnet 4.6 | Added material-icons-extended; fixed android:Theme.Material.NoTitleBar→NoActionBar; fixed missing dp import; fixed disconnect test |
 | 4 | Dashboard, Health Polling, Security Banners | ⬜ Not Started | — | — | — | — | — |
 | 5 | **Onboarding Walkthrough (Noob Mode)** | ⬜ Not Started | — | — | — | — | — |
 | 6 | Config Editor (Forms over `openclaw.json`) | ⬜ Not Started | — | — | — | — | — |

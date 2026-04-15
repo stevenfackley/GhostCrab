@@ -51,6 +51,11 @@ class ManualEntryViewModel(
         _form.update { it.copy(url = value, urlError = null) }
     }
 
+    /** Pre-populates the URL field; called once by the screen when launched from LAN scan. */
+    fun setPrefillUrl(url: String) {
+        _form.update { it.copy(url = url, urlError = null) }
+    }
+
     fun onTokenChange(value: String) {
         _form.update { it.copy(token = value) }
     }

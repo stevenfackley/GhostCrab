@@ -33,6 +33,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -48,10 +49,16 @@ import org.koin.androidx.compose.koinViewModel
 fun ManualEntryScreen(
     onNavigateBack: () -> Unit,
     onNavigateToDashboard: () -> Unit,
+    prefillUrl: String? = null,
     viewModel: ManualEntryViewModel = koinViewModel(),
 ) {
     val form by viewModel.form.collectAsState()
     val uiState by viewModel.uiState.collectAsState()
+
+    // Pre-fill URL when navigating from LAN scan
+    LaunchedEffect(prefillUrl) {
+        if (prefillUrl != null) viewModel.setPrefillUrl(prefillUrl)
+    }
 
     // Collect one-shot navigation events
     LaunchedEffect(Unit) {

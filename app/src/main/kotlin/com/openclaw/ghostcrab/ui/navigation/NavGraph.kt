@@ -1,16 +1,20 @@
 package com.openclaw.ghostcrab.ui.navigation
 
+import android.net.Uri
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import com.openclaw.ghostcrab.ui.connection.ConnectionPickerScreen
 import com.openclaw.ghostcrab.ui.connection.ManualEntryScreen
+import com.openclaw.ghostcrab.ui.connection.ScanScreen
 
 @Composable
 fun NavGraph() {
@@ -31,8 +35,20 @@ fun NavGraph() {
                 },
             )
         }
-        composable("manual_entry") {
+
+        composable(
+            route = "manual_entry?prefillUrl={prefillUrl}",
+            arguments = listOf(
+                navArgument("prefillUrl") {
+                    nullable = true
+                    defaultValue = null
+                    type = NavType.StringType
+                }
+            ),
+        ) { backStackEntry ->
+            val prefillUrl = backStackEntry.arguments?.getString("prefillUrl")
             ManualEntryScreen(
+                prefillUrl = prefillUrl,
                 onNavigateBack = { navController.popBackStack() },
                 onNavigateToDashboard = {
                     navController.navigate("dashboard") {
@@ -41,7 +57,21 @@ fun NavGraph() {
                 },
             )
         }
-        composable("scan") { Placeholder("LAN Scan\n(Phase 3)") }
+
+        composable("scan") {
+            ScanScreen(
+                onNavigateBack = { navController.popBackStack() },
+                onNavigateToManualEntry = { url ->
+                    navController.navigate("manual_entry?prefillUrl=${Uri.encode(url)}")
+                },
+                onNavigateToDashboard = {
+                    navController.navigate("dashboard") {
+                        popUpTo("connection_picker") { inclusive = true }
+                    }
+                },
+            )
+        }
+
         composable("dashboard") { Placeholder("Dashboard\n(Phase 4)") }
         composable("onboarding") { Placeholder("Onboarding\n(Phase 5)") }
         composable("config_editor") { Placeholder("Config Editor\n(Phase 6)") }
