@@ -75,11 +75,16 @@
     <string name="onboarding_install_copy_toast">Copied. Paste this into a terminal on the host machine.</string>
     <string name="onboarding_start_title">Start the Gateway</string>
     <string name="onboarding_start_body">Run this command on the host machine:</string>
+    <string name="onboarding_start_firewall_title">Open firewall port</string>
+    <string name="onboarding_start_firewall_body">GhostCrab connects over the network. Allow port 18789 through the host machine\'s firewall:</string>
     <string name="onboarding_start_token_intro">To secure your gateway, add a token to openclaw.json:</string>
     <string name="onboarding_start_token_warning">Keep this token secret. Anyone with it can control your gateway.</string>
     <string name="onboarding_verify_title">Verify It\'s Running</string>
     <string name="onboarding_verify_body">On the host machine, open a browser and navigate to:</string>
     <string name="onboarding_verify_expected">You should see:</string>
+    <string name="onboarding_verify_phone_title">Testing from your phone?</string>
+    <string name="onboarding_verify_phone_body">Use the host machine\'s LAN IP instead of localhost:</string>
+    <string name="onboarding_verify_phone_ip_tip">Find your IP — Windows: ipconfig · macOS/Linux: ip addr</string>
     <string name="onboarding_verify_cta">It\'s running!</string>
     <string name="onboarding_find_title">Find It on Your Phone</string>
     <string name="onboarding_find_body">Make sure your phone is on the same Wi-Fi network as the host machine.</string>
@@ -101,6 +106,12 @@
     <string name="onboarding_troubleshoot_scan_1">Is your phone on the same Wi-Fi as the host?</string>
     <string name="onboarding_troubleshoot_scan_2">Does your router allow mDNS / multicast?</string>
     <string name="onboarding_troubleshoot_scan_3">Is client isolation disabled on the access point?</string>
+    <string name="onboarding_troubleshoot_firewall_title">Firewall blocking port 18789</string>
+    <string name="onboarding_troubleshoot_firewall_windows">Windows (PowerShell as Admin): New-NetFirewallRule -DisplayName "OpenClaw Gateway" -Direction Inbound -Protocol TCP -LocalPort 18789 -Action Allow -Profile Private</string>
+    <string name="onboarding_troubleshoot_firewall_macos">macOS: System Settings → Network → Firewall → Options → add openclaw, or run: sudo /usr/libexec/ApplicationFirewall/socketfilterfw --add $(which openclaw)</string>
+    <string name="onboarding_troubleshoot_firewall_linux_ufw">Linux (UFW): sudo ufw allow 18789/tcp</string>
+    <string name="onboarding_troubleshoot_firewall_linux_firewalld">Linux (firewalld): sudo firewall-cmd --permanent --add-port=18789/tcp &amp;&amp; sudo firewall-cmd --reload</string>
+    <string name="onboarding_troubleshoot_firewall_test">Test from another machine: nc -zv [host-ip] 18789</string>
     <string name="onboarding_troubleshoot_auth_title">Auth error</string>
     <string name="onboarding_troubleshoot_auth_1">Does the token in openclaw.json match what you entered in GhostCrab?</string>
     <string name="onboarding_troubleshoot_auth_2">Try restarting the gateway after editing openclaw.json.</string>

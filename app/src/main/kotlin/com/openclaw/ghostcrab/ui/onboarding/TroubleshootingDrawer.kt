@@ -62,6 +62,18 @@ public fun TroubleshootingDrawer(
             Spacer(Modifier.height(Spacing.md))
 
             TroubleshootSection(
+                title = stringResource(R.string.onboarding_troubleshoot_firewall_title),
+                items = listOf(
+                    stringResource(R.string.onboarding_troubleshoot_firewall_windows),
+                    stringResource(R.string.onboarding_troubleshoot_firewall_macos),
+                    stringResource(R.string.onboarding_troubleshoot_firewall_linux_ufw),
+                    stringResource(R.string.onboarding_troubleshoot_firewall_linux_firewalld),
+                    stringResource(R.string.onboarding_troubleshoot_firewall_test),
+                ),
+            )
+            Spacer(Modifier.height(Spacing.md))
+
+            TroubleshootSection(
                 title = stringResource(R.string.onboarding_troubleshoot_scan_title),
                 items = listOf(
                     stringResource(R.string.onboarding_troubleshoot_scan_1),

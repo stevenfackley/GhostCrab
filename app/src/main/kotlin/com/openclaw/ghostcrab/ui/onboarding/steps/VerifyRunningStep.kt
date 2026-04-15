@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -23,6 +24,8 @@ import com.openclaw.ghostcrab.ui.theme.Spacing
 @Composable
 public fun VerifyRunningStep(onNext: () -> Unit) {
     Column {
+        // ── Verify on the host machine ─────────────────────────────────────────
+
         Text(
             text = stringResource(R.string.onboarding_verify_body),
             style = MaterialTheme.typography.bodyMedium,
@@ -44,6 +47,38 @@ public fun VerifyRunningStep(onNext: () -> Unit) {
         Spacer(Modifier.height(Spacing.sm))
 
         CodeBlock(code = """{"status":"ok"}""")
+
+        Spacer(Modifier.height(Spacing.md))
+        HorizontalDivider(color = BrandTokens.colorOutline)
+        Spacer(Modifier.height(Spacing.md))
+
+        // ── Testing from phone ─────────────────────────────────────────────────
+
+        Text(
+            text = stringResource(R.string.onboarding_verify_phone_title),
+            style = MaterialTheme.typography.titleSmall,
+            color = BrandTokens.colorTextPrimary,
+        )
+
+        Spacer(Modifier.height(Spacing.xs))
+
+        Text(
+            text = stringResource(R.string.onboarding_verify_phone_body),
+            style = MaterialTheme.typography.bodySmall,
+            color = BrandTokens.colorTextSecondary,
+        )
+
+        Spacer(Modifier.height(Spacing.sm))
+
+        CodeBlock(code = "http://[your-machine-ip]:18789/health")
+
+        Spacer(Modifier.height(Spacing.sm))
+
+        Text(
+            text = stringResource(R.string.onboarding_verify_phone_ip_tip),
+            style = MaterialTheme.typography.bodySmall,
+            color = BrandTokens.colorTextSecondary,
+        )
 
         Spacer(Modifier.height(Spacing.xl))
 

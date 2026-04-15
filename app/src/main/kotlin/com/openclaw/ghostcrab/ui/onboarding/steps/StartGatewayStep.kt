@@ -13,9 +13,12 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ScrollableTabRow
+import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -28,16 +31,28 @@ import com.openclaw.ghostcrab.ui.onboarding.OnboardingViewModel
 import com.openclaw.ghostcrab.ui.theme.BrandTokens
 import com.openclaw.ghostcrab.ui.theme.Spacing
 
+private val FIREWALL_TABS = listOf("Windows", "macOS", "Linux (UFW)", "Linux (firewalld)")
+
+private val FIREWALL_COMMANDS = listOf(
+    """New-NetFirewallRule -DisplayName "OpenClaw Gateway" -Direction Inbound -Protocol TCP -LocalPort 18789 -Action Allow -Profile Private""",
+    "sudo /usr/libexec/ApplicationFirewall/socketfilterfw --add \$(which openclaw)",
+    "sudo ufw allow 18789/tcp",
+    "sudo firewall-cmd --permanent --add-port=18789/tcp && sudo firewall-cmd --reload",
+)
+
 /**
- * Onboarding step that shows the gateway start command and token setup.
+ * Onboarding step that shows the gateway start command, firewall setup, and token configuration.
  *
  * @param onNext Called when the user taps "Next".
  */
 @Composable
 public fun StartGatewayStep(onNext: () -> Unit) {
     var token by rememberSaveable { mutableStateOf(OnboardingViewModel.generateToken()) }
+    var firewallTab by rememberSaveable { mutableIntStateOf(0) }
 
     Column {
+        // ── Start command ──────────────────────────────────────────────────────
+
         Text(
             text = stringResource(R.string.onboarding_start_body),
             style = MaterialTheme.typography.bodyMedium,
@@ -49,10 +64,57 @@ public fun StartGatewayStep(onNext: () -> Unit) {
         CodeBlock(code = "openclaw gateway start --port 18789")
 
         Spacer(Modifier.height(Spacing.md))
-
         HorizontalDivider(color = BrandTokens.colorOutline)
+        Spacer(Modifier.height(Spacing.md))
+
+        // ── Firewall ───────────────────────────────────────────────────────────
+
+        Text(
+            text = stringResource(R.string.onboarding_start_firewall_title),
+            style = MaterialTheme.typography.titleSmall,
+            color = BrandTokens.colorTextPrimary,
+        )
+
+        Spacer(Modifier.height(Spacing.xs))
+
+        Text(
+            text = stringResource(R.string.onboarding_start_firewall_body),
+            style = MaterialTheme.typography.bodySmall,
+            color = BrandTokens.colorTextSecondary,
+        )
+
+        Spacer(Modifier.height(Spacing.sm))
+
+        ScrollableTabRow(
+            selectedTabIndex = firewallTab,
+            containerColor = BrandTokens.colorAbyss,
+            contentColor = BrandTokens.colorCyanPrimary,
+            edgePadding = Spacing.xs,
+        ) {
+            FIREWALL_TABS.forEachIndexed { index, label ->
+                Tab(
+                    selected = firewallTab == index,
+                    onClick = { firewallTab = index },
+                    text = {
+                        Text(
+                            text = label,
+                            color = if (firewallTab == index) BrandTokens.colorCyanPrimary
+                            else BrandTokens.colorTextSecondary,
+                        )
+                    },
+                )
+            }
+        }
+
+        Spacer(Modifier.height(Spacing.sm))
+
+        CodeBlock(code = FIREWALL_COMMANDS[firewallTab])
 
         Spacer(Modifier.height(Spacing.md))
+        HorizontalDivider(color = BrandTokens.colorOutline)
+        Spacer(Modifier.height(Spacing.md))
+
+        // ── Token setup ────────────────────────────────────────────────────────
 
         Text(
             text = stringResource(R.string.onboarding_start_token_intro),
