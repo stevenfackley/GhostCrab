@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.GhostCrab" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">#0F1115</item>
+        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
+        <item name="postSplashScreenTheme">@style/Theme.GhostCrab.Main</item>
+    </style>
+    <style name="Theme.GhostCrab.Main" parent="android:Theme.Material.NoTitleBar" />
+</resources>
