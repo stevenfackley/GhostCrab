@@ -47,6 +47,11 @@ android {
     testOptions {
         unitTests.all {
             it.useJUnitPlatform()
+            // Use a unique binary results path per invocation to avoid Windows file-lock issues.
+            // The old directories accumulate in TEMP but are small; clean them manually as needed.
+            it.binaryResultsDirectory.set(
+                file("${System.getProperty("java.io.tmpdir")}/ghostcrab-test-results-${System.nanoTime()}")
+            )
         }
     }
 }

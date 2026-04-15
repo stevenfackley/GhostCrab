@@ -1,5 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- WARNING: cleartext HTTP permitted for LAN gateways. Phase 4 adds UI banners for HTTP sessions. -->
+<!--
+    Cleartext HTTP is permitted only for local-network gateway connections.
+    Android NSC does not support CIDR notation for RFC-1918 IP ranges, so a full
+    IP-range restriction is enforced at the OkHttp layer instead (Phase 9 Settings
+    toggle). Until then, the UI surface HTTP and no-auth banners for the user.
+-->
 <network-security-config>
+    <!-- Loopback: development / emulator testing -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">localhost</domain>
+    </domain-config>
+    <!--
+        Private-IP gateways (192.168.x.x, 10.x.x.x, 172.16-31.x.x) cannot be listed
+        exhaustively here. Phase 9 will add a runtime OkHttp interceptor that rejects
+        cleartext traffic destined for public IP ranges.
+    -->
     <base-config cleartextTrafficPermitted="true" />
 </network-security-config>

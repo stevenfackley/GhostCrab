@@ -15,6 +15,7 @@ import androidx.navigation.navArgument
 import com.openclaw.ghostcrab.ui.connection.ConnectionPickerScreen
 import com.openclaw.ghostcrab.ui.connection.ManualEntryScreen
 import com.openclaw.ghostcrab.ui.connection.ScanScreen
+import com.openclaw.ghostcrab.ui.dashboard.DashboardScreen
 
 @Composable
 fun NavGraph() {
@@ -72,7 +73,18 @@ fun NavGraph() {
             )
         }
 
-        composable("dashboard") { Placeholder("Dashboard\n(Phase 4)") }
+        composable("dashboard") {
+            DashboardScreen(
+                onNavigateBack = {
+                    navController.navigate("connection_picker") {
+                        popUpTo("connection_picker") { inclusive = true }
+                    }
+                },
+                onNavigateToConfig = { navController.navigate("config_editor") },
+                onNavigateToModels = { navController.navigate("model_manager") },
+                onNavigateToAiRecommend = { navController.navigate("ai_recommendation") },
+            )
+        }
         composable("onboarding") { Placeholder("Onboarding\n(Phase 5)") }
         composable("config_editor") { Placeholder("Config Editor\n(Phase 6)") }
         composable("model_manager") { Placeholder("Model Manager\n(Phase 7)") }

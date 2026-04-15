@@ -1,4 +1,31 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">GhostCrab</string>
+
+    <!-- Dashboard -->
+    <string name="dashboard_title">Dashboard</string>
+    <string name="dashboard_disconnect">Disconnect</string>
+    <string name="dashboard_action_configure">Configure</string>
+    <string name="dashboard_action_models">Models</string>
+    <string name="dashboard_action_ai_recommend">AI Recommend</string>
+
+    <string name="dashboard_health_card_title">Gateway Health</string>
+    <string name="dashboard_health_never_checked">Not yet checked</string>
+    <string name="dashboard_health_last_ok">Last OK: %1$s ago</string>
+    <string name="dashboard_health_error">Error: %1$s</string>
+
+    <string name="dashboard_models_card_title">Models</string>
+    <string name="dashboard_models_count">%1$d model(s)</string>
+    <string name="dashboard_models_none">No models configured</string>
+    <string name="dashboard_models_active">Active: %1$s</string>
+
+    <string name="dashboard_version_pill">v%1$s</string>
+
+    <string name="dashboard_degraded_title">Gateway Unreachable</string>
+    <string name="dashboard_degraded_body">Health checks have failed twice in a row.\n\n%1$s</string>
+    <string name="dashboard_degraded_disconnect">Disconnect</string>
+
+    <!-- Security banners -->
+    <string name="banner_http_message">Connection is unencrypted (HTTP). Anyone on this network can read configuration data.</string>
+    <string name="banner_no_auth_message">This gateway accepts unauthenticated requests. Ensure it is not publicly reachable.</string>
 </resources>
