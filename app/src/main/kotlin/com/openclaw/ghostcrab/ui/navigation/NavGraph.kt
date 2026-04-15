@@ -17,6 +17,7 @@ import com.openclaw.ghostcrab.ui.connection.ConnectionPickerScreen
 import com.openclaw.ghostcrab.ui.connection.ManualEntryScreen
 import com.openclaw.ghostcrab.ui.connection.ScanScreen
 import com.openclaw.ghostcrab.ui.dashboard.DashboardScreen
+import com.openclaw.ghostcrab.ui.model.ModelManagerScreen
 import com.openclaw.ghostcrab.ui.onboarding.OnboardingScreen
 
 @Composable
@@ -147,7 +148,9 @@ fun NavGraph() {
                 onNavigateBack = { navController.popBackStack() },
             )
         }
-        composable("model_manager") { Placeholder("Model Manager\n(Phase 7)") }
+        composable("model_manager") {
+            ModelManagerScreen(onNavigateBack = { navController.popBackStack() })
+        }
         composable("ai_recommendation") { Placeholder("AI Recommendations\n(Phase 8)") }
         composable("settings") { Placeholder("Settings\n(Phase 9)") }
     }

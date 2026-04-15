@@ -6,6 +6,7 @@ import com.openclaw.ghostcrab.ui.connection.ConnectionPickerViewModel
 import com.openclaw.ghostcrab.ui.connection.ManualEntryViewModel
 import com.openclaw.ghostcrab.ui.connection.ScanViewModel
 import com.openclaw.ghostcrab.ui.dashboard.DashboardViewModel
+import com.openclaw.ghostcrab.ui.model.ModelManagerViewModel
 import com.openclaw.ghostcrab.ui.onboarding.OnboardingViewModel
 import org.koin.androidx.viewmodel.dsl.viewModel
 import org.koin.dsl.module
@@ -23,7 +24,7 @@ val uiModule = module {
     }
     viewModel { OnboardingViewModel(get()) }
     viewModel { ConfigEditorViewModel(get(), get()) }
-    // Phase 7: ModelManagerViewModel
+    viewModel { ModelManagerViewModel(get(), get()) }
     // Phase 8: AIRecommendationViewModel
     // Phase 9: SettingsViewModel
 }

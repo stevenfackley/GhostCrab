@@ -1,6 +1,7 @@
 package com.openclaw.ghostcrab.data.api
 
 import com.openclaw.ghostcrab.data.api.dto.HealthResponse
+import com.openclaw.ghostcrab.data.api.dto.ModelDto
 import com.openclaw.ghostcrab.data.api.dto.StatusResponse
 import com.openclaw.ghostcrab.domain.exception.ConfigValidationException
 import com.openclaw.ghostcrab.domain.exception.GatewayApiException
@@ -23,6 +24,7 @@ import io.ktor.client.plugins.logging.Logging
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.patch
+import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
@@ -138,6 +140,43 @@ class OpenClawApiClient private constructor(
                 else -> response.mapErrors(url)
             }
         }
+
+    /**
+     * GET `/api/models/status` — returns all models known to the gateway.
+     *
+     * @return List of [ModelDto] (may be empty if no providers configured).
+     * @throws GatewayAuthException if the endpoint requires authentication.
+     * @throws GatewayApiException on unexpected HTTP errors.
+     * @throws GatewayUnreachableException if the host cannot be reached.
+     * @throws GatewayTimeoutException if the request times out.
+     */
+    suspend fun getModels(): List<ModelDto> = safeRequest(baseUrl) {
+        val url = "$baseUrl/api/models/status"
+        val response = httpClient.get(url)
+        response.mapErrors(url)
+        response.body()
+    }
+
+    /**
+     * POST `/api/models/active` — sets the active model on the gateway.
+     *
+     * @param modelId The `id` of the model to make active.
+     * @throws GatewayAuthException if the endpoint requires authentication.
+     * @throws GatewayApiException on unexpected HTTP errors (e.g. model not found — 404).
+     * @throws GatewayUnreachableException if the host cannot be reached.
+     * @throws GatewayTimeoutException if the request times out.
+     */
+    suspend fun setActiveModel(modelId: String): Unit = safeRequest(baseUrl) {
+        val url = "$baseUrl/api/models/active"
+        val response = httpClient.post(url) {
+            contentType(ContentType.Application.Json)
+            setBody("""{"id":"$modelId"}""")
+        }
+        when (response.status) {
+            HttpStatusCode.OK, HttpStatusCode.NoContent -> Unit
+            else -> response.mapErrors(url)
+        }
+    }
 
     /** Releases underlying HTTP connections. Call on disconnect. */
     fun close() {

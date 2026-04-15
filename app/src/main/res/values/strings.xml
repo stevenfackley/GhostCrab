@@ -41,6 +41,23 @@
     <string name="dashboard_degraded_body">Health checks have failed twice in a row.\n\n%1$s</string>
     <string name="dashboard_degraded_disconnect">Disconnect</string>
 
+    <!-- Model Manager -->
+    <string name="model_manager_title">Models</string>
+    <string name="model_manager_back_cd">Back</string>
+    <string name="model_manager_retry">Retry</string>
+    <string name="model_manager_empty">No models configured on this gateway.</string>
+    <string name="model_status_active">ACTIVE</string>
+    <string name="model_set_active">Set Active</string>
+    <string name="model_swap_dialog_title">Switch active model?</string>
+    <string name="model_swap_dialog_body">This will affect all sessions on this gateway.</string>
+    <string name="model_swap_dialog_confirm">Switch</string>
+    <string name="model_swap_dialog_cancel">Cancel</string>
+    <string name="model_swap_success">Active model updated</string>
+    <string name="model_detail_provider">Provider</string>
+    <string name="model_detail_status">Status</string>
+    <string name="model_detail_capabilities">Capabilities</string>
+    <string name="model_detail_no_capabilities">None</string>
+
     <!-- Security banners -->
     <string name="banner_http_message">Connection is unencrypted (HTTP). Anyone on this network can read configuration data.</string>
     <string name="banner_no_auth_message">This gateway accepts unauthenticated requests. Ensure it is not publicly reachable.</string>
