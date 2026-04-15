@@ -42,8 +42,8 @@ This plan is designed for **stateless execution**. Each phase below is a self-co
 | 2 | Connection: Manual Entry + Auth Probe | 🟢 Done | — | — | 61e1ba9 | Sonnet 4.6 | — |
 | 3 | Discovery: NsdManager + Scan UI | 🟢 Done | 2026-04-15 | 2026-04-15 | — | Sonnet 4.6 | Added material-icons-extended; fixed android:Theme.Material.NoTitleBar→NoActionBar; fixed missing dp import; fixed disconnect test |
 | 4 | Dashboard, Health Polling, Security Banners | 🟢 Done | 2026-04-15 | 2026-04-15 | fd40cae | Sonnet 4.6 | ModelRepositoryStub; DomainModule fix (DiscoveryService clash removed); binary results dir workaround for Windows IDE lock; NSC cleartext deferred to Phase 9 (CIDR not supported in NSC) |
-| 5 | **Onboarding Walkthrough (Noob Mode)** | ⬜ Not Started | — | — | — | — | — |
-| 6 | Config Editor (Forms over `openclaw.json`) | ⬜ Not Started | — | — | — | — | — |
+| 5 | **Onboarding Walkthrough (Noob Mode)** | 🟢 Done | 2026-04-15 | 2026-04-15 | 06d5a59 | Sonnet 4.6 | OnboardingStep sealed interface; DataStore-backed repo; 7 step composables; CodeBlock + clipboard; TroubleshootingDrawer ModalBottomSheet; first-launch detection in ConnectionPickerViewModel; onboarding=true param threading through nav |
+| 6 | Config Editor (Forms over `openclaw.json`) | 🟢 Done | 2026-04-15 | 2026-04-15 | — | Sonnet 4.6 | GatewaySection typed wrappers; ETag-aware ConfigRepositoryImpl; getConfig/updateConfig on ApiClient (GET /config, PATCH /config/{section}); ToggleRow/IntFieldRow/StringFieldRow/EnumDropdownRow form components; PendingChangesDiffSheet; 9 VM tests |
 | 7 | Model Manager | ⬜ Not Started | — | — | — | — | — |
 | 8 | AI Recommendations (Gateway-Proxied CLI) | ⬜ Not Started | — | — | — | — | — |
 | 9 | Settings, Profile Management, About | ⬜ Not Started | — | — | — | — | — |

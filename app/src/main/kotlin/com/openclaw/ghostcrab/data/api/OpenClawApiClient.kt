@@ -2,6 +2,7 @@ package com.openclaw.ghostcrab.data.api
 
 import com.openclaw.ghostcrab.data.api.dto.HealthResponse
 import com.openclaw.ghostcrab.data.api.dto.StatusResponse
+import com.openclaw.ghostcrab.domain.exception.ConfigValidationException
 import com.openclaw.ghostcrab.domain.exception.GatewayApiException
 import com.openclaw.ghostcrab.domain.exception.GatewayAuthException
 import com.openclaw.ghostcrab.domain.exception.GatewayTimeoutException
@@ -20,10 +21,20 @@ import io.ktor.client.plugins.logging.LogLevel
 import io.ktor.client.plugins.logging.Logger
 import io.ktor.client.plugins.logging.Logging
 import io.ktor.client.request.get
+import io.ktor.client.request.header
+import io.ktor.client.request.patch
+import io.ktor.client.request.setBody
+import io.ktor.client.statement.bodyAsText
+import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.contentType
 import io.ktor.http.isSuccess
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import java.net.ConnectException
 import java.net.UnknownHostException
 import javax.net.ssl.SSLException
@@ -74,6 +85,59 @@ class OpenClawApiClient private constructor(
             response.body()
         }
     }
+
+    /**
+     * GET `/config` — fetches the full `openclaw.json` configuration.
+     *
+     * @return Pair of section map and optional ETag header value.
+     * @throws GatewayApiException on unexpected HTTP errors.
+     */
+    suspend fun getConfig(): Pair<Map<String, JsonElement>, String?> = safeRequest(baseUrl) {
+        val response = httpClient.get("$baseUrl/config")
+        response.mapErrors(baseUrl)
+        val etag = response.headers["ETag"]
+        val body: JsonObject = response.body()
+        body to etag
+    }
+
+    /**
+     * PATCH `/config/{section}` — applies a JSON merge-patch to a single config section.
+     *
+     * @param section Top-level section key (e.g. `"gateway"`).
+     * @param value JSON merge-patch value.
+     * @param etag Optional ETag for optimistic concurrency — sent as `If-Match` header when non-null.
+     * @throws GatewayApiException with `statusCode = 412` on concurrent-edit conflict.
+     * @throws ConfigValidationException if the gateway reports a validation failure (422).
+     * @throws GatewayApiException on other unexpected HTTP errors.
+     */
+    suspend fun updateConfig(section: String, value: JsonElement, etag: String?) =
+        safeRequest(baseUrl) {
+            val url = "$baseUrl/config/$section"
+            val response = httpClient.patch(url) {
+                contentType(ContentType("application", "merge-patch+json"))
+                if (etag != null) header("If-Match", etag)
+                setBody(value.toString())
+            }
+            when (response.status) {
+                HttpStatusCode.OK, HttpStatusCode.NoContent -> Unit
+                HttpStatusCode.PreconditionFailed ->
+                    throw GatewayApiException(url, 412)
+                HttpStatusCode.UnprocessableEntity -> {
+                    val bodyText = response.bodyAsText()
+                    val parsed = runCatching {
+                        Json.parseToJsonElement(bodyText).jsonObject
+                    }.getOrNull()
+                    val field = parsed?.get("field")?.jsonPrimitive?.content
+                    val reason = parsed?.get("reason")?.jsonPrimitive?.content
+                    if (field != null && reason != null) {
+                        throw ConfigValidationException(field, reason)
+                    } else {
+                        throw GatewayApiException(url, 422, bodyText)
+                    }
+                }
+                else -> response.mapErrors(url)
+            }
+        }
 
     /** Releases underlying HTTP connections. Call on disconnect. */
     fun close() {

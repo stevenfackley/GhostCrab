@@ -12,6 +12,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.openclaw.ghostcrab.ui.config.ConfigEditorScreen
 import com.openclaw.ghostcrab.ui.connection.ConnectionPickerScreen
 import com.openclaw.ghostcrab.ui.connection.ManualEntryScreen
 import com.openclaw.ghostcrab.ui.connection.ScanScreen
@@ -141,7 +142,11 @@ fun NavGraph() {
             )
         }
 
-        composable("config_editor") { Placeholder("Config Editor\n(Phase 6)") }
+        composable("config_editor") {
+            ConfigEditorScreen(
+                onNavigateBack = { navController.popBackStack() },
+            )
+        }
         composable("model_manager") { Placeholder("Model Manager\n(Phase 7)") }
         composable("ai_recommendation") { Placeholder("AI Recommendations\n(Phase 8)") }
         composable("settings") { Placeholder("Settings\n(Phase 9)") }

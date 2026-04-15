@@ -2,6 +2,22 @@
 <resources>
     <string name="app_name">GhostCrab</string>
 
+    <!-- Config Editor -->
+    <string name="config_editor_title">Configure Gateway</string>
+    <string name="config_editor_save">Save</string>
+    <string name="config_editor_discard">Discard</string>
+    <string name="config_editor_retry">Retry</string>
+    <string name="config_editor_saved_snackbar">Configuration saved</string>
+    <string name="config_editor_not_connected">Not connected to a gateway.</string>
+    <string name="config_editor_section_modified">Modified</string>
+    <string name="config_editor_diff_title">Review changes: %1$s</string>
+    <string name="config_editor_diff_before">Before</string>
+    <string name="config_editor_diff_after">After</string>
+    <string name="config_editor_concurrent_title">Configuration Changed</string>
+    <string name="config_editor_concurrent_body">Server values changed since you opened section \"%1$s\". The latest values have been loaded.</string>
+    <string name="config_editor_concurrent_reload">Reload</string>
+    <string name="config_editor_concurrent_dismiss">Dismiss</string>
+
     <!-- Dashboard -->
     <string name="dashboard_title">Dashboard</string>
     <string name="dashboard_disconnect">Disconnect</string>

@@ -1,6 +1,7 @@
 package com.openclaw.ghostcrab.di
 
 import com.openclaw.ghostcrab.data.api.OpenClawApiClient
+import com.openclaw.ghostcrab.ui.config.ConfigEditorViewModel
 import com.openclaw.ghostcrab.ui.connection.ConnectionPickerViewModel
 import com.openclaw.ghostcrab.ui.connection.ManualEntryViewModel
 import com.openclaw.ghostcrab.ui.connection.ScanViewModel
@@ -21,7 +22,7 @@ val uiModule = module {
         )
     }
     viewModel { OnboardingViewModel(get()) }
-    // Phase 6: ConfigEditorViewModel
+    viewModel { ConfigEditorViewModel(get(), get()) }
     // Phase 7: ModelManagerViewModel
     // Phase 8: AIRecommendationViewModel
     // Phase 9: SettingsViewModel
