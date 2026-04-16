@@ -19,7 +19,10 @@ val uiModule = module {
         DashboardViewModel(
             connectionManager = get(),
             modelRepository = get(),
-            healthChecker = { url -> OpenClawApiClient.unauthenticated(url).health() },
+            healthChecker = { url ->
+            val client = OpenClawApiClient.unauthenticated(url)
+            try { client.health() } finally { client.close() }
+        },
         )
     }
     viewModel { OnboardingViewModel(get()) }

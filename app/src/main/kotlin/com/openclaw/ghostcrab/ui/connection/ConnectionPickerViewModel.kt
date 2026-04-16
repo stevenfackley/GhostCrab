@@ -6,11 +6,10 @@ import com.openclaw.ghostcrab.domain.model.ConnectionProfile
 import com.openclaw.ghostcrab.domain.repository.ConnectionProfileRepository
 import com.openclaw.ghostcrab.domain.repository.GatewayConnectionManager
 import com.openclaw.ghostcrab.domain.repository.OnboardingRepository
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -35,10 +34,13 @@ public class ConnectionPickerViewModel(
         .getProfiles()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    private val _navigateToOnboarding = MutableSharedFlow<Unit>(replay = 0)
+    private val _showOnboarding = MutableStateFlow(false)
 
-    /** Emits once when a first-launch condition is detected (no profiles + onboarding incomplete). */
-    public val navigateToOnboarding: SharedFlow<Unit> = _navigateToOnboarding.asSharedFlow()
+    /**
+     * True when the first-launch condition is met (no profiles + onboarding incomplete).
+     * Callers must invoke [onOnboardingNavigated] after consuming the event to reset the flag.
+     */
+    public val showOnboarding: StateFlow<Boolean> = _showOnboarding.asStateFlow()
 
     init {
         viewModelScope.launch {
@@ -47,10 +49,15 @@ public class ConnectionPickerViewModel(
                 // Wait for the first real emission from the profiles StateFlow.
                 profiles.first()
                 if (profiles.value.isEmpty()) {
-                    _navigateToOnboarding.emit(Unit)
+                    _showOnboarding.value = true
                 }
             }
         }
+    }
+
+    /** Call after navigating to onboarding so the flag does not re-trigger on recomposition. */
+    public fun onOnboardingNavigated() {
+        _showOnboarding.value = false
     }
 
     /** Deletes the saved profile with [profileId]. */

@@ -1,0 +1,129 @@
+<?xml version="1.0" ?>
+<SmellBaseline>
+  <ManuallySuppressedIssues></ManuallySuppressedIssues>
+  <CurrentIssues>
+    <ID>CyclomaticComplexMethod:OnboardingViewModel.kt$OnboardingViewModel$private suspend fun advance(forward: Boolean)</ID>
+    <ID>EmptyFunctionBlock:NsdDiscoveryServiceImpl.kt$NsdDiscoveryServiceImpl.&lt;no name provided&gt;${}</ID>
+    <ID>EmptyFunctionBlock:ScanViewModelTest.kt$FakeConnectionManager${}</ID>
+    <ID>EmptyFunctionBlock:ScanViewModelTest.kt$FakeDiscoveryService${}</ID>
+    <ID>EmptyFunctionBlock:ScanViewModelTest.kt$FakeProfileRepository${}</ID>
+    <ID>EnumNaming:GatewayAuthSection.kt$AuthMode$bearer</ID>
+    <ID>EnumNaming:GatewayAuthSection.kt$AuthMode$none</ID>
+    <ID>FunctionNaming:CodeBlock.kt$@Composable public fun CodeBlock( code: String, modifier: Modifier = Modifier, onCopied: () -&gt; Unit = {}, )</ID>
+    <ID>FunctionNaming:ConfigEditorScreen.kt$@Composable private fun ReadyContent( state: ConfigEditorUiState.Ready, viewModel: ConfigEditorViewModel, modifier: Modifier = Modifier, )</ID>
+    <ID>FunctionNaming:ConfigEditorScreen.kt$@Composable private fun SectionCard( sectionKey: String, sectionValue: kotlinx.serialization.json.JsonElement, originalValue: kotlinx.serialization.json.JsonElement, isExpanded: Boolean, hasPending: Boolean, fieldErrors: Map&lt;String, String&gt;, onToggleExpand: () -&gt; Unit, onEdit: (kotlinx.serialization.json.JsonElement) -&gt; Unit, onFieldError: (String, String?) -&gt; Unit, onSave: () -&gt; Unit, onDiscard: () -&gt; Unit, )</ID>
+    <ID>FunctionNaming:ConfigEditorScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun ConfigEditorScreen( onNavigateBack: () -&gt; Unit, )</ID>
+    <ID>FunctionNaming:ConnectedStep.kt$@Composable public fun ConnectedStep(onDone: () -&gt; Unit)</ID>
+    <ID>FunctionNaming:ConnectionPickerScreen.kt$@Composable private fun EmptyState( modifier: Modifier, onScanLan: () -&gt; Unit, onManualEntry: () -&gt; Unit, )</ID>
+    <ID>FunctionNaming:ConnectionPickerScreen.kt$@Composable private fun ProfileCard( profile: ConnectionProfile, isConnecting: Boolean, onConnect: () -&gt; Unit, onDelete: () -&gt; Unit, )</ID>
+    <ID>FunctionNaming:ConnectionPickerScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun ConnectionPickerScreen( onNavigateToManualEntry: () -&gt; Unit, onNavigateToScan: () -&gt; Unit, onNavigateToDashboard: () -&gt; Unit, onNavigateToOnboarding: () -&gt; Unit = {}, viewModel: ConnectionPickerViewModel = koinViewModel(), )</ID>
+    <ID>FunctionNaming:ConnectionStatusBar.kt$@Composable fun ConnectionStatusBar( state: GatewayConnection, modifier: Modifier = Modifier, )</ID>
+    <ID>FunctionNaming:ConnectionStatusBar.kt$@Composable private fun AuthBadge(authRequirement: AuthRequirement)</ID>
+    <ID>FunctionNaming:ConnectionStatusBar.kt$@Composable private fun MonoText(text: String)</ID>
+    <ID>FunctionNaming:ConnectionStatusBar.kt$@Composable private fun Pill(label: String, color: Color)</ID>
+    <ID>FunctionNaming:ConnectionStatusBar.kt$@Composable private fun ProtocolBadge(isHttps: Boolean)</ID>
+    <ID>FunctionNaming:ConnectionStatusBar.kt$@Composable private fun StatusDot(color: Color)</ID>
+    <ID>FunctionNaming:ConnectionStatusBar.kt$@Composable private fun StatusRow(modifier: Modifier = Modifier, content: @Composable () -&gt; Unit)</ID>
+    <ID>FunctionNaming:DashboardScreen.kt$@Composable private fun CapabilityChip(capability: String)</ID>
+    <ID>FunctionNaming:DashboardScreen.kt$@Composable private fun DegradedContent( reason: String, onDisconnect: () -&gt; Unit, modifier: Modifier = Modifier, )</ID>
+    <ID>FunctionNaming:DashboardScreen.kt$@Composable private fun HealthCard(health: HealthSnapshot)</ID>
+    <ID>FunctionNaming:DashboardScreen.kt$@Composable private fun LoadingContent(modifier: Modifier = Modifier)</ID>
+    <ID>FunctionNaming:DashboardScreen.kt$@Composable private fun ModelSummaryCard(models: List&lt;ModelInfo&gt;)</ID>
+    <ID>FunctionNaming:DashboardScreen.kt$@Composable private fun QuickActionsRow( onNavigateToConfig: () -&gt; Unit, onNavigateToModels: () -&gt; Unit, onNavigateToAiRecommend: () -&gt; Unit, onDisconnect: () -&gt; Unit, )</ID>
+    <ID>FunctionNaming:DashboardScreen.kt$@Composable private fun ReadyContent( state: DashboardUiState.Ready, onNavigateToConfig: () -&gt; Unit, onNavigateToModels: () -&gt; Unit, onNavigateToAiRecommend: () -&gt; Unit, onDisconnect: () -&gt; Unit, modifier: Modifier = Modifier, )</ID>
+    <ID>FunctionNaming:DashboardScreen.kt$@Composable private fun VersionPill(version: String)</ID>
+    <ID>FunctionNaming:DashboardScreen.kt$@OptIn(ExperimentalLayoutApi::class) @Composable private fun GatewayHeaderCard(conn: GatewayConnection.Connected)</ID>
+    <ID>FunctionNaming:DashboardScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun DashboardScreen( onNavigateBack: () -&gt; Unit, onNavigateToConfig: () -&gt; Unit, onNavigateToModels: () -&gt; Unit, onNavigateToAiRecommend: () -&gt; Unit, viewModel: DashboardViewModel = koinViewModel(), )</ID>
+    <ID>FunctionNaming:EnumDropdownRow.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun &lt;T : Enum&lt;T&gt;&gt; EnumDropdownRow( label: String, selected: T, options: List&lt;T&gt;, onSelected: (T) -&gt; Unit, labelFor: (T) -&gt; String = { it.name }, modifier: Modifier = Modifier, )</ID>
+    <ID>FunctionNaming:FindOnNetworkStep.kt$@Composable public fun FindOnNetworkStep( onScan: () -&gt; Unit, onManualEntry: () -&gt; Unit, )</ID>
+    <ID>FunctionNaming:GatewaySectionEditor.kt$@Composable fun GatewaySectionEditor( sectionValue: JsonElement, fieldErrors: Map&lt;String, String&gt;, onEdit: (JsonElement) -&gt; Unit, onFieldError: (field: String, error: String?) -&gt; Unit, )</ID>
+    <ID>FunctionNaming:GhostCrabTheme.kt$@Composable fun GhostCrabTheme(content: @Composable () -&gt; Unit)</ID>
+    <ID>FunctionNaming:GlassSurface.kt$@Composable fun GlassSurface( modifier: Modifier = Modifier, contentPadding: Dp = Spacing.md, content: @Composable BoxScope.() -&gt; Unit, )</ID>
+    <ID>FunctionNaming:InstallGatewayStep.kt$@Composable public fun InstallGatewayStep( snackbarHostState: SnackbarHostState, onNext: () -&gt; Unit, )</ID>
+    <ID>FunctionNaming:IntFieldRow.kt$@Composable fun IntFieldRow( label: String, value: Int, onValueChange: (Int) -&gt; Unit, onError: (String?) -&gt; Unit, min: Int = Int.MIN_VALUE, max: Int = Int.MAX_VALUE, modifier: Modifier = Modifier, )</ID>
+    <ID>FunctionNaming:ManualEntryScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun ManualEntryScreen( onNavigateBack: () -&gt; Unit, onNavigateToDashboard: () -&gt; Unit, prefillUrl: String? = null, viewModel: ManualEntryViewModel = koinViewModel(), )</ID>
+    <ID>FunctionNaming:ModelDetailSheet.kt$@Composable private fun DetailRow( label: String, value: String, mono: Boolean = false, )</ID>
+    <ID>FunctionNaming:ModelDetailSheet.kt$@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class) @Composable public fun ModelDetailSheet( model: ModelInfo, onSetActive: () -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
+    <ID>FunctionNaming:ModelManagerScreen.kt$@Composable private fun StatusPill(model: ModelInfo)</ID>
+    <ID>FunctionNaming:ModelManagerScreen.kt$@OptIn(ExperimentalLayoutApi::class) @Composable private fun ModelCard( model: ModelInfo, isSwapping: Boolean, onClick: () -&gt; Unit, onSetActive: () -&gt; Unit, )</ID>
+    <ID>FunctionNaming:ModelManagerScreen.kt$@OptIn(ExperimentalLayoutApi::class) @Composable private fun ReadyContent( state: ModelManagerUiState.Ready, onRetry: () -&gt; Unit, onRequestSwap: (String) -&gt; Unit, onCancelSwap: () -&gt; Unit, onConfirmSwap: (String) -&gt; Unit, )</ID>
+    <ID>FunctionNaming:ModelManagerScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable public fun ModelManagerScreen(onNavigateBack: () -&gt; Unit)</ID>
+    <ID>FunctionNaming:NavGraph.kt$@Composable fun NavGraph()</ID>
+    <ID>FunctionNaming:NavGraph.kt$@Composable private fun Placeholder(label: String)</ID>
+    <ID>FunctionNaming:OnboardingScaffold.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable public fun OnboardingScaffold( step: OnboardingStep, onBack: (() -&gt; Unit)?, onSkip: () -&gt; Unit, title: String, content: @Composable ColumnScope.() -&gt; Unit, )</ID>
+    <ID>FunctionNaming:OnboardingScreen.kt$@Composable public fun OnboardingScreen( onSkip: () -&gt; Unit, onScan: () -&gt; Unit, onManualEntry: () -&gt; Unit, onDone: () -&gt; Unit, viewModel: OnboardingViewModel = koinViewModel(), )</ID>
+    <ID>FunctionNaming:PendingChangesDiffSheet.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun PendingChangesDiffSheet( sectionKey: String, oldValue: JsonElement, newValue: JsonElement, onConfirm: () -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
+    <ID>FunctionNaming:RawJsonSectionEditor.kt$@Composable fun RawJsonSectionEditor( sectionKey: String, sectionValue: JsonElement, onEdit: (JsonElement) -&gt; Unit, )</ID>
+    <ID>FunctionNaming:ScanScreen.kt$@Composable private fun EmptyResultsContent(modifier: Modifier = Modifier)</ID>
+    <ID>FunctionNaming:ScanScreen.kt$@Composable private fun ErrorContent( reason: String, onRetry: () -&gt; Unit, )</ID>
+    <ID>FunctionNaming:ScanScreen.kt$@Composable private fun GatewayCard( gateway: DiscoveredGateway, onClick: () -&gt; Unit, )</ID>
+    <ID>FunctionNaming:ScanScreen.kt$@Composable private fun ResultsContent( gateways: List&lt;DiscoveredGateway&gt;, isScanning: Boolean, onGatewayTapped: (DiscoveredGateway) -&gt; Unit, onScanAgain: () -&gt; Unit, )</ID>
+    <ID>FunctionNaming:ScanScreen.kt$@Composable private fun ScanningBanner()</ID>
+    <ID>FunctionNaming:ScanScreen.kt$@Composable private fun ScanningContent()</ID>
+    <ID>FunctionNaming:ScanScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun ScanScreen( onNavigateBack: () -&gt; Unit, onNavigateToManualEntry: (String) -&gt; Unit, onNavigateToDashboard: () -&gt; Unit, viewModel: ScanViewModel = koinViewModel(), )</ID>
+    <ID>FunctionNaming:SecurityBanner.kt$@Composable fun HttpSecurityBanner(modifier: Modifier = Modifier)</ID>
+    <ID>FunctionNaming:SecurityBanner.kt$@Composable fun NoAuthSecurityBanner(modifier: Modifier = Modifier)</ID>
+    <ID>FunctionNaming:StartGatewayStep.kt$@Composable public fun StartGatewayStep(onNext: () -&gt; Unit)</ID>
+    <ID>FunctionNaming:StringFieldRow.kt$@Composable fun StringFieldRow( label: String, value: String, onValueChange: (String) -&gt; Unit, modifier: Modifier = Modifier, mono: Boolean = false, singleLine: Boolean = true, error: String? = null, )</ID>
+    <ID>FunctionNaming:ToggleRow.kt$@Composable fun ToggleRow( label: String, checked: Boolean, onCheckedChange: (Boolean) -&gt; Unit, modifier: Modifier = Modifier, )</ID>
+    <ID>FunctionNaming:TroubleshootingDrawer.kt$@Composable private fun TroubleshootSection( title: String, items: List&lt;String&gt;, )</ID>
+    <ID>FunctionNaming:TroubleshootingDrawer.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable public fun TroubleshootingDrawer( sheetState: SheetState, onDismiss: () -&gt; Unit, )</ID>
+    <ID>FunctionNaming:VerifyRunningStep.kt$@Composable public fun VerifyRunningStep(onNext: () -&gt; Unit)</ID>
+    <ID>FunctionNaming:WelcomeStep.kt$@Composable public fun WelcomeStep( onNext: () -&gt; Unit, onSkip: () -&gt; Unit, )</ID>
+    <ID>FunctionNaming:WhatIsOpenClawStep.kt$@Composable private fun BulletItem(text: String)</ID>
+    <ID>FunctionNaming:WhatIsOpenClawStep.kt$@Composable public fun WhatIsOpenClawStep(onNext: () -&gt; Unit)</ID>
+    <ID>LongMethod:ConfigEditorScreen.kt$@Composable private fun SectionCard( sectionKey: String, sectionValue: kotlinx.serialization.json.JsonElement, originalValue: kotlinx.serialization.json.JsonElement, isExpanded: Boolean, hasPending: Boolean, fieldErrors: Map&lt;String, String&gt;, onToggleExpand: () -&gt; Unit, onEdit: (kotlinx.serialization.json.JsonElement) -&gt; Unit, onFieldError: (String, String?) -&gt; Unit, onSave: () -&gt; Unit, onDiscard: () -&gt; Unit, )</ID>
+    <ID>LongMethod:ConfigEditorScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun ConfigEditorScreen( onNavigateBack: () -&gt; Unit, )</ID>
+    <ID>LongMethod:ConnectionPickerScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun ConnectionPickerScreen( onNavigateToManualEntry: () -&gt; Unit, onNavigateToScan: () -&gt; Unit, onNavigateToDashboard: () -&gt; Unit, onNavigateToOnboarding: () -&gt; Unit = {}, viewModel: ConnectionPickerViewModel = koinViewModel(), )</ID>
+    <ID>LongMethod:FindOnNetworkStep.kt$@Composable public fun FindOnNetworkStep( onScan: () -&gt; Unit, onManualEntry: () -&gt; Unit, )</ID>
+    <ID>LongMethod:GatewaySectionEditor.kt$@Composable fun GatewaySectionEditor( sectionValue: JsonElement, fieldErrors: Map&lt;String, String&gt;, onEdit: (JsonElement) -&gt; Unit, onFieldError: (field: String, error: String?) -&gt; Unit, )</ID>
+    <ID>LongMethod:InstallGatewayStep.kt$@Composable public fun InstallGatewayStep( snackbarHostState: SnackbarHostState, onNext: () -&gt; Unit, )</ID>
+    <ID>LongMethod:ManualEntryScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun ManualEntryScreen( onNavigateBack: () -&gt; Unit, onNavigateToDashboard: () -&gt; Unit, prefillUrl: String? = null, viewModel: ManualEntryViewModel = koinViewModel(), )</ID>
+    <ID>LongMethod:ModelDetailSheet.kt$@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class) @Composable public fun ModelDetailSheet( model: ModelInfo, onSetActive: () -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
+    <ID>LongMethod:ModelManagerScreen.kt$@OptIn(ExperimentalLayoutApi::class) @Composable private fun ModelCard( model: ModelInfo, isSwapping: Boolean, onClick: () -&gt; Unit, onSetActive: () -&gt; Unit, )</ID>
+    <ID>LongMethod:ModelManagerScreen.kt$@OptIn(ExperimentalLayoutApi::class) @Composable private fun ReadyContent( state: ModelManagerUiState.Ready, onRetry: () -&gt; Unit, onRequestSwap: (String) -&gt; Unit, onCancelSwap: () -&gt; Unit, onConfirmSwap: (String) -&gt; Unit, )</ID>
+    <ID>LongMethod:ModelManagerScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable public fun ModelManagerScreen(onNavigateBack: () -&gt; Unit)</ID>
+    <ID>LongMethod:NavGraph.kt$@Composable fun NavGraph()</ID>
+    <ID>LongMethod:OnboardingScaffold.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable public fun OnboardingScaffold( step: OnboardingStep, onBack: (() -&gt; Unit)?, onSkip: () -&gt; Unit, title: String, content: @Composable ColumnScope.() -&gt; Unit, )</ID>
+    <ID>LongMethod:OnboardingScreen.kt$@Composable public fun OnboardingScreen( onSkip: () -&gt; Unit, onScan: () -&gt; Unit, onManualEntry: () -&gt; Unit, onDone: () -&gt; Unit, viewModel: OnboardingViewModel = koinViewModel(), )</ID>
+    <ID>LongMethod:PendingChangesDiffSheet.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun PendingChangesDiffSheet( sectionKey: String, oldValue: JsonElement, newValue: JsonElement, onConfirm: () -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
+    <ID>LongMethod:ScanScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun ScanScreen( onNavigateBack: () -&gt; Unit, onNavigateToManualEntry: (String) -&gt; Unit, onNavigateToDashboard: () -&gt; Unit, viewModel: ScanViewModel = koinViewModel(), )</ID>
+    <ID>LongMethod:StartGatewayStep.kt$@Composable public fun StartGatewayStep(onNext: () -&gt; Unit)</ID>
+    <ID>LongParameterList:ConfigEditorScreen.kt$( sectionKey: String, sectionValue: kotlinx.serialization.json.JsonElement, originalValue: kotlinx.serialization.json.JsonElement, isExpanded: Boolean, hasPending: Boolean, fieldErrors: Map&lt;String, String&gt;, onToggleExpand: () -&gt; Unit, onEdit: (kotlinx.serialization.json.JsonElement) -&gt; Unit, onFieldError: (String, String?) -&gt; Unit, onSave: () -&gt; Unit, onDiscard: () -&gt; Unit, )</ID>
+    <ID>MaxLineLength:ConfigEditorUiState.kt$ConfigEditorUiState.Ready$*</ID>
+    <ID>MaxLineLength:ConfigRepositoryImpl.kt$ConfigRepositoryImpl$*</ID>
+    <ID>MaxLineLength:ModelManagerUiState.kt$ModelManagerUiState.Ready$*</ID>
+    <ID>MaxLineLength:StartGatewayStep.kt$"""New-NetFirewallRule -DisplayName "OpenClaw Gateway" -Direction Inbound -Protocol TCP -LocalPort 18789 -Action Allow -Profile Private"""</ID>
+    <ID>MaxLineLength:Type.kt$bodyLarge = TextStyle(fontFamily = InterFontFamily, fontWeight = FontWeight.Normal, fontSize = 16.sp, lineHeight = 24.sp)</ID>
+    <ID>MaxLineLength:Type.kt$bodyMedium = TextStyle(fontFamily = InterFontFamily, fontWeight = FontWeight.Normal, fontSize = 14.sp, lineHeight = 20.sp)</ID>
+    <ID>MaxLineLength:Type.kt$bodySmall = TextStyle(fontFamily = InterFontFamily, fontWeight = FontWeight.Normal, fontSize = 12.sp, lineHeight = 16.sp)</ID>
+    <ID>MaxLineLength:Type.kt$displayLarge = TextStyle(fontFamily = InterFontFamily, fontWeight = FontWeight.Bold, fontSize = 57.sp, lineHeight = 64.sp)</ID>
+    <ID>MaxLineLength:Type.kt$displayMedium = TextStyle(fontFamily = InterFontFamily, fontWeight = FontWeight.Bold, fontSize = 45.sp, lineHeight = 52.sp)</ID>
+    <ID>MaxLineLength:Type.kt$displaySmall = TextStyle(fontFamily = InterFontFamily, fontWeight = FontWeight.SemiBold, fontSize = 36.sp, lineHeight = 44.sp)</ID>
+    <ID>MaxLineLength:Type.kt$headlineLarge = TextStyle(fontFamily = InterFontFamily, fontWeight = FontWeight.SemiBold, fontSize = 32.sp, lineHeight = 40.sp)</ID>
+    <ID>MaxLineLength:Type.kt$headlineMedium = TextStyle(fontFamily = InterFontFamily, fontWeight = FontWeight.SemiBold, fontSize = 28.sp, lineHeight = 36.sp)</ID>
+    <ID>MaxLineLength:Type.kt$headlineSmall = TextStyle(fontFamily = InterFontFamily, fontWeight = FontWeight.SemiBold, fontSize = 24.sp, lineHeight = 32.sp)</ID>
+    <ID>MaxLineLength:Type.kt$labelLarge = TextStyle(fontFamily = InterFontFamily, fontWeight = FontWeight.Medium, fontSize = 14.sp, lineHeight = 20.sp)</ID>
+    <ID>MaxLineLength:Type.kt$labelMedium = TextStyle(fontFamily = InterFontFamily, fontWeight = FontWeight.Medium, fontSize = 12.sp, lineHeight = 16.sp)</ID>
+    <ID>MaxLineLength:Type.kt$labelSmall = TextStyle(fontFamily = InterFontFamily, fontWeight = FontWeight.Medium, fontSize = 11.sp, lineHeight = 16.sp)</ID>
+    <ID>MaxLineLength:Type.kt$titleLarge = TextStyle(fontFamily = InterFontFamily, fontWeight = FontWeight.SemiBold, fontSize = 22.sp, lineHeight = 28.sp)</ID>
+    <ID>MaxLineLength:Type.kt$titleMedium = TextStyle(fontFamily = InterFontFamily, fontWeight = FontWeight.Medium, fontSize = 16.sp, lineHeight = 24.sp)</ID>
+    <ID>MaxLineLength:Type.kt$titleSmall = TextStyle(fontFamily = InterFontFamily, fontWeight = FontWeight.Medium, fontSize = 14.sp, lineHeight = 20.sp)</ID>
+    <ID>ReturnCount:ManualEntryViewModel.kt$ManualEntryViewModel$private fun validateUrl(url: String): String?</ID>
+    <ID>ReturnCount:ModelManagerViewModel.kt$ModelManagerViewModel$public fun requestSwap(modelId: String)</ID>
+    <ID>SwallowedException:ConnectionProfileStore.kt$ConnectionProfileStore$e: Exception</ID>
+    <ID>SwallowedException:GatewayConnectionManagerImpl.kt$GatewayConnectionManagerImpl$e: GatewayAuthException</ID>
+    <ID>SwallowedException:OpenClawApiClient.kt$e: SerializationException</ID>
+    <ID>ThrowsCount:OpenClawApiClient.kt$private suspend fun &lt;T&gt; safeRequest(url: String, block: suspend () -&gt; T): T</ID>
+    <ID>TooGenericExceptionCaught:ConnectionProfileStore.kt$ConnectionProfileStore$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:DashboardViewModel.kt$DashboardViewModel$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:OpenClawApiClient.kt$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:ScanViewModel.kt$ScanViewModel$e: Exception</ID>
+    <ID>TooGenericExceptionThrown:DashboardViewModelTest.kt$DashboardViewModelTest$throw RuntimeException("connection refused")</ID>
+    <ID>TooGenericExceptionThrown:DashboardViewModelTest.kt$DashboardViewModelTest$throw RuntimeException("timeout")</ID>
+    <ID>TooManyFunctions:DashboardScreen.kt$com.openclaw.ghostcrab.ui.dashboard.DashboardScreen.kt</ID>
+    <ID>UnusedParameter:ConfigEditorScreen.kt$originalValue: kotlinx.serialization.json.JsonElement</ID>
+    <ID>UnusedParameter:OnboardingScreen.kt$onSkip: () -&gt; Unit</ID>
+    <ID>UnusedPrivateProperty:ScanScreen.kt$val isActivelyScanning = state is ScanState.Scanning || (state is ScanState.Results &amp;&amp; !(state as ScanState.Results).scanCompleted)</ID>
+  </CurrentIssues>
+</SmellBaseline>

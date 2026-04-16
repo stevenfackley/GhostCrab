@@ -37,6 +37,8 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.coroutines.CancellationException
+import kotlinx.serialization.SerializationException
 import java.net.ConnectException
 import java.net.UnknownHostException
 import javax.net.ssl.SSLException
@@ -244,6 +246,8 @@ private fun io.ktor.client.statement.HttpResponse.mapErrors(url: String) {
 private suspend fun <T> safeRequest(url: String, block: suspend () -> T): T {
     return try {
         block()
+    } catch (e: CancellationException) {
+        throw e
     } catch (e: GatewayAuthException) {
         throw e
     } catch (e: GatewayApiException) {
@@ -256,6 +260,8 @@ private suspend fun <T> safeRequest(url: String, block: suspend () -> T): T {
         throw GatewayUnreachableException(url, e)
     } catch (e: ConnectException) {
         throw GatewayUnreachableException(url, e)
+    } catch (e: SerializationException) {
+        throw GatewayApiException(url, 0, "Response deserialization failed: ${e.message}")
     } catch (e: Exception) {
         throw GatewayUnreachableException(url, e)
     }

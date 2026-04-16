@@ -103,15 +103,15 @@ public class ModelManagerViewModel(
                     swapSuccess = true,
                 )
             } catch (e: GatewayException) {
-                // Reload models to recover consistent state, then surface error
                 val recovered = try {
                     modelRepository.getModels()
                 } catch (_: Exception) {
                     current.models
                 }
-                _state.value = ModelManagerUiState.Error("Failed to swap model: ${e.message}")
-                // Re-emit Ready with best available models so user is not stuck on Error
-                _state.value = ModelManagerUiState.Ready(models = recovered)
+                _state.value = ModelManagerUiState.Ready(
+                    models = recovered,
+                    swapError = "Failed to swap model: ${e.message}",
+                )
             }
         }
     }
@@ -122,5 +122,13 @@ public class ModelManagerViewModel(
     public fun clearSwapSuccess() {
         val current = _state.value as? ModelManagerUiState.Ready ?: return
         _state.value = current.copy(swapSuccess = false)
+    }
+
+    /**
+     * Clears the swap-error snackbar message after it has been shown.
+     */
+    public fun clearSwapError() {
+        val current = _state.value as? ModelManagerUiState.Ready ?: return
+        _state.value = current.copy(swapError = null)
     }
 }

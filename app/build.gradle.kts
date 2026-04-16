@@ -3,11 +3,12 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
+    alias(libs.plugins.detekt)
 }
 
 android {
     namespace = "com.openclaw.ghostcrab"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.openclaw.ghostcrab"
@@ -54,6 +55,14 @@ android {
             )
         }
     }
+    compileSdkMinor = 1
+    buildToolsVersion = "37.0.0"
+}
+
+detekt {
+    config.setFrom(rootProject.file("config/detekt.yml"))
+    buildUponDefaultConfig = true
+    baseline = rootProject.file("config/detekt-baseline.xml")
 }
 
 dependencies {

@@ -65,8 +65,12 @@ fun ConnectionPickerScreen(
     val scope = rememberCoroutineScope()
     var connectingId by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(Unit) {
-        viewModel.navigateToOnboarding.collect { onNavigateToOnboarding() }
+    val showOnboarding by viewModel.showOnboarding.collectAsState()
+    LaunchedEffect(showOnboarding) {
+        if (showOnboarding) {
+            onNavigateToOnboarding()
+            viewModel.onOnboardingNavigated()
+        }
     }
 
     Scaffold(

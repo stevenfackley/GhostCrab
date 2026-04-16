@@ -33,11 +33,13 @@ public sealed interface ModelManagerUiState {
      * @param pendingSwapId ID of the model for which the swap confirmation dialog is showing; null = no dialog.
      * @param isSwapping True while the swap POST is in flight.
      * @param swapSuccess True when "Active model updated" snackbar should be shown.
+     * @param swapError Non-null when a swap failure snackbar should be shown; cleared by [ModelManagerViewModel.clearSwapError].
      */
     public data class Ready(
         val models: List<ModelInfo>,
         val pendingSwapId: String? = null,
         val isSwapping: Boolean = false,
         val swapSuccess: Boolean = false,
+        val swapError: String? = null,
     ) : ModelManagerUiState
 }

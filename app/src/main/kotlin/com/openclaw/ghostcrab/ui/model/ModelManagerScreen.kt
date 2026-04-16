@@ -80,12 +80,22 @@ public fun ModelManagerScreen(onNavigateBack: () -> Unit) {
         }
     }
 
-    // Show snackbar on swap success
     val readyState = state as? ModelManagerUiState.Ready
+
+    // Show snackbar on swap success
     LaunchedEffect(readyState?.swapSuccess) {
         if (readyState?.swapSuccess == true) {
             snackbarHostState.showSnackbar(swapSuccessMessage)
             viewModel.clearSwapSuccess()
+        }
+    }
+
+    // Show snackbar on swap failure
+    LaunchedEffect(readyState?.swapError) {
+        val error = readyState?.swapError
+        if (error != null) {
+            snackbarHostState.showSnackbar(error)
+            viewModel.clearSwapError()
         }
     }
 
