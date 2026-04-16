@@ -144,6 +144,14 @@ dependencies {
     // Google Fonts (Inter, JetBrains Mono)
     implementation(libs.compose.ui.text.google.fonts)
 
+    // CameraX
+    implementation(libs.camerax.camera2)
+    implementation(libs.camerax.lifecycle)
+    implementation(libs.camerax.view)
+
+    // ML Kit QR decode (on-device, no network call)
+    implementation(libs.mlkit.barcode.scanning)
+
     debugImplementation(libs.compose.ui.tooling)
     debugImplementation(libs.compose.ui.test.manifest)
     debugImplementation(libs.leakcanary.android)
