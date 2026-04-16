@@ -1,0 +1,51 @@
+# GhostCrab — Cloudflare Tunnel sidecar additions
+# ──────────────────────────────────────────────────────────────────────────────
+# Add the services below to your existing docker-compose.yml.
+# Replace <gateway-service> with the name of your OpenClaw gateway service
+# and adjust the port (18789) if you changed it.
+#
+# How it works:
+#   cloudflared creates a quick tunnel and logs the URL to /shared/tunnel.log
+#   tunnel-qr watches that file, generates a QR code, and serves it at :19999
+#
+# To connect: open http://<your-server-LAN-ip>:19999 in a browser on your
+#             phone, then tap "Open Camera" in GhostCrab.
+#
+# Named tunnel (permanent URL):
+#   Set CLOUDFLARE_TUNNEL_TOKEN in cloudflared's environment to use a named
+#   tunnel instead of a quick tunnel. tunnel-qr works identically.
+# ──────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    # Tee stdout+stderr to shared volume so tunnel-qr can read the URL
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >
+        cloudflared tunnel --url http://<gateway-service>:18789
+        --no-autoupdate 2>&1 | tee /shared/tunnel.log
+    volumes:
+      - tunnel-data:/shared
+    networks:
+      - internal   # adjust to match your existing network name
+
+  tunnel-qr:
+    image: ghcr.io/openclaw/tunnel-qr:latest
+    restart: unless-stopped
+    environment:
+      TUNNEL_LOG: /shared/tunnel.log
+      QR_PORT: "19999"
+    ports:
+      - "19999:19999"
+    volumes:
+      - tunnel-data:/shared
+    depends_on:
+      - cloudflared
+    networks:
+      - internal
+
+volumes:
+  tunnel-data:
