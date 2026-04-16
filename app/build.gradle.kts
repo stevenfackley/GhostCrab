@@ -28,6 +28,18 @@ android {
         buildConfigField("String", "GIT_SHA", "\"$gitSha\"")
     }
 
+    signingConfigs {
+        create("release") {
+            val keystorePath = System.getenv("KEYSTORE_PATH")
+            if (keystorePath != null) {
+                storeFile = file(keystorePath)
+                storePassword = System.getenv("KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("KEY_ALIAS")
+                keyPassword = System.getenv("KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         debug {
             applicationIdSuffix = ".debug"
@@ -37,6 +49,11 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            signingConfig = if (System.getenv("KEYSTORE_PATH") != null) {
+                signingConfigs.getByName("release")
+            } else {
+                null
+            }
         }
     }
 
@@ -66,6 +83,16 @@ android {
     }
     compileSdkMinor = 1
     buildToolsVersion = "37.0.0"
+}
+
+// Convenience: print the AAB path after a successful bundle task
+tasks.whenTaskAdded {
+    if (name == "bundleRelease") {
+        doLast {
+            val aab = file("$buildDir/outputs/bundle/release/app-release.aab")
+            if (aab.exists()) println("AAB: ${aab.absolutePath}")
+        }
+    }
 }
 
 detekt {
@@ -119,6 +146,7 @@ dependencies {
 
     debugImplementation(libs.compose.ui.tooling)
     debugImplementation(libs.compose.ui.test.manifest)
+    debugImplementation(libs.leakcanary.android)
 
     testImplementation(libs.junit.jupiter)
     testRuntimeOnly(libs.junit.jupiter.engine)

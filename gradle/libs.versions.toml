@@ -21,6 +21,9 @@ detekt = "1.23.6"
 splashscreen = "1.0.1"
 androidx-test-ext = "1.2.1"
 espresso = "3.6.1"
+leakcanary = "2.14"
+camerax = "1.4.1"
+mlkit-barcode = "17.3.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "androidx-core-ktx" }
@@ -68,6 +71,7 @@ mockk = { group = "io.mockk", name = "mockk", version.ref = "mockk" }
 
 androidx-test-ext-junit = { group = "androidx.test.ext", name = "junit", version.ref = "androidx-test-ext" }
 androidx-espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espresso" }
+leakcanary-android = { group = "com.squareup.leakcanary", name = "leakcanary-android", version.ref = "leakcanary" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
