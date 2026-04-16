@@ -29,6 +29,7 @@ sealed interface GatewayConnection {
      * @param authRequirement The auth mode reported by the gateway.
      * @param isHttps Whether the connection uses TLS.
      * @param capabilities Capability keys advertised by the gateway (e.g. `"skill-ai-recommend"`).
+     * @param hardwareInfo Optional hardware description reported by the gateway's `/status` (e.g. RAM, GPU). `null` if not reported.
      */
     data class Connected(
         val url: String,
@@ -37,6 +38,7 @@ sealed interface GatewayConnection {
         val authRequirement: AuthRequirement,
         val isHttps: Boolean,
         val capabilities: List<String>,
+        val hardwareInfo: String? = null,
     ) : GatewayConnection
 
     /**

@@ -74,6 +74,7 @@ class GatewayConnectionManagerImpl(
                     authRequirement = authReq,
                     isHttps = isHttps,
                     capabilities = statusResponse.capabilities,
+                    hardwareInfo = statusResponse.hardware,
                 )
             } catch (e: GatewayException) {
                 activeClient?.close()

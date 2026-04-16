@@ -1,5 +1,7 @@
 package com.openclaw.ghostcrab.data.api
 
+import com.openclaw.ghostcrab.data.api.dto.AIRecommendationRequestDto
+import com.openclaw.ghostcrab.data.api.dto.AIRecommendationResponseDto
 import com.openclaw.ghostcrab.data.api.dto.HealthResponse
 import com.openclaw.ghostcrab.data.api.dto.ModelDto
 import com.openclaw.ghostcrab.data.api.dto.StatusResponse
@@ -179,6 +181,35 @@ class OpenClawApiClient private constructor(
             else -> response.mapErrors(url)
         }
     }
+
+    /**
+     * POST `/api/ai/recommend` — submits a query to the gateway's AI skill and returns a recommendation.
+     *
+     * @param request The query and session context.
+     * @return [AIRecommendationResponseDto] with the recommendation text and optional suggested changes.
+     * @throws GatewayApiException with `statusCode = 404` when the AI skill is not installed.
+     * @throws GatewayApiException with `statusCode = 429` when the AI quota is exceeded.
+     * @throws GatewayAuthException if the endpoint requires authentication.
+     * @throws GatewayUnreachableException if the host cannot be reached.
+     * @throws GatewayTimeoutException if the request times out.
+     */
+    suspend fun getAIRecommendation(request: AIRecommendationRequestDto): AIRecommendationResponseDto =
+        safeRequest(baseUrl) {
+            val url = "$baseUrl/api/ai/recommend"
+            val response = httpClient.post(url) {
+                contentType(ContentType.Application.Json)
+                setBody(request)
+            }
+            when (response.status) {
+                HttpStatusCode.OK -> response.body()
+                HttpStatusCode.NotFound -> throw GatewayApiException(url, 404)
+                HttpStatusCode.TooManyRequests -> throw GatewayApiException(url, 429)
+                else -> {
+                    response.mapErrors(url)
+                    error("unreachable")
+                }
+            }
+        }
 
     /** Releases underlying HTTP connections. Call on disconnect. */
     fun close() {
