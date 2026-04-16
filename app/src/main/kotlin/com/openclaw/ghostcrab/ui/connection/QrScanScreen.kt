@@ -190,7 +190,7 @@ private fun QrTopBar(onNavigateBack: () -> Unit) {
     )
 }
 
-@OptIn(ExperimentalGetImage::class)
+@androidx.annotation.OptIn(ExperimentalGetImage::class)
 @Composable
 private fun CameraPreview(
     modifier: Modifier,
@@ -234,7 +234,7 @@ private fun CameraPreview(
     )
 }
 
-@OptIn(ExperimentalGetImage::class)
+@androidx.annotation.OptIn(ExperimentalGetImage::class)
 private fun analyzeProxy(
     proxy: ImageProxy,
     scanner: com.google.mlkit.vision.barcode.BarcodeScanner,
