@@ -60,7 +60,7 @@ class AIRecommendationViewModel(
                     is GatewayConnection.Connected -> checkAvailability()
                     is GatewayConnection.Disconnected -> Unit // Screen handles back navigation
                     is GatewayConnection.Connecting -> Unit  // No action during handshake
-                    is GatewayConnection.Error -> Unit       // TODO: surface disconnection to screen (Phase 9)
+                    is GatewayConnection.Error -> Unit       // Phase 9: surface disconnection state to screen
                 }
             }
         }

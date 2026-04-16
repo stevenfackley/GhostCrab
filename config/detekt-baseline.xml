@@ -9,6 +9,14 @@
     <ID>EmptyFunctionBlock:ScanViewModelTest.kt$FakeProfileRepository${}</ID>
     <ID>EnumNaming:GatewayAuthSection.kt$AuthMode$bearer</ID>
     <ID>EnumNaming:GatewayAuthSection.kt$AuthMode$none</ID>
+    <ID>FunctionNaming:AIRecommendationScreen.kt$@Composable private fun ErrorContent(message: String, onRetry: () -&gt; Unit)</ID>
+    <ID>FunctionNaming:AIRecommendationScreen.kt$@Composable private fun IdleContent()</ID>
+    <ID>FunctionNaming:AIRecommendationScreen.kt$@Composable private fun QuerySection( query: String, onQueryChange: (String) -&gt; Unit, isLoading: Boolean, onSubmit: () -&gt; Unit, )</ID>
+    <ID>FunctionNaming:AIRecommendationScreen.kt$@Composable private fun SkillUnavailableContent()</ID>
+    <ID>FunctionNaming:AIRecommendationScreen.kt$@OptIn(ExperimentalLayoutApi::class) @Composable private fun ReadyContent( state: AIRecommendationUiState.Ready, onNewQuery: () -&gt; Unit, onApplySuggestions: () -&gt; Unit, )</ID>
+    <ID>FunctionNaming:AIRecommendationScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun AIRecommendationScreen(onNavigateBack: () -&gt; Unit)</ID>
+    <ID>FunctionNaming:ApplySuggestionsSheet.kt$@Composable private fun SuggestionRow( change: SuggestedChange, isSelected: Boolean, onToggle: () -&gt; Unit, )</ID>
+    <ID>FunctionNaming:ApplySuggestionsSheet.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun ApplySuggestionsSheet( changes: List&lt;SuggestedChange&gt;, selectedChanges: Set&lt;SuggestedChange&gt;, isApplying: Boolean, onToggle: (SuggestedChange) -&gt; Unit, onApply: () -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
     <ID>FunctionNaming:CodeBlock.kt$@Composable public fun CodeBlock( code: String, modifier: Modifier = Modifier, onCopied: () -&gt; Unit = {}, )</ID>
     <ID>FunctionNaming:ConfigEditorScreen.kt$@Composable private fun ReadyContent( state: ConfigEditorUiState.Ready, viewModel: ConfigEditorViewModel, modifier: Modifier = Modifier, )</ID>
     <ID>FunctionNaming:ConfigEditorScreen.kt$@Composable private fun SectionCard( sectionKey: String, sectionValue: kotlinx.serialization.json.JsonElement, originalValue: kotlinx.serialization.json.JsonElement, isExpanded: Boolean, hasPending: Boolean, fieldErrors: Map&lt;String, String&gt;, onToggleExpand: () -&gt; Unit, onEdit: (kotlinx.serialization.json.JsonElement) -&gt; Unit, onFieldError: (String, String?) -&gt; Unit, onSave: () -&gt; Unit, onDiscard: () -&gt; Unit, )</ID>
@@ -49,7 +57,6 @@
     <ID>FunctionNaming:ModelManagerScreen.kt$@OptIn(ExperimentalLayoutApi::class) @Composable private fun ReadyContent( state: ModelManagerUiState.Ready, onRetry: () -&gt; Unit, onRequestSwap: (String) -&gt; Unit, onCancelSwap: () -&gt; Unit, onConfirmSwap: (String) -&gt; Unit, )</ID>
     <ID>FunctionNaming:ModelManagerScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable public fun ModelManagerScreen(onNavigateBack: () -&gt; Unit)</ID>
     <ID>FunctionNaming:NavGraph.kt$@Composable fun NavGraph()</ID>
-    <ID>FunctionNaming:NavGraph.kt$@Composable private fun Placeholder(label: String)</ID>
     <ID>FunctionNaming:OnboardingScaffold.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable public fun OnboardingScaffold( step: OnboardingStep, onBack: (() -&gt; Unit)?, onSkip: () -&gt; Unit, title: String, content: @Composable ColumnScope.() -&gt; Unit, )</ID>
     <ID>FunctionNaming:OnboardingScreen.kt$@Composable public fun OnboardingScreen( onSkip: () -&gt; Unit, onScan: () -&gt; Unit, onManualEntry: () -&gt; Unit, onDone: () -&gt; Unit, viewModel: OnboardingViewModel = koinViewModel(), )</ID>
     <ID>FunctionNaming:PendingChangesDiffSheet.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun PendingChangesDiffSheet( sectionKey: String, oldValue: JsonElement, newValue: JsonElement, onConfirm: () -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
@@ -72,6 +79,9 @@
     <ID>FunctionNaming:WelcomeStep.kt$@Composable public fun WelcomeStep( onNext: () -&gt; Unit, onSkip: () -&gt; Unit, )</ID>
     <ID>FunctionNaming:WhatIsOpenClawStep.kt$@Composable private fun BulletItem(text: String)</ID>
     <ID>FunctionNaming:WhatIsOpenClawStep.kt$@Composable public fun WhatIsOpenClawStep(onNext: () -&gt; Unit)</ID>
+    <ID>LongMethod:AIRecommendationScreen.kt$@OptIn(ExperimentalLayoutApi::class) @Composable private fun ReadyContent( state: AIRecommendationUiState.Ready, onNewQuery: () -&gt; Unit, onApplySuggestions: () -&gt; Unit, )</ID>
+    <ID>LongMethod:AIRecommendationScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun AIRecommendationScreen(onNavigateBack: () -&gt; Unit)</ID>
+    <ID>LongMethod:ApplySuggestionsSheet.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun ApplySuggestionsSheet( changes: List&lt;SuggestedChange&gt;, selectedChanges: Set&lt;SuggestedChange&gt;, isApplying: Boolean, onToggle: (SuggestedChange) -&gt; Unit, onApply: () -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
     <ID>LongMethod:ConfigEditorScreen.kt$@Composable private fun SectionCard( sectionKey: String, sectionValue: kotlinx.serialization.json.JsonElement, originalValue: kotlinx.serialization.json.JsonElement, isExpanded: Boolean, hasPending: Boolean, fieldErrors: Map&lt;String, String&gt;, onToggleExpand: () -&gt; Unit, onEdit: (kotlinx.serialization.json.JsonElement) -&gt; Unit, onFieldError: (String, String?) -&gt; Unit, onSave: () -&gt; Unit, onDiscard: () -&gt; Unit, )</ID>
     <ID>LongMethod:ConfigEditorScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun ConfigEditorScreen( onNavigateBack: () -&gt; Unit, )</ID>
     <ID>LongMethod:ConnectionPickerScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun ConnectionPickerScreen( onNavigateToManualEntry: () -&gt; Unit, onNavigateToScan: () -&gt; Unit, onNavigateToDashboard: () -&gt; Unit, onNavigateToOnboarding: () -&gt; Unit = {}, viewModel: ConnectionPickerViewModel = koinViewModel(), )</ID>
@@ -90,8 +100,10 @@
     <ID>LongMethod:ScanScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun ScanScreen( onNavigateBack: () -&gt; Unit, onNavigateToManualEntry: (String) -&gt; Unit, onNavigateToDashboard: () -&gt; Unit, viewModel: ScanViewModel = koinViewModel(), )</ID>
     <ID>LongMethod:StartGatewayStep.kt$@Composable public fun StartGatewayStep(onNext: () -&gt; Unit)</ID>
     <ID>LongParameterList:ConfigEditorScreen.kt$( sectionKey: String, sectionValue: kotlinx.serialization.json.JsonElement, originalValue: kotlinx.serialization.json.JsonElement, isExpanded: Boolean, hasPending: Boolean, fieldErrors: Map&lt;String, String&gt;, onToggleExpand: () -&gt; Unit, onEdit: (kotlinx.serialization.json.JsonElement) -&gt; Unit, onFieldError: (String, String?) -&gt; Unit, onSave: () -&gt; Unit, onDiscard: () -&gt; Unit, )</ID>
+    <ID>MaxLineLength:ApplySuggestionsSheet.kt$itemsIndexed</ID>
     <ID>MaxLineLength:ConfigEditorUiState.kt$ConfigEditorUiState.Ready$*</ID>
     <ID>MaxLineLength:ConfigRepositoryImpl.kt$ConfigRepositoryImpl$*</ID>
+    <ID>MaxLineLength:GatewayConnection.kt$GatewayConnection.Connected$*</ID>
     <ID>MaxLineLength:ModelManagerUiState.kt$ModelManagerUiState.Ready$*</ID>
     <ID>MaxLineLength:StartGatewayStep.kt$"""New-NetFirewallRule -DisplayName "OpenClaw Gateway" -Direction Inbound -Protocol TCP -LocalPort 18789 -Action Allow -Profile Private"""</ID>
     <ID>MaxLineLength:Type.kt$bodyLarge = TextStyle(fontFamily = InterFontFamily, fontWeight = FontWeight.Normal, fontSize = 16.sp, lineHeight = 24.sp)</ID>
@@ -111,6 +123,7 @@
     <ID>MaxLineLength:Type.kt$titleSmall = TextStyle(fontFamily = InterFontFamily, fontWeight = FontWeight.Medium, fontSize = 14.sp, lineHeight = 20.sp)</ID>
     <ID>ReturnCount:ManualEntryViewModel.kt$ManualEntryViewModel$private fun validateUrl(url: String): String?</ID>
     <ID>ReturnCount:ModelManagerViewModel.kt$ModelManagerViewModel$public fun requestSwap(modelId: String)</ID>
+    <ID>SwallowedException:AIRecommendationViewModel.kt$AIRecommendationViewModel$e: AIServiceUnavailableException</ID>
     <ID>SwallowedException:ConnectionProfileStore.kt$ConnectionProfileStore$e: Exception</ID>
     <ID>SwallowedException:GatewayConnectionManagerImpl.kt$GatewayConnectionManagerImpl$e: GatewayAuthException</ID>
     <ID>SwallowedException:OpenClawApiClient.kt$e: SerializationException</ID>
