@@ -1,0 +1,6 @@
+{
+  "enabledPlugins": {
+    "kotlin-agent-skills@Kotlin": true,
+    "superpowers@claude-plugins-official": true
+  }
+}

@@ -17,6 +17,8 @@ android {
         versionCode = 1
         versionName = "0.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        // AI recommendations feature flag — true for v1.0; flip false to gate behind a pro paywall.
+        buildConfigField("Boolean", "AI_PRO_ENABLED", "true")
     }
 
     buildTypes {

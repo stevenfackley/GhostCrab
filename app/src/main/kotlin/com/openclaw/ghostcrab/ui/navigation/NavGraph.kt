@@ -12,6 +12,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.openclaw.ghostcrab.ui.airecommend.AIRecommendationScreen
 import com.openclaw.ghostcrab.ui.config.ConfigEditorScreen
 import com.openclaw.ghostcrab.ui.connection.ConnectionPickerScreen
 import com.openclaw.ghostcrab.ui.connection.ManualEntryScreen
@@ -151,14 +152,14 @@ fun NavGraph() {
         composable("model_manager") {
             ModelManagerScreen(onNavigateBack = { navController.popBackStack() })
         }
-        composable("ai_recommendation") { Placeholder("AI Recommendations\n(Phase 8)") }
-        composable("settings") { Placeholder("Settings\n(Phase 9)") }
-    }
-}
-
-@Composable
-private fun Placeholder(label: String) {
-    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Text(text = label)
+        composable("ai_recommendation") {
+            AIRecommendationScreen(onNavigateBack = { navController.popBackStack() })
+        }
+        composable("settings") {
+            // Phase 9: SettingsScreen placeholder
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text(text = "Settings\n(Phase 9)")
+            }
+        }
     }
 }

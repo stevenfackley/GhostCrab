@@ -58,6 +58,28 @@
     <string name="model_detail_capabilities">Capabilities</string>
     <string name="model_detail_no_capabilities">None</string>
 
+    <!-- AI Recommendations -->
+    <string name="ai_screen_title">AI Recommendations</string>
+    <string name="ai_back_cd">Back</string>
+    <string name="ai_query_hint">Ask a question about your gateway setup, active models, or hardware optimization…</string>
+    <string name="ai_ask_button">Ask</string>
+    <string name="ai_idle_hint">Describe what you want — e.g. "best coding model for 16 GB RAM" — and the gateway AI will suggest config changes.</string>
+    <string name="ai_skill_unavailable_title">AI skill not installed</string>
+    <string name="ai_skill_unavailable_body">This gateway does not have the skill-ai-recommend skill installed. Add it to enable AI recommendations.</string>
+    <string name="ai_skill_unavailable_hint">openclaw skill install skill-ai-recommend</string>
+    <string name="ai_recommendations_label">RECOMMENDATION</string>
+    <string name="ai_suggestions_count">%1$d config change(s) suggested</string>
+    <string name="ai_apply_suggestions">Apply Suggestions</string>
+    <string name="ai_apply_success">Changes applied successfully</string>
+    <string name="ai_new_query">New Query</string>
+    <string name="ai_retry_button">Retry</string>
+    <string name="ai_sheet_title">Apply Suggested Changes</string>
+    <string name="ai_sheet_subtitle">%1$d change(s) from the AI recommendation. Toggle to select which to apply.</string>
+    <string name="ai_sheet_before_label">Before</string>
+    <string name="ai_sheet_after_label">After </string>
+    <string name="ai_sheet_apply_button">Apply %1$d Selected</string>
+    <string name="ai_sheet_apply_none">No changes selected</string>
+
     <!-- Security banners -->
     <string name="banner_http_message">Connection is unencrypted (HTTP). Anyone on this network can read configuration data.</string>
     <string name="banner_no_auth_message">This gateway accepts unauthenticated requests. Ensure it is not publicly reachable.</string>

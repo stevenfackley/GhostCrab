@@ -27,5 +27,6 @@ data class SuggestedChange(
     val key: String,
     val currentValue: String?,
     val suggestedValue: String,
-    val rationale: String,
+    /** Empty string when the gateway omits a rationale. Never `null` — use [isNotBlank] to test. */
+    val rationale: String = "",
 )

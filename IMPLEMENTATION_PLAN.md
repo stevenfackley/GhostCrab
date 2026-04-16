@@ -45,7 +45,7 @@ This plan is designed for **stateless execution**. Each phase below is a self-co
 | 5 | **Onboarding Walkthrough (Noob Mode)** | 🟢 Done | 2026-04-15 | 2026-04-15 | 06d5a59 | Sonnet 4.6 | OnboardingStep sealed interface; DataStore-backed repo; 7 step composables; CodeBlock + clipboard; TroubleshootingDrawer ModalBottomSheet; first-launch detection in ConnectionPickerViewModel; onboarding=true param threading through nav |
 | 6 | Config Editor (Forms over `openclaw.json`) | 🟢 Done | 2026-04-15 | 2026-04-15 | — | Sonnet 4.6 | GatewaySection typed wrappers; ETag-aware ConfigRepositoryImpl; getConfig/updateConfig on ApiClient (GET /config, PATCH /config/{section}); ToggleRow/IntFieldRow/StringFieldRow/EnumDropdownRow form components; PendingChangesDiffSheet; 9 VM tests |
 | 7 | Model Manager | 🟢 Done | 2026-04-15 | 2026-04-15 | — | Sonnet 4.6 | ModelRepositoryImpl over GET /api/models/status + POST /api/models/active; ModelManagerScreen with cyan active border, confirmation dialog, snackbar; ModelDetailSheet ModalBottomSheet; 8 VM tests |
-| 8 | AI Recommendations (Gateway-Proxied CLI) | ⬜ Not Started | — | — | — | — | — |
+| 8 | AI Recommendations (Gateway-Proxied CLI) | 🟢 Done | 2026-04-15 | 2026-04-16 | — | Sonnet 4.6 | AIRecommendationServiceImpl (capability probe via connectionState, POST /api/ai/recommend); 404→AIServiceUnavailableException, 429→AIQuotaExceededException; hardwareInfo added to GatewayConnection.Connected; AI_PRO_ENABLED BuildConfig flag; ApplySuggestionsSheet ModalBottomSheet with per-change toggles; 12 VM tests |
 | 9 | Settings, Profile Management, About | ⬜ Not Started | — | — | — | — | — |
 | 10 | Hardening: Tests, Crash Handling, Telemetry, Release | ⬜ Not Started | — | — | — | — | — |
 
@@ -508,7 +508,7 @@ WebSocket streaming · offline config cache · iOS · agent runtime on-device ·
 - [ ] Gracefully degrades when skill is absent.
 - [ ] Applied suggestions actually change config and re-read confirms.
 
-**Handoff Block:** _to be filled_
+**Handoff Block:** Phase 8 complete. `AIRecommendationServiceImpl` lives in `data/impl/`; it checks `GatewayConnection.Connected.capabilities` for `"skill-ai-recommend"` (no network probe). `POST /api/ai/recommend` sends query + `AIContextDto` (config as JsonObject, hardwareInfo, activeModelId). Gateway 404 → `AIServiceUnavailableException`; 429 → `AIQuotaExceededException`. `GatewayConnection.Connected` gained `hardwareInfo: String? = null` (default null — no existing tests broken). `ApplySuggestionsSheet` routes selected `SuggestedChange`s through `ConfigRepository.updateConfig` as JSON merge-patches. `AI_PRO_ENABLED = true` in `defaultConfig`. Nav placeholder replaced. 12 unit tests, all green. `assembleDebug` clean.
 
 ---
 
