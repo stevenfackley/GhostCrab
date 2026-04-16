@@ -46,9 +46,9 @@ public class ConnectionPickerViewModel(
         viewModelScope.launch {
             val isCompleted = onboardingRepository.isCompleted()
             if (!isCompleted) {
-                // Wait for the first real emission from the profiles StateFlow.
-                profiles.first()
-                if (profiles.value.isEmpty()) {
+                // Read directly from the repository to avoid racing against stateIn's
+                // initial-value emission (which is always emptyList() regardless of upstream).
+                if (profileRepository.getProfiles().first().isEmpty()) {
                     _showOnboarding.value = true
                 }
             }
