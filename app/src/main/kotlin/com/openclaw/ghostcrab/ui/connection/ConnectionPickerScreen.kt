@@ -1,5 +1,8 @@
 package com.openclaw.ghostcrab.ui.connection
 
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -11,13 +14,17 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
@@ -32,17 +39,21 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.openclaw.ghostcrab.R
 import com.openclaw.ghostcrab.domain.model.ConnectionProfile
 import com.openclaw.ghostcrab.ui.components.GlassSurface
 import com.openclaw.ghostcrab.ui.theme.BrandTokens
@@ -56,6 +67,7 @@ import org.koin.androidx.compose.koinViewModel
 fun ConnectionPickerScreen(
     onNavigateToManualEntry: () -> Unit,
     onNavigateToScan: () -> Unit,
+    onNavigateToQrScan: () -> Unit,
     onNavigateToDashboard: () -> Unit,
     onNavigateToOnboarding: () -> Unit = {},
     viewModel: ConnectionPickerViewModel = koinViewModel(),
@@ -77,16 +89,24 @@ fun ConnectionPickerScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Text(
-                        text = "GhostCrab",
-                        style = MaterialTheme.typography.titleLarge,
-                        color = BrandTokens.colorCyanPrimary,
+                    Image(
+                        painter = painterResource(R.drawable.logo_ghostcrab),
+                        contentDescription = "GhostCrab",
+                        modifier = Modifier.height(38.dp),
+                        contentScale = ContentScale.Fit,
                     )
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = BrandTokens.colorAbyss,
                 ),
                 actions = {
+                    IconButton(onClick = onNavigateToQrScan) {
+                        Icon(
+                            imageVector = Icons.Default.QrCodeScanner,
+                            contentDescription = "Scan QR Code",
+                            tint = BrandTokens.colorCyanPrimary,
+                        )
+                    }
                     IconButton(onClick = onNavigateToScan) {
                         Icon(
                             imageVector = Icons.Default.Search,
@@ -98,12 +118,14 @@ fun ConnectionPickerScreen(
             )
         },
         floatingActionButton = {
-            FloatingActionButton(
-                onClick = onNavigateToManualEntry,
-                containerColor = BrandTokens.colorCyanPrimary,
-                contentColor = BrandTokens.colorAbyss,
-            ) {
-                Icon(Icons.Default.Add, contentDescription = "Add gateway")
+            if (profiles.isNotEmpty()) {
+                FloatingActionButton(
+                    onClick = onNavigateToManualEntry,
+                    containerColor = BrandTokens.colorCyanPrimary,
+                    contentColor = BrandTokens.colorAbyss,
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = "Add gateway")
+                }
             }
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -114,6 +136,7 @@ fun ConnectionPickerScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding),
+                onScanQr = onNavigateToQrScan,
                 onScanLan = onNavigateToScan,
                 onManualEntry = onNavigateToManualEntry,
             )
@@ -211,27 +234,82 @@ private fun ProfileCard(
 @Composable
 private fun EmptyState(
     modifier: Modifier,
+    onScanQr: () -> Unit,
     onScanLan: () -> Unit,
     onManualEntry: () -> Unit,
 ) {
-    Box(modifier = modifier, contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(
-                text = "No saved gateways.",
-                style = MaterialTheme.typography.titleMedium,
-                color = BrandTokens.colorTextSecondary,
-            )
-            Spacer(Modifier.height(Spacing.md))
-            OutlinedButton(onClick = onScanLan) {
-                Icon(Icons.Default.Search, contentDescription = null)
+    Column(
+        modifier = modifier.padding(Spacing.lg),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(MaterialTheme.shapes.medium)
+                .background(BrandTokens.colorCyanPrimary.copy(alpha = 0.06f))
+                .border(
+                    width = 1.dp,
+                    color = BrandTokens.colorCyanPrimary.copy(alpha = 0.4f),
+                    shape = MaterialTheme.shapes.medium,
+                )
+                .padding(Spacing.xl),
+            contentAlignment = Alignment.Center,
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Icon(
+                    imageVector = Icons.Default.QrCodeScanner,
+                    contentDescription = null,
+                    tint = BrandTokens.colorCyanPrimary,
+                    modifier = Modifier.size(52.dp),
+                )
+                Spacer(Modifier.height(Spacing.md))
+                Text(
+                    text = "Scan QR to connect",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = BrandTokens.colorCyanPrimary,
+                )
+                Spacer(Modifier.height(Spacing.xs))
+                Text(
+                    text = "Open your gateway's connect page in a browser:\nhttp://<gateway-ip>:19999",
+                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = MonoFontFamily),
+                    color = BrandTokens.colorTextSecondary,
+                    textAlign = TextAlign.Center,
+                )
+                Spacer(Modifier.height(Spacing.md))
+                Button(
+                    onClick = onScanQr,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = BrandTokens.colorCyanPrimary,
+                        contentColor = BrandTokens.colorAbyss,
+                    ),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.QrCodeScanner,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(Modifier.width(Spacing.xs))
+                    Text("Open Camera")
+                }
+            }
+        }
+
+        Spacer(Modifier.height(Spacing.md))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+        ) {
+            OutlinedButton(onClick = onScanLan, modifier = Modifier.weight(1f)) {
+                Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(Spacing.xs))
                 Text("Scan LAN")
             }
-            Spacer(Modifier.height(Spacing.sm))
-            OutlinedButton(onClick = onManualEntry) {
-                Icon(Icons.Default.Add, contentDescription = null)
+            OutlinedButton(onClick = onManualEntry, modifier = Modifier.weight(1f)) {
+                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(Spacing.xs))
-                Text("Enter URL manually")
+                Text("Manual")
             }
         }
     }

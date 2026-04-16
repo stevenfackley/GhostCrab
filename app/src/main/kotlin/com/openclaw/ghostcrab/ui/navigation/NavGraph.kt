@@ -12,6 +12,7 @@ import com.openclaw.ghostcrab.ui.config.ConfigEditorScreen
 import com.openclaw.ghostcrab.ui.settings.SettingsScreen
 import com.openclaw.ghostcrab.ui.connection.ConnectionPickerScreen
 import com.openclaw.ghostcrab.ui.connection.ManualEntryScreen
+import com.openclaw.ghostcrab.ui.connection.QrScanScreen
 import com.openclaw.ghostcrab.ui.connection.ScanScreen
 import com.openclaw.ghostcrab.ui.dashboard.DashboardScreen
 import com.openclaw.ghostcrab.ui.model.ModelManagerScreen
@@ -29,6 +30,7 @@ fun NavGraph() {
             ConnectionPickerScreen(
                 onNavigateToManualEntry = { navController.navigate("manual_entry") },
                 onNavigateToScan = { navController.navigate("scan") },
+                onNavigateToQrScan = { navController.navigate("qr_scan") },
                 onNavigateToDashboard = {
                     navController.navigate("dashboard") {
                         popUpTo("connection_picker") { inclusive = true }
@@ -39,6 +41,18 @@ fun NavGraph() {
                         popUpTo("connection_picker") { inclusive = false }
                     }
                 },
+            )
+        }
+
+        composable("qr_scan") {
+            QrScanScreen(
+                onNavigateToManualEntry = { url ->
+                    val encoded = android.net.Uri.encode(url)
+                    navController.navigate("manual_entry?prefillUrl=$encoded") {
+                        popUpTo("qr_scan") { inclusive = true }
+                    }
+                },
+                onNavigateBack = { navController.popBackStack() },
             )
         }
 
