@@ -3,6 +3,7 @@ package com.openclaw.ghostcrab.data.impl
 import com.openclaw.ghostcrab.domain.model.OpenClawConfig
 import com.openclaw.ghostcrab.domain.repository.ConfigRepository
 import kotlinx.serialization.json.JsonElement
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Production [ConfigRepository] backed by [GatewayConnectionManagerImpl].
@@ -16,7 +17,7 @@ class ConfigRepositoryImpl(
     private val connectionManager: GatewayConnectionManagerImpl,
 ) : ConfigRepository {
 
-    private var lastEtag: String? = null
+    private val lastEtag = AtomicReference<String?>(null)
 
     /**
      * Fetches the full config from the gateway and caches the returned ETag.
@@ -28,7 +29,7 @@ class ConfigRepositoryImpl(
     override suspend fun getConfig(): OpenClawConfig {
         val client = connectionManager.requireClient()
         val (sections, etag) = client.getConfig()
-        lastEtag = etag
+        lastEtag.set(etag)
         return OpenClawConfig(sections = sections, etag = etag)
     }
 
@@ -43,6 +44,6 @@ class ConfigRepositoryImpl(
      */
     override suspend fun updateConfig(section: String, value: JsonElement) {
         val client = connectionManager.requireClient()
-        client.updateConfig(section, value, lastEtag)
+        client.updateConfig(section, value, lastEtag.get())
     }
 }

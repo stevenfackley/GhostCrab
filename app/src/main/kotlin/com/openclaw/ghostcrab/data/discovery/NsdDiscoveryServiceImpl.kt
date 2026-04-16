@@ -42,7 +42,7 @@ class NsdDiscoveryServiceImpl(private val context: Context) : DiscoveryService {
     private val resolveMutex = Mutex()
 
     /** Non-null while a [startDiscovery] flow is being collected. */
-    private var activeChannel: SendChannel<DiscoveredGateway>? = null
+    @Volatile private var activeChannel: SendChannel<DiscoveredGateway>? = null
 
     override fun startDiscovery(): Flow<DiscoveredGateway> = callbackFlow {
         val seen = mutableSetOf<String>()

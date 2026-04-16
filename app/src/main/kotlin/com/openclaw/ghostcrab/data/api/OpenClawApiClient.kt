@@ -294,9 +294,9 @@ private suspend fun <T> safeRequest(url: String, block: suspend () -> T): T {
         block()
     } catch (e: CancellationException) {
         throw e
-    } catch (e: GatewayAuthException) {
-        throw e
-    } catch (e: GatewayApiException) {
+    } catch (e: GatewayException) {
+        // Re-throw all domain exceptions unchanged — including ConfigValidationException,
+        // which would otherwise fall through to the generic catch and become GatewayUnreachableException.
         throw e
     } catch (e: HttpRequestTimeoutException) {
         throw GatewayTimeoutException(url, e)

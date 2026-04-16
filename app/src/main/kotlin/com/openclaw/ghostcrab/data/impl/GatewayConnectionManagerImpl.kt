@@ -27,7 +27,7 @@ import kotlinx.coroutines.withContext
  */
 class GatewayConnectionManagerImpl(
     private val clientFactory: OpenClawApiClientFactory = DefaultClientFactory,
-    private val settingsRepository: SettingsRepository? = null,
+    private val settingsRepository: SettingsRepository = AlwaysBlockCleartextSettingsRepository,
 ) : GatewayConnectionManager {
 
     private val _connectionState = MutableStateFlow<GatewayConnection>(GatewayConnection.Disconnected)
@@ -37,7 +37,7 @@ class GatewayConnectionManagerImpl(
     private val mutex = Mutex()
 
     override suspend fun probeAuth(url: String): AuthRequirement = withContext(Dispatchers.IO) {
-        val allowCleartext = settingsRepository?.allowCleartextPublicIPs?.firstOrNull() ?: false
+        val allowCleartext = settingsRepository.allowCleartextPublicIPs.firstOrNull() ?: false
         val probe = clientFactory.unauthenticated(url, allowCleartext)
         try {
             probe.health() // throws GatewayUnreachableException if down
@@ -61,7 +61,7 @@ class GatewayConnectionManagerImpl(
             _connectionState.value = GatewayConnection.Connecting(url)
 
             try {
-                val allowCleartext = settingsRepository?.allowCleartextPublicIPs?.firstOrNull() ?: false
+                val allowCleartext = settingsRepository.allowCleartextPublicIPs.firstOrNull() ?: false
                 val authReq = probeAuth(url)
                 val client = if (token != null) {
                     clientFactory.authenticated(url, token, allowCleartext)
@@ -101,6 +101,13 @@ class GatewayConnectionManagerImpl(
     /** Returns the active client, or null if not connected. Internal use for repositories. */
     fun requireClient(): OpenClawApiClient =
         activeClient ?: error("No active gateway connection")
+}
+
+// ── Fail-safe default settings (no cleartext to public IPs) ──────────────────
+
+private object AlwaysBlockCleartextSettingsRepository : com.openclaw.ghostcrab.domain.repository.SettingsRepository {
+    override val allowCleartextPublicIPs = kotlinx.coroutines.flow.flowOf(false)
+    override suspend fun setAllowCleartextPublicIPs(enabled: Boolean) = Unit
 }
 
 // ── Factory interface for testability ────────────────────────────────────────

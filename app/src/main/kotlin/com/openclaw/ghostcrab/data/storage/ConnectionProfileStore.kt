@@ -67,11 +67,10 @@ class ConnectionProfileStore(private val context: Context) {
      * Pass `null` to clear any existing token.
      */
     suspend fun saveToken(profileId: String, token: String?) = withContext(Dispatchers.IO) {
-        val prefs = openEncryptedPrefs()
         if (token == null) {
-            prefs.edit().remove(tokenKey(profileId)).apply()
+            encryptedPrefs.edit().remove(tokenKey(profileId)).apply()
         } else {
-            prefs.edit().putString(tokenKey(profileId), token).apply()
+            encryptedPrefs.edit().putString(tokenKey(profileId), token).apply()
         }
     }
 
@@ -83,7 +82,7 @@ class ConnectionProfileStore(private val context: Context) {
      */
     suspend fun getToken(profileId: String): String? = withContext(Dispatchers.IO) {
         try {
-            openEncryptedPrefs().getString(tokenKey(profileId), null)
+            encryptedPrefs.getString(tokenKey(profileId), null)
         } catch (e: Exception) {
             // Keystore entry unreadable — clear it and force re-auth
             runCatching { clearToken(profileId) }
@@ -93,15 +92,16 @@ class ConnectionProfileStore(private val context: Context) {
 
     private fun clearToken(profileId: String) {
         runCatching {
-            openEncryptedPrefs().edit().remove(tokenKey(profileId)).apply()
+            encryptedPrefs.edit().remove(tokenKey(profileId)).apply()
         }
     }
 
-    private fun openEncryptedPrefs(): android.content.SharedPreferences {
+    // Keystore init is 20–200ms and the docs warn against multiple instances on the same file.
+    private val encryptedPrefs by lazy {
         val masterKey = MasterKey.Builder(context)
             .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
             .build()
-        return EncryptedSharedPreferences.create(
+        EncryptedSharedPreferences.create(
             context,
             "ghostcrab_tokens",
             masterKey,
