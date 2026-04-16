@@ -82,5 +82,6 @@ private fun stepFromName(name: String): OnboardingStep = when (name) {
     "VerifyRunning" -> OnboardingStep.VerifyRunning
     "FindOnNetwork" -> OnboardingStep.FindOnNetwork
     "Completed" -> OnboardingStep.Completed
+    // Unknown name means DataStore has a future/corrupted value — restart from Welcome rather than crash.
     else -> OnboardingStep.Welcome
 }

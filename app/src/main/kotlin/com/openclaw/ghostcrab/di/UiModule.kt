@@ -1,6 +1,5 @@
 package com.openclaw.ghostcrab.di
 
-import com.openclaw.ghostcrab.data.api.OpenClawApiClient
 import com.openclaw.ghostcrab.ui.airecommend.AIRecommendationViewModel
 import com.openclaw.ghostcrab.ui.settings.SettingsViewModel
 import com.openclaw.ghostcrab.ui.config.ConfigEditorViewModel
@@ -18,16 +17,7 @@ val uiModule = module {
     viewModel { ConnectionPickerViewModel(get(), get(), get()) }
     viewModel { ManualEntryViewModel(get(), get()) }
     viewModel { ScanViewModel(get(), get(), get()) }
-    viewModel {
-        DashboardViewModel(
-            connectionManager = get(),
-            modelRepository = get(),
-            healthChecker = { url ->
-                val client = OpenClawApiClient.unauthenticated(url)
-                try { client.health() } finally { client.close() }
-            },
-        )
-    }
+    viewModel { DashboardViewModel(connectionManager = get(), modelRepository = get(), healthChecker = ::gatewayHealthCheck) }
     viewModel { OnboardingViewModel(get()) }
     viewModel { ConfigEditorViewModel(get(), get()) }
     viewModel { ModelManagerViewModel(get(), get()) }

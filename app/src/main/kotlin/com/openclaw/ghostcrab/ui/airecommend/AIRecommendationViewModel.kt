@@ -17,6 +17,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
@@ -110,13 +111,11 @@ class AIRecommendationViewModel(
      * @param change The [SuggestedChange] to toggle.
      */
     fun toggleChange(change: SuggestedChange) {
-        val current = _state.value as? AIRecommendationUiState.Ready ?: return
-        val updated = if (change in current.selectedChanges) {
-            current.selectedChanges - change
-        } else {
-            current.selectedChanges + change
+        _state.update { state ->
+            if (state !is AIRecommendationUiState.Ready) return@update state
+            val updated = if (change in state.selectedChanges) state.selectedChanges - change else state.selectedChanges + change
+            state.copy(selectedChanges = updated)
         }
-        _state.value = current.copy(selectedChanges = updated)
     }
 
     /**
@@ -135,23 +134,24 @@ class AIRecommendationViewModel(
         val snapshot = _state.value as? AIRecommendationUiState.Ready ?: return
         if (snapshot.selectedChanges.isEmpty()) return
         viewModelScope.launch {
-            _state.value = snapshot.copy(isApplying = true, applyError = null)
+            _state.update { (it as? AIRecommendationUiState.Ready)?.copy(isApplying = true, applyError = null) ?: it }
+            var appliedCount = 0
             try {
                 snapshot.selectedChanges.forEach { change ->
                     val patch = buildJsonObject { put(change.key, parseJsonValue(change.suggestedValue)) }
                     configRepository.updateConfig(change.section, patch)
+                    appliedCount++
                 }
                 // Re-read state so any toggles made mid-apply aren't clobbered
-                (_state.value as? AIRecommendationUiState.Ready)?.let {
-                    _state.value = it.copy(isApplying = false, applySuccess = true)
-                }
+                _state.update { (it as? AIRecommendationUiState.Ready)?.copy(isApplying = false, applySuccess = true) ?: it }
             } catch (e: GatewayException) {
-                (_state.value as? AIRecommendationUiState.Ready)?.let {
-                    _state.value = it.copy(
-                        isApplying = false,
-                        applyError = e.message ?: "Failed to apply changes",
-                    )
+                val total = snapshot.selectedChanges.size
+                val errorMsg = if (appliedCount > 0) {
+                    "Applied $appliedCount of $total changes; stopped at change ${appliedCount + 1}: ${e.message ?: "Unknown error"}"
+                } else {
+                    e.message ?: "Failed to apply changes"
                 }
+                _state.update { (it as? AIRecommendationUiState.Ready)?.copy(isApplying = false, applyError = errorMsg) ?: it }
             }
         }
     }
@@ -160,16 +160,14 @@ class AIRecommendationViewModel(
      * Clears the apply-success flag after the snackbar has been shown.
      */
     fun clearApplySuccess() {
-        val current = _state.value as? AIRecommendationUiState.Ready ?: return
-        _state.value = current.copy(applySuccess = false)
+        _state.update { (it as? AIRecommendationUiState.Ready)?.copy(applySuccess = false) ?: it }
     }
 
     /**
      * Clears the apply-error message after the snackbar has been shown.
      */
     fun clearApplyError() {
-        val current = _state.value as? AIRecommendationUiState.Ready ?: return
-        _state.value = current.copy(applyError = null)
+        _state.update { (it as? AIRecommendationUiState.Ready)?.copy(applyError = null) ?: it }
     }
 
     /**

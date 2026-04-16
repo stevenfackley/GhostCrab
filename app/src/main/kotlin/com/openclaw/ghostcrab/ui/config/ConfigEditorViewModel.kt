@@ -11,6 +11,7 @@ import com.openclaw.ghostcrab.domain.repository.GatewayConnectionManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonElement
 
@@ -72,11 +73,13 @@ class ConfigEditorViewModel(
      * @param value Full edited section as a [JsonElement].
      */
     fun editSection(section: String, value: JsonElement) {
-        val current = _state.value as? ConfigEditorUiState.Ready ?: return
-        _state.value = current.copy(
-            pendingChanges = current.pendingChanges + (section to value),
-            fieldErrors = current.fieldErrors.filterKeys { !it.startsWith("$section.") },
-        )
+        _state.update { state ->
+            if (state !is ConfigEditorUiState.Ready) return@update state
+            state.copy(
+                pendingChanges = state.pendingChanges + (section to value),
+                fieldErrors = state.fieldErrors.filterKeys { !it.startsWith("$section.") },
+            )
+        }
     }
 
     /**
@@ -86,11 +89,10 @@ class ConfigEditorViewModel(
      * @param error Human-readable error message, or `null` to clear.
      */
     fun setFieldError(fieldPath: String, error: String?) {
-        val current = _state.value as? ConfigEditorUiState.Ready ?: return
-        _state.value = if (error == null) {
-            current.copy(fieldErrors = current.fieldErrors - fieldPath)
-        } else {
-            current.copy(fieldErrors = current.fieldErrors + (fieldPath to error))
+        _state.update { state ->
+            if (state !is ConfigEditorUiState.Ready) return@update state
+            if (error == null) state.copy(fieldErrors = state.fieldErrors - fieldPath)
+            else state.copy(fieldErrors = state.fieldErrors + (fieldPath to error))
         }
     }
 
@@ -102,17 +104,17 @@ class ConfigEditorViewModel(
      * @param section Top-level section key.
      */
     fun requestSave(section: String) {
-        val current = _state.value as? ConfigEditorUiState.Ready ?: return
-        if (!current.pendingChanges.containsKey(section)) return
-        _state.value = current.copy(pendingSaveSection = section)
+        _state.update { state ->
+            if (state !is ConfigEditorUiState.Ready || !state.pendingChanges.containsKey(section)) return@update state
+            state.copy(pendingSaveSection = section)
+        }
     }
 
     /**
      * Dismisses the diff sheet without writing to the gateway.
      */
     fun cancelSave() {
-        val current = _state.value as? ConfigEditorUiState.Ready ?: return
-        _state.value = current.copy(pendingSaveSection = null)
+        _state.update { (it as? ConfigEditorUiState.Ready)?.copy(pendingSaveSection = null) ?: it }
     }
 
     /**
@@ -174,22 +176,22 @@ class ConfigEditorViewModel(
      * @param section Top-level section key.
      */
     fun discardSection(section: String) {
-        val current = _state.value as? ConfigEditorUiState.Ready ?: return
-        _state.value = current.copy(
-            pendingChanges = current.pendingChanges - section,
-            fieldErrors = current.fieldErrors.filterKeys { !it.startsWith("$section.") },
-        )
+        _state.update { state ->
+            if (state !is ConfigEditorUiState.Ready) return@update state
+            state.copy(
+                pendingChanges = state.pendingChanges - section,
+                fieldErrors = state.fieldErrors.filterKeys { !it.startsWith("$section.") },
+            )
+        }
     }
 
     /** Clears the save-success flag after the snackbar has been shown. */
     fun clearSaveSuccess() {
-        val current = _state.value as? ConfigEditorUiState.Ready ?: return
-        _state.value = current.copy(saveSuccess = false)
+        _state.update { (it as? ConfigEditorUiState.Ready)?.copy(saveSuccess = false) ?: it }
     }
 
     /** Dismisses the concurrent-edit warning dialog. */
     fun dismissConcurrentEdit() {
-        val current = _state.value as? ConfigEditorUiState.Ready ?: return
-        _state.value = current.copy(concurrentEditSection = null)
+        _state.update { (it as? ConfigEditorUiState.Ready)?.copy(concurrentEditSection = null) ?: it }
     }
 }

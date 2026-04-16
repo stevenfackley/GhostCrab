@@ -1,6 +1,9 @@
 package com.openclaw.ghostcrab.di
 
+import com.openclaw.ghostcrab.data.api.OpenClawApiClient
+import com.openclaw.ghostcrab.data.api.dto.HealthResponse
 import com.openclaw.ghostcrab.data.discovery.NsdDiscoveryServiceImpl
+
 import com.openclaw.ghostcrab.data.impl.AIRecommendationServiceImpl
 import com.openclaw.ghostcrab.data.impl.ConfigRepositoryImpl
 import com.openclaw.ghostcrab.data.impl.ConnectionProfileRepositoryImpl
@@ -32,4 +35,10 @@ val dataModule = module {
     single<DiscoveryService> { NsdDiscoveryServiceImpl(androidContext()) }
     single<OnboardingRepository> { OnboardingRepositoryImpl(androidContext()) }
     single<SettingsRepository> { SettingsRepositoryImpl(androidContext()) }
+}
+
+/** Unauthenticated `/health` probe — creates and closes a client per call. */
+internal suspend fun gatewayHealthCheck(url: String): HealthResponse {
+    val client = OpenClawApiClient.unauthenticated(url)
+    return try { client.health() } finally { client.close() }
 }

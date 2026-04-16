@@ -91,7 +91,7 @@ fun QrScanScreen(
         }
     }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect("permission") {
         val alreadyGranted = ContextCompat.checkSelfPermission(
             context, Manifest.permission.CAMERA
         ) == PermissionChecker.PERMISSION_GRANTED
@@ -99,7 +99,7 @@ fun QrScanScreen(
         else permissionLauncher.launch(Manifest.permission.CAMERA)
     }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(viewModel) {
         viewModel.events.collect { event ->
             when (event) {
                 is QrScanEvent.NavigateToManualEntry -> onNavigateToManualEntry(event.url)

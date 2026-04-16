@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /**
@@ -71,14 +72,14 @@ class SettingsViewModel(
      * Opens the delete-confirmation dialog for [profileId].
      */
     fun requestDeleteProfile(profileId: String) {
-        withReady { _state.value = it.copy(pendingDeleteProfileId = profileId) }
+        withReady { it.copy(pendingDeleteProfileId = profileId) }
     }
 
     /**
      * Cancels the pending profile deletion dialog.
      */
     fun cancelDeleteProfile() {
-        withReady { _state.value = it.copy(pendingDeleteProfileId = null) }
+        withReady { it.copy(pendingDeleteProfileId = null) }
     }
 
     /**
@@ -88,10 +89,10 @@ class SettingsViewModel(
      */
     fun confirmDeleteProfile() {
         val profileId = (_state.value as? SettingsUiState.Ready)?.pendingDeleteProfileId ?: return
-        withReady { _state.value = it.copy(pendingDeleteProfileId = null) }
+        withReady { it.copy(pendingDeleteProfileId = null) }
         viewModelScope.launch {
             runCatching { profileRepository.deleteProfile(profileId) }
-                .onFailure { withReady { s -> _state.value = s.copy(errorMessage = it.message) } }
+                .onFailure { e -> withReady { s -> s.copy(errorMessage = e.message) } }
         }
     }
 
@@ -99,7 +100,7 @@ class SettingsViewModel(
      * Opens the edit sheet for [profile].
      */
     fun startEditProfile(profile: ConnectionProfile) {
-        withReady { _state.value = it.copy(editingProfile = profile) }
+        withReady { it.copy(editingProfile = profile) }
     }
 
     /**
@@ -113,7 +114,7 @@ class SettingsViewModel(
      */
     fun saveProfileEdit(displayName: String, newToken: String?) {
         val current = (_state.value as? SettingsUiState.Ready)?.editingProfile ?: return
-        withReady { _state.value = it.copy(editingProfile = null) }
+        withReady { it.copy(editingProfile = null) }
         viewModelScope.launch {
             runCatching {
                 val updated = current.copy(displayName = displayName.trim())
@@ -123,7 +124,7 @@ class SettingsViewModel(
                     else -> newToken
                 }
                 profileRepository.saveProfile(updated, tokenToSave)
-            }.onFailure { withReady { s -> _state.value = s.copy(errorMessage = it.message) } }
+            }.onFailure { e -> withReady { s -> s.copy(errorMessage = e.message) } }
         }
     }
 
@@ -131,7 +132,7 @@ class SettingsViewModel(
      * Dismisses the edit sheet without saving.
      */
     fun cancelEditProfile() {
-        withReady { _state.value = it.copy(editingProfile = null) }
+        withReady { it.copy(editingProfile = null) }
     }
 
     // ── Security ──────────────────────────────────────────────────────────────
@@ -140,14 +141,14 @@ class SettingsViewModel(
      * Shows the "Clear all profiles" confirmation dialog.
      */
     fun requestClearAllProfiles() {
-        withReady { _state.value = it.copy(showClearAllConfirmation = true) }
+        withReady { it.copy(showClearAllConfirmation = true) }
     }
 
     /**
      * Dismisses the "Clear all profiles" confirmation dialog.
      */
     fun cancelClearAllProfiles() {
-        withReady { _state.value = it.copy(showClearAllConfirmation = false) }
+        withReady { it.copy(showClearAllConfirmation = false) }
     }
 
     /**
@@ -155,11 +156,11 @@ class SettingsViewModel(
      */
     fun confirmClearAllProfiles() {
         val profiles = (_state.value as? SettingsUiState.Ready)?.profiles ?: return
-        withReady { _state.value = it.copy(showClearAllConfirmation = false) }
+        withReady { it.copy(showClearAllConfirmation = false) }
         viewModelScope.launch {
             profiles.forEach { profile ->
                 runCatching { profileRepository.deleteProfile(profile.id) }
-                    .onFailure { withReady { s -> _state.value = s.copy(errorMessage = it.message) } }
+                    .onFailure { e -> withReady { s -> s.copy(errorMessage = e.message) } }
             }
         }
     }
@@ -174,8 +175,8 @@ class SettingsViewModel(
     fun replayWalkthrough() {
         viewModelScope.launch {
             runCatching { onboardingRepository.reset() }
-                .onSuccess { withReady { _state.value = it.copy(onboardingResetSuccess = true) } }
-                .onFailure { withReady { s -> _state.value = s.copy(errorMessage = it.message) } }
+                .onSuccess { withReady { it.copy(onboardingResetSuccess = true) } }
+                .onFailure { e -> withReady { s -> s.copy(errorMessage = e.message) } }
         }
     }
 
@@ -183,7 +184,7 @@ class SettingsViewModel(
      * Clears the walkthrough-reset success flag after it has been shown.
      */
     fun clearOnboardingResetSuccess() {
-        withReady { _state.value = it.copy(onboardingResetSuccess = false) }
+        withReady { it.copy(onboardingResetSuccess = false) }
     }
 
     // ── Error ─────────────────────────────────────────────────────────────────
@@ -192,12 +193,12 @@ class SettingsViewModel(
      * Clears the transient error message after it has been shown.
      */
     fun clearError() {
-        withReady { _state.value = it.copy(errorMessage = null) }
+        withReady { it.copy(errorMessage = null) }
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private inline fun withReady(block: (SettingsUiState.Ready) -> Unit) {
-        (_state.value as? SettingsUiState.Ready)?.let(block)
+    private fun withReady(block: (SettingsUiState.Ready) -> SettingsUiState) {
+        _state.update { if (it is SettingsUiState.Ready) block(it) else it }
     }
 }

@@ -78,6 +78,9 @@ class ManualEntryViewModel(
             runCatching {
                 connectionManager.connect(state.url.trim(), token)
             }.onSuccess {
+                // TOCTOU: read connectionState after connect() returns. The state is Connected here
+                // because connect() only returns on success, but a concurrent disconnect could
+                // theoretically arrive between the two lines — displayName falls back to URL in that case.
                 val connected = connectionManager.connectionState.value
                 val profile = ConnectionProfile(
                     id = UUID.randomUUID().toString(),

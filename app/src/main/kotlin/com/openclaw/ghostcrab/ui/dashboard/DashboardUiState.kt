@@ -8,18 +8,14 @@ import com.openclaw.ghostcrab.domain.model.ModelInfo
  *
  * @param lastOkMs Epoch millis of the last successful poll, or null if never polled.
  * @param lastError Error message from the last failed poll, or null if the last poll succeeded.
+ * @param isStale True when the last successful health check was more than 60 s ago.
+ *   Computed by DashboardViewModel at emission time so Compose structural equality stays stable.
  */
 data class HealthSnapshot(
     val lastOkMs: Long?,
     val lastError: String?,
+    val isStale: Boolean = false,
 ) {
-    /**
-     * True when the last successful health check was more than 60 s ago.
-     * Drives the amber "stale" status dot in the UI.
-     */
-    val isStale: Boolean
-        get() = lastOkMs != null && (System.currentTimeMillis() - lastOkMs > STALE_THRESHOLD_MS)
-
     companion object {
         const val STALE_THRESHOLD_MS = 60_000L
     }

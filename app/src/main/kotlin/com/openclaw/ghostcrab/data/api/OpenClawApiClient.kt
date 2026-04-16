@@ -8,6 +8,7 @@ import com.openclaw.ghostcrab.data.api.dto.StatusResponse
 import com.openclaw.ghostcrab.domain.exception.ConfigValidationException
 import com.openclaw.ghostcrab.domain.exception.GatewayApiException
 import com.openclaw.ghostcrab.domain.exception.GatewayAuthException
+import com.openclaw.ghostcrab.domain.exception.GatewayException
 import com.openclaw.ghostcrab.domain.exception.GatewayTimeoutException
 import com.openclaw.ghostcrab.domain.exception.GatewayTlsException
 import com.openclaw.ghostcrab.domain.exception.GatewayUnreachableException

@@ -13,6 +13,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /**
@@ -81,28 +82,32 @@ class DashboardViewModel(
                 try {
                     healthChecker(conn.url)
                     consecutiveFailures = 0
-                    (_state.value as? DashboardUiState.Ready)?.let { current ->
-                        _state.value = current.copy(
-                            health = HealthSnapshot(lastOkMs = System.currentTimeMillis(), lastError = null),
-                        )
+                    _state.update {
+                        if (it is DashboardUiState.Ready) it.copy(
+                            health = HealthSnapshot(lastOkMs = System.currentTimeMillis(), lastError = null, isStale = false),
+                        ) else it
                     }
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
                     consecutiveFailures++
-                    (_state.value as? DashboardUiState.Ready)?.let { current ->
-                        _state.value = current.copy(
+                    val nowMs = System.currentTimeMillis()
+                    _state.update {
+                        if (it is DashboardUiState.Ready) it.copy(
                             health = HealthSnapshot(
-                                lastOkMs = current.health.lastOkMs,
+                                lastOkMs = it.health.lastOkMs,
                                 lastError = e.message,
+                                isStale = it.health.lastOkMs != null &&
+                                    (nowMs - it.health.lastOkMs > HealthSnapshot.STALE_THRESHOLD_MS),
                             ),
-                        )
+                        ) else it
                     }
                     if (consecutiveFailures >= DEGRADED_FAILURE_THRESHOLD) {
                         _state.value = DashboardUiState.Degraded(e.message ?: "Health check failed")
-                        break
+                        break  // degraded break exits without waiting for the next delay
                     }
                 }
+                // delay comes after success or sub-threshold failure; degraded break skips it
                 delay(POLL_INTERVAL_MS)
             }
         }

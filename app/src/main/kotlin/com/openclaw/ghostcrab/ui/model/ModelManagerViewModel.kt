@@ -9,6 +9,7 @@ import com.openclaw.ghostcrab.domain.repository.ModelRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /**
@@ -68,18 +69,19 @@ public class ModelManagerViewModel(
      * @param modelId The model to request activation for.
      */
     public fun requestSwap(modelId: String) {
-        val current = _state.value as? ModelManagerUiState.Ready ?: return
-        val model = current.models.find { it.id == modelId } ?: return
-        if (model.isActive) return
-        _state.value = current.copy(pendingSwapId = modelId)
+        _state.update { state ->
+            if (state !is ModelManagerUiState.Ready) return@update state
+            val model = state.models.find { it.id == modelId } ?: return@update state
+            if (model.isActive) return@update state
+            state.copy(pendingSwapId = modelId)
+        }
     }
 
     /**
      * Dismisses the swap confirmation dialog without performing any action.
      */
     public fun cancelSwap() {
-        val current = _state.value as? ModelManagerUiState.Ready ?: return
-        _state.value = current.copy(pendingSwapId = null)
+        _state.update { (it as? ModelManagerUiState.Ready)?.copy(pendingSwapId = null) ?: it }
     }
 
     /**
@@ -120,15 +122,13 @@ public class ModelManagerViewModel(
      * Clears the swap-success snackbar flag after it has been shown.
      */
     public fun clearSwapSuccess() {
-        val current = _state.value as? ModelManagerUiState.Ready ?: return
-        _state.value = current.copy(swapSuccess = false)
+        _state.update { (it as? ModelManagerUiState.Ready)?.copy(swapSuccess = false) ?: it }
     }
 
     /**
      * Clears the swap-error snackbar message after it has been shown.
      */
     public fun clearSwapError() {
-        val current = _state.value as? ModelManagerUiState.Ready ?: return
-        _state.value = current.copy(swapError = null)
+        _state.update { (it as? ModelManagerUiState.Ready)?.copy(swapError = null) ?: it }
     }
 }
