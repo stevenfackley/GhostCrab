@@ -74,6 +74,7 @@ android {
     testOptions {
         unitTests.all {
             it.useJUnitPlatform()
+            it.jvmArgs("-Xmx1g")
             // Use a unique binary results path per invocation to avoid Windows file-lock issues.
             // The old directories accumulate in TEMP but are small; clean them manually as needed.
             it.binaryResultsDirectory.set(

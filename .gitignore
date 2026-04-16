@@ -3,7 +3,7 @@
 /local.properties
 /.idea
 .DS_Store
-/build
+build/
 /captures
 .externalNativeBuild
 .cxx
@@ -12,3 +12,6 @@ local.properties
 .claude/settings.local.json
 IconKitchen-Output/
 .superpowers/
+docs/superpowers/
+hs_err_pid*.log
+replay_pid*.log
