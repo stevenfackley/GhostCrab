@@ -1,6 +1,7 @@
 package com.openclaw.ghostcrab
 
 import android.app.Application
+import com.openclaw.ghostcrab.crash.PrivacySafeUncaughtExceptionHandler
 import com.openclaw.ghostcrab.di.appModule
 import org.koin.android.ext.koin.androidContext
 import org.koin.android.ext.koin.androidLogger
@@ -10,6 +11,9 @@ import org.koin.core.logger.Level
 class GhostCrabApp : Application() {
     override fun onCreate() {
         super.onCreate()
+        Thread.setDefaultUncaughtExceptionHandler(
+            PrivacySafeUncaughtExceptionHandler(Thread.getDefaultUncaughtExceptionHandler())
+        )
         startKoin {
             androidContext(this@GhostCrabApp)
             androidLogger(if (BuildConfig.DEBUG) Level.DEBUG else Level.ERROR)
