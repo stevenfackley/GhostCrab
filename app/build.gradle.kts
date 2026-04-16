@@ -8,7 +8,7 @@ plugins {
 
 android {
     namespace = "com.openclaw.ghostcrab"
-    compileSdk = 36
+    compileSdk = 35
 
     val gitSha: String = try {
         providers.exec { commandLine("git", "rev-parse", "--short", "HEAD") }
@@ -82,8 +82,7 @@ android {
             )
         }
     }
-    compileSdkMinor = 1
-    buildToolsVersion = "37.0.0"
+    buildToolsVersion = "35.0.0"
 }
 
 // Convenience: print the AAB path after a successful bundle task

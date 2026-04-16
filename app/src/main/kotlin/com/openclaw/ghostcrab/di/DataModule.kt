@@ -24,7 +24,7 @@ val dataModule = module {
     single { ConnectionProfileStore(androidContext()) }
     single<ConnectionProfileRepository> { ConnectionProfileRepositoryImpl(get()) }
     // Register the concrete type first so dependent impls can get<GatewayConnectionManagerImpl>()
-    single { GatewayConnectionManagerImpl() }
+    single { GatewayConnectionManagerImpl(settingsRepository = get()) }
     single<GatewayConnectionManager> { get<GatewayConnectionManagerImpl>() }
     single<ConfigRepository> { ConfigRepositoryImpl(get<GatewayConnectionManagerImpl>()) }
     single<ModelRepository> { ModelRepositoryImpl(get<GatewayConnectionManagerImpl>()) }

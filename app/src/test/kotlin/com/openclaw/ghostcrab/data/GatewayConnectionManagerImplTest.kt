@@ -43,8 +43,8 @@ class GatewayConnectionManagerImplTest {
         probeClient = mockk(relaxed = true)
         sessionClient = mockk(relaxed = true)
         factory = mockk {
-            every { unauthenticated(any()) } returns probeClient
-            every { authenticated(any(), any()) } returns sessionClient
+            every { unauthenticated(any(), any()) } returns probeClient
+            every { authenticated(any(), any(), any()) } returns sessionClient
         }
         manager = GatewayConnectionManagerImpl(factory)
     }

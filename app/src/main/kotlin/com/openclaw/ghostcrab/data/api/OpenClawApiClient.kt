@@ -221,14 +221,25 @@ class OpenClawApiClient private constructor(
     companion object {
 
         /** Client with no authentication — use for [health] and [probeAuth] probes. */
-        fun unauthenticated(baseUrl: String): OpenClawApiClient =
-            OpenClawApiClient(baseUrl, buildHttpClient(token = null))
+        fun unauthenticated(
+            baseUrl: String,
+            allowCleartextPublicIPs: Boolean = false,
+        ): OpenClawApiClient =
+            OpenClawApiClient(baseUrl, buildHttpClient(token = null, allowCleartextPublicIPs))
 
         /** Client with Bearer token authentication — use for live sessions. */
-        fun authenticated(baseUrl: String, token: String): OpenClawApiClient =
-            OpenClawApiClient(baseUrl, buildHttpClient(token = token))
+        fun authenticated(
+            baseUrl: String,
+            token: String,
+            allowCleartextPublicIPs: Boolean = false,
+        ): OpenClawApiClient =
+            OpenClawApiClient(baseUrl, buildHttpClient(token = token, allowCleartextPublicIPs))
 
-        private fun buildHttpClient(token: String?): HttpClient = HttpClient(OkHttp) {
+        private fun buildHttpClient(token: String?, allowCleartextPublicIPs: Boolean): HttpClient =
+            HttpClient(OkHttp) {
+            engine {
+                addInterceptor(CleartextPublicIpInterceptor { allowCleartextPublicIPs })
+            }
             install(ContentNegotiation) {
                 json(Json {
                     ignoreUnknownKeys = true

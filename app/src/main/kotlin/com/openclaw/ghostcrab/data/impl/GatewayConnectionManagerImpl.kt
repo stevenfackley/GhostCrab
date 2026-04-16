@@ -7,10 +7,12 @@ import com.openclaw.ghostcrab.domain.exception.GatewayUnreachableException
 import com.openclaw.ghostcrab.domain.model.AuthRequirement
 import com.openclaw.ghostcrab.domain.model.GatewayConnection
 import com.openclaw.ghostcrab.domain.repository.GatewayConnectionManager
+import com.openclaw.ghostcrab.domain.repository.SettingsRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -25,6 +27,7 @@ import kotlinx.coroutines.withContext
  */
 class GatewayConnectionManagerImpl(
     private val clientFactory: OpenClawApiClientFactory = DefaultClientFactory,
+    private val settingsRepository: SettingsRepository? = null,
 ) : GatewayConnectionManager {
 
     private val _connectionState = MutableStateFlow<GatewayConnection>(GatewayConnection.Disconnected)
@@ -34,7 +37,8 @@ class GatewayConnectionManagerImpl(
     private val mutex = Mutex()
 
     override suspend fun probeAuth(url: String): AuthRequirement = withContext(Dispatchers.IO) {
-        val probe = clientFactory.unauthenticated(url)
+        val allowCleartext = settingsRepository?.allowCleartextPublicIPs?.firstOrNull() ?: false
+        val probe = clientFactory.unauthenticated(url, allowCleartext)
         try {
             probe.health() // throws GatewayUnreachableException if down
             try {
@@ -57,11 +61,12 @@ class GatewayConnectionManagerImpl(
             _connectionState.value = GatewayConnection.Connecting(url)
 
             try {
+                val allowCleartext = settingsRepository?.allowCleartextPublicIPs?.firstOrNull() ?: false
                 val authReq = probeAuth(url)
                 val client = if (token != null) {
-                    clientFactory.authenticated(url, token)
+                    clientFactory.authenticated(url, token, allowCleartext)
                 } else {
-                    clientFactory.unauthenticated(url)
+                    clientFactory.unauthenticated(url, allowCleartext)
                 }
                 val statusResponse = client.status()
                 val isHttps = url.startsWith("https://", ignoreCase = true)
@@ -101,11 +106,13 @@ class GatewayConnectionManagerImpl(
 // ── Factory interface for testability ────────────────────────────────────────
 
 interface OpenClawApiClientFactory {
-    fun unauthenticated(baseUrl: String): OpenClawApiClient
-    fun authenticated(baseUrl: String, token: String): OpenClawApiClient
+    fun unauthenticated(baseUrl: String, allowCleartextPublicIPs: Boolean = false): OpenClawApiClient
+    fun authenticated(baseUrl: String, token: String, allowCleartextPublicIPs: Boolean = false): OpenClawApiClient
 }
 
 object DefaultClientFactory : OpenClawApiClientFactory {
-    override fun unauthenticated(baseUrl: String) = OpenClawApiClient.unauthenticated(baseUrl)
-    override fun authenticated(baseUrl: String, token: String) = OpenClawApiClient.authenticated(baseUrl, token)
+    override fun unauthenticated(baseUrl: String, allowCleartextPublicIPs: Boolean) =
+        OpenClawApiClient.unauthenticated(baseUrl, allowCleartextPublicIPs)
+    override fun authenticated(baseUrl: String, token: String, allowCleartextPublicIPs: Boolean) =
+        OpenClawApiClient.authenticated(baseUrl, token, allowCleartextPublicIPs)
 }
