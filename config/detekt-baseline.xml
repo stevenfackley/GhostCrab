@@ -3,6 +3,8 @@
   <ManuallySuppressedIssues></ManuallySuppressedIssues>
   <CurrentIssues>
     <ID>CyclomaticComplexMethod:OnboardingViewModel.kt$OnboardingViewModel$private suspend fun advance(forward: Boolean)</ID>
+    <ID>EmptyFunctionBlock:ConnectionPickerViewModelTest.kt$FakeCpConnectionManager${}</ID>
+    <ID>EmptyFunctionBlock:ConnectionPickerViewModelTest.kt$FakeCpOnboardingRepo${}</ID>
     <ID>EmptyFunctionBlock:NsdDiscoveryServiceImpl.kt$NsdDiscoveryServiceImpl.&lt;no name provided&gt;${}</ID>
     <ID>EmptyFunctionBlock:ScanViewModelTest.kt$FakeConnectionManager${}</ID>
     <ID>EmptyFunctionBlock:ScanViewModelTest.kt$FakeDiscoveryService${}</ID>
@@ -22,9 +24,9 @@
     <ID>FunctionNaming:ConfigEditorScreen.kt$@Composable private fun SectionCard( sectionKey: String, sectionValue: kotlinx.serialization.json.JsonElement, originalValue: kotlinx.serialization.json.JsonElement, isExpanded: Boolean, hasPending: Boolean, fieldErrors: Map&lt;String, String&gt;, onToggleExpand: () -&gt; Unit, onEdit: (kotlinx.serialization.json.JsonElement) -&gt; Unit, onFieldError: (String, String?) -&gt; Unit, onSave: () -&gt; Unit, onDiscard: () -&gt; Unit, )</ID>
     <ID>FunctionNaming:ConfigEditorScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun ConfigEditorScreen( onNavigateBack: () -&gt; Unit, )</ID>
     <ID>FunctionNaming:ConnectedStep.kt$@Composable public fun ConnectedStep(onDone: () -&gt; Unit)</ID>
-    <ID>FunctionNaming:ConnectionPickerScreen.kt$@Composable private fun EmptyState( modifier: Modifier, onScanLan: () -&gt; Unit, onManualEntry: () -&gt; Unit, )</ID>
+    <ID>FunctionNaming:ConnectionPickerScreen.kt$@Composable private fun EmptyState( modifier: Modifier, onScanQr: () -&gt; Unit, onScanLan: () -&gt; Unit, onManualEntry: () -&gt; Unit, )</ID>
     <ID>FunctionNaming:ConnectionPickerScreen.kt$@Composable private fun ProfileCard( profile: ConnectionProfile, isConnecting: Boolean, onConnect: () -&gt; Unit, onDelete: () -&gt; Unit, )</ID>
-    <ID>FunctionNaming:ConnectionPickerScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun ConnectionPickerScreen( onNavigateToManualEntry: () -&gt; Unit, onNavigateToScan: () -&gt; Unit, onNavigateToDashboard: () -&gt; Unit, onNavigateToOnboarding: () -&gt; Unit = {}, viewModel: ConnectionPickerViewModel = koinViewModel(), )</ID>
+    <ID>FunctionNaming:ConnectionPickerScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun ConnectionPickerScreen( onNavigateToManualEntry: () -&gt; Unit, onNavigateToScan: () -&gt; Unit, onNavigateToQrScan: () -&gt; Unit, onNavigateToDashboard: () -&gt; Unit, onNavigateToOnboarding: () -&gt; Unit = {}, viewModel: ConnectionPickerViewModel = koinViewModel(), )</ID>
     <ID>FunctionNaming:ConnectionStatusBar.kt$@Composable fun ConnectionStatusBar( state: GatewayConnection, modifier: Modifier = Modifier, )</ID>
     <ID>FunctionNaming:ConnectionStatusBar.kt$@Composable private fun AuthBadge(authRequirement: AuthRequirement)</ID>
     <ID>FunctionNaming:ConnectionStatusBar.kt$@Composable private fun MonoText(text: String)</ID>
@@ -60,6 +62,11 @@
     <ID>FunctionNaming:OnboardingScaffold.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable public fun OnboardingScaffold( step: OnboardingStep, onBack: (() -&gt; Unit)?, onSkip: () -&gt; Unit, title: String, content: @Composable ColumnScope.() -&gt; Unit, )</ID>
     <ID>FunctionNaming:OnboardingScreen.kt$@Composable public fun OnboardingScreen( onSkip: () -&gt; Unit, onScan: () -&gt; Unit, onManualEntry: () -&gt; Unit, onDone: () -&gt; Unit, viewModel: OnboardingViewModel = koinViewModel(), )</ID>
     <ID>FunctionNaming:PendingChangesDiffSheet.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun PendingChangesDiffSheet( sectionKey: String, oldValue: JsonElement, newValue: JsonElement, onConfirm: () -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
+    <ID>FunctionNaming:QrScanScreen.kt$@Composable private fun PermissionDeniedDialog( onOpenSettings: () -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
+    <ID>FunctionNaming:QrScanScreen.kt$@Composable private fun ViewfinderOverlay(modifier: Modifier)</ID>
+    <ID>FunctionNaming:QrScanScreen.kt$@OptIn(ExperimentalGetImage::class) @Composable private fun CameraPreview( modifier: Modifier, onQrDecoded: (String) -&gt; Unit, )</ID>
+    <ID>FunctionNaming:QrScanScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun QrScanScreen( onNavigateToManualEntry: (String) -&gt; Unit, onNavigateBack: () -&gt; Unit, viewModel: QrScanViewModel = koinViewModel(), )</ID>
+    <ID>FunctionNaming:QrScanScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable private fun QrTopBar(onNavigateBack: () -&gt; Unit)</ID>
     <ID>FunctionNaming:RawJsonSectionEditor.kt$@Composable fun RawJsonSectionEditor( sectionKey: String, sectionValue: JsonElement, onEdit: (JsonElement) -&gt; Unit, )</ID>
     <ID>FunctionNaming:ScanScreen.kt$@Composable private fun EmptyResultsContent(modifier: Modifier = Modifier)</ID>
     <ID>FunctionNaming:ScanScreen.kt$@Composable private fun ErrorContent( reason: String, onRetry: () -&gt; Unit, )</ID>
@@ -90,7 +97,8 @@
     <ID>LongMethod:ApplySuggestionsSheet.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun ApplySuggestionsSheet( changes: List&lt;SuggestedChange&gt;, selectedChanges: Set&lt;SuggestedChange&gt;, isApplying: Boolean, onToggle: (SuggestedChange) -&gt; Unit, onApply: () -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
     <ID>LongMethod:ConfigEditorScreen.kt$@Composable private fun SectionCard( sectionKey: String, sectionValue: kotlinx.serialization.json.JsonElement, originalValue: kotlinx.serialization.json.JsonElement, isExpanded: Boolean, hasPending: Boolean, fieldErrors: Map&lt;String, String&gt;, onToggleExpand: () -&gt; Unit, onEdit: (kotlinx.serialization.json.JsonElement) -&gt; Unit, onFieldError: (String, String?) -&gt; Unit, onSave: () -&gt; Unit, onDiscard: () -&gt; Unit, )</ID>
     <ID>LongMethod:ConfigEditorScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun ConfigEditorScreen( onNavigateBack: () -&gt; Unit, )</ID>
-    <ID>LongMethod:ConnectionPickerScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun ConnectionPickerScreen( onNavigateToManualEntry: () -&gt; Unit, onNavigateToScan: () -&gt; Unit, onNavigateToDashboard: () -&gt; Unit, onNavigateToOnboarding: () -&gt; Unit = {}, viewModel: ConnectionPickerViewModel = koinViewModel(), )</ID>
+    <ID>LongMethod:ConnectionPickerScreen.kt$@Composable private fun EmptyState( modifier: Modifier, onScanQr: () -&gt; Unit, onScanLan: () -&gt; Unit, onManualEntry: () -&gt; Unit, )</ID>
+    <ID>LongMethod:ConnectionPickerScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun ConnectionPickerScreen( onNavigateToManualEntry: () -&gt; Unit, onNavigateToScan: () -&gt; Unit, onNavigateToQrScan: () -&gt; Unit, onNavigateToDashboard: () -&gt; Unit, onNavigateToOnboarding: () -&gt; Unit = {}, viewModel: ConnectionPickerViewModel = koinViewModel(), )</ID>
     <ID>LongMethod:FindOnNetworkStep.kt$@Composable public fun FindOnNetworkStep( onScan: () -&gt; Unit, onManualEntry: () -&gt; Unit, )</ID>
     <ID>LongMethod:GatewaySectionEditor.kt$@Composable fun GatewaySectionEditor( sectionValue: JsonElement, fieldErrors: Map&lt;String, String&gt;, onEdit: (JsonElement) -&gt; Unit, onFieldError: (field: String, error: String?) -&gt; Unit, )</ID>
     <ID>LongMethod:InstallGatewayStep.kt$@Composable public fun InstallGatewayStep( snackbarHostState: SnackbarHostState, onNext: () -&gt; Unit, )</ID>
@@ -103,6 +111,7 @@
     <ID>LongMethod:OnboardingScaffold.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable public fun OnboardingScaffold( step: OnboardingStep, onBack: (() -&gt; Unit)?, onSkip: () -&gt; Unit, title: String, content: @Composable ColumnScope.() -&gt; Unit, )</ID>
     <ID>LongMethod:OnboardingScreen.kt$@Composable public fun OnboardingScreen( onSkip: () -&gt; Unit, onScan: () -&gt; Unit, onManualEntry: () -&gt; Unit, onDone: () -&gt; Unit, viewModel: OnboardingViewModel = koinViewModel(), )</ID>
     <ID>LongMethod:PendingChangesDiffSheet.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun PendingChangesDiffSheet( sectionKey: String, oldValue: JsonElement, newValue: JsonElement, onConfirm: () -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
+    <ID>LongMethod:QrScanScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun QrScanScreen( onNavigateToManualEntry: (String) -&gt; Unit, onNavigateBack: () -&gt; Unit, viewModel: QrScanViewModel = koinViewModel(), )</ID>
     <ID>LongMethod:ScanScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun ScanScreen( onNavigateBack: () -&gt; Unit, onNavigateToManualEntry: (String) -&gt; Unit, onNavigateToDashboard: () -&gt; Unit, viewModel: ScanViewModel = koinViewModel(), )</ID>
     <ID>LongMethod:SettingsScreen.kt$@Composable private fun EditProfileDialog( profile: ConnectionProfile, onSave: (displayName: String, newToken: String?) -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
     <ID>LongMethod:SettingsScreen.kt$@Composable private fun ReadyContent( state: SettingsUiState.Ready, modifier: Modifier, onToggleCleartext: (Boolean) -&gt; Unit, onEditProfile: (ConnectionProfile) -&gt; Unit, onDeleteProfile: (ConnectionProfile) -&gt; Unit, onRequestClearAll: () -&gt; Unit, onReplayWalkthrough: () -&gt; Unit, )</ID>
@@ -141,6 +150,7 @@
     <ID>TooGenericExceptionCaught:DashboardViewModel.kt$DashboardViewModel$e: Exception</ID>
     <ID>TooGenericExceptionCaught:OpenClawApiClient.kt$e: Exception</ID>
     <ID>TooGenericExceptionCaught:ScanViewModel.kt$ScanViewModel$e: Exception</ID>
+    <ID>TooGenericExceptionThrown:ConnectionPickerViewModelTest.kt$ConnectionPickerViewModelTest.&lt;no name provided&gt;$throw RuntimeException("refused")</ID>
     <ID>TooGenericExceptionThrown:DashboardViewModelTest.kt$DashboardViewModelTest$throw RuntimeException("connection refused")</ID>
     <ID>TooGenericExceptionThrown:DashboardViewModelTest.kt$DashboardViewModelTest$throw RuntimeException("timeout")</ID>
     <ID>TooManyFunctions:DashboardScreen.kt$com.openclaw.ghostcrab.ui.dashboard.DashboardScreen.kt</ID>
