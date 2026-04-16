@@ -1,12 +1,7 @@
 package com.openclaw.ghostcrab.ui.navigation
 
 import android.net.Uri
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -14,6 +9,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.openclaw.ghostcrab.ui.airecommend.AIRecommendationScreen
 import com.openclaw.ghostcrab.ui.config.ConfigEditorScreen
+import com.openclaw.ghostcrab.ui.settings.SettingsScreen
 import com.openclaw.ghostcrab.ui.connection.ConnectionPickerScreen
 import com.openclaw.ghostcrab.ui.connection.ManualEntryScreen
 import com.openclaw.ghostcrab.ui.connection.ScanScreen
@@ -120,6 +116,7 @@ fun NavGraph() {
                 onNavigateToConfig = { navController.navigate("config_editor") },
                 onNavigateToModels = { navController.navigate("model_manager") },
                 onNavigateToAiRecommend = { navController.navigate("ai_recommendation") },
+                onNavigateToSettings = { navController.navigate("settings") },
             )
         }
 
@@ -156,10 +153,7 @@ fun NavGraph() {
             AIRecommendationScreen(onNavigateBack = { navController.popBackStack() })
         }
         composable("settings") {
-            // Phase 9: SettingsScreen placeholder
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(text = "Settings\n(Phase 9)")
-            }
+            SettingsScreen(onNavigateBack = { navController.popBackStack() })
         }
     }
 }

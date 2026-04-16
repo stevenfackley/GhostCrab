@@ -46,7 +46,7 @@ This plan is designed for **stateless execution**. Each phase below is a self-co
 | 6 | Config Editor (Forms over `openclaw.json`) | 🟢 Done | 2026-04-15 | 2026-04-15 | — | Sonnet 4.6 | GatewaySection typed wrappers; ETag-aware ConfigRepositoryImpl; getConfig/updateConfig on ApiClient (GET /config, PATCH /config/{section}); ToggleRow/IntFieldRow/StringFieldRow/EnumDropdownRow form components; PendingChangesDiffSheet; 9 VM tests |
 | 7 | Model Manager | 🟢 Done | 2026-04-15 | 2026-04-15 | — | Sonnet 4.6 | ModelRepositoryImpl over GET /api/models/status + POST /api/models/active; ModelManagerScreen with cyan active border, confirmation dialog, snackbar; ModelDetailSheet ModalBottomSheet; 8 VM tests |
 | 8 | AI Recommendations (Gateway-Proxied CLI) | 🟢 Done | 2026-04-15 | 2026-04-16 | — | Sonnet 4.6 | AIRecommendationServiceImpl (capability probe via connectionState, POST /api/ai/recommend); 404→AIServiceUnavailableException, 429→AIQuotaExceededException; hardwareInfo added to GatewayConnection.Connected; AI_PRO_ENABLED BuildConfig flag; ApplySuggestionsSheet ModalBottomSheet with per-change toggles; 12 VM tests |
-| 9 | Settings, Profile Management, About | ⬜ Not Started | — | — | — | — | — |
+| 9 | Settings, Profile Management, About | 🟢 Done | 2026-04-16 | 2026-04-16 | — | Sonnet 4.6 | SettingsRepository (allowCleartextPublicIPs DataStore pref); SettingsScreen with 4 sections (Connections, Onboarding, Security, About); profile edit dialog (displayName + token rotation); destructive confirmations for delete/clear-all; GIT_SHA + AI_PRO_ENABLED BuildConfig; Settings icon in Dashboard TopAppBar; 12 VM tests (76 total across all phases) |
 | 10 | Hardening: Tests, Crash Handling, Telemetry, Release | ⬜ Not Started | — | — | — | — | — |
 
 **Status legend:** ⬜ Not Started · 🟡 In Progress · 🟢 Done · 🔴 Blocked · ⚪ Skipped (with rationale)
@@ -529,7 +529,7 @@ WebSocket streaming · offline config cache · iOS · agent runtime on-device ·
 - [ ] Every action has a confirmation where destructive.
 - [ ] About screen exposes `BuildConfig.VERSION_NAME`, `BuildConfig.GIT_SHA`.
 
-**Handoff Block:** _to be filled_
+**Handoff Block:** Phase 9 complete. `SettingsRepository` / `SettingsRepositoryImpl` backed by `app_settings` DataStore. `SettingsScreen` has 4 sections: Connections (profile list + edit dialog + cleartext toggle), Onboarding (replay walkthrough via `OnboardingRepository.reset()`), Security (clear all profiles with confirmation), About (`BuildConfig.VERSION_NAME` + `BuildConfig.GIT_SHA` + API compatibility). Settings gear icon added to Dashboard TopAppBar. `GIT_SHA` baked in via `providers.exec { commandLine("git", "rev-parse", "--short", "HEAD") }`. All destructive actions require confirmation dialogs. `detektBaseline` updated. 12 VM tests; 76 total across all phases.
 
 ---
 

@@ -7,6 +7,7 @@ import com.openclaw.ghostcrab.data.impl.ConnectionProfileRepositoryImpl
 import com.openclaw.ghostcrab.data.impl.GatewayConnectionManagerImpl
 import com.openclaw.ghostcrab.data.impl.ModelRepositoryImpl
 import com.openclaw.ghostcrab.data.impl.OnboardingRepositoryImpl
+import com.openclaw.ghostcrab.data.impl.SettingsRepositoryImpl
 import com.openclaw.ghostcrab.data.storage.ConnectionProfileStore
 import com.openclaw.ghostcrab.domain.repository.AIRecommendationService
 import com.openclaw.ghostcrab.domain.repository.ConfigRepository
@@ -15,6 +16,7 @@ import com.openclaw.ghostcrab.domain.repository.DiscoveryService
 import com.openclaw.ghostcrab.domain.repository.GatewayConnectionManager
 import com.openclaw.ghostcrab.domain.repository.ModelRepository
 import com.openclaw.ghostcrab.domain.repository.OnboardingRepository
+import com.openclaw.ghostcrab.domain.repository.SettingsRepository
 import org.koin.android.ext.koin.androidContext
 import org.koin.dsl.module
 
@@ -29,4 +31,5 @@ val dataModule = module {
     single<AIRecommendationService> { AIRecommendationServiceImpl(get<GatewayConnectionManagerImpl>()) }
     single<DiscoveryService> { NsdDiscoveryServiceImpl(androidContext()) }
     single<OnboardingRepository> { OnboardingRepositoryImpl(androidContext()) }
+    single<SettingsRepository> { SettingsRepositoryImpl(androidContext()) }
 }

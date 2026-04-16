@@ -10,6 +10,11 @@ android {
     namespace = "com.openclaw.ghostcrab"
     compileSdk = 36
 
+    val gitSha: String = try {
+        providers.exec { commandLine("git", "rev-parse", "--short", "HEAD") }
+            .standardOutput.asText.get().trim()
+    } catch (_: Exception) { "unknown" }
+
     defaultConfig {
         applicationId = "com.openclaw.ghostcrab"
         minSdk = 26
@@ -19,6 +24,8 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // AI recommendations feature flag — true for v1.0; flip false to gate behind a pro paywall.
         buildConfigField("Boolean", "AI_PRO_ENABLED", "true")
+        // Git SHA baked in at build time — exposed on the About screen.
+        buildConfigField("String", "GIT_SHA", "\"$gitSha\"")
     }
 
     buildTypes {
