@@ -6,6 +6,7 @@
 # ── Ktor ─────────────────────────────────────────────────────────────────────
 -keep class io.ktor.** { *; }
 -dontwarn io.ktor.**
+-dontwarn org.slf4j.**
 
 # ── kotlinx.serialization ────────────────────────────────────────────────────
 -keep class kotlinx.serialization.** { *; }
