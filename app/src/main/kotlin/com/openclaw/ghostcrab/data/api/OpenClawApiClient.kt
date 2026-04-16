@@ -220,6 +220,10 @@ class OpenClawApiClient private constructor(
 
     companion object {
 
+        /** Test-only: create a client backed by a pre-built [HttpClient] (e.g. MockEngine). */
+        internal fun forTest(baseUrl: String, httpClient: HttpClient): OpenClawApiClient =
+            OpenClawApiClient(baseUrl, httpClient)
+
         /** Client with no authentication — use for [health] and [probeAuth] probes. */
         fun unauthenticated(
             baseUrl: String,
