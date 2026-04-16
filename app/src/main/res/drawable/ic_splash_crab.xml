@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <group
+        android:name="crab"
+        android:pivotX="54"
+        android:pivotY="54">
+
+        <!-- Body oval -->
+        <path
+            android:pathData="M54,70 A18,18 0 1 1 54.01,70 Z"
+            android:fillColor="#00000000"
+            android:strokeColor="#5BE9FF"
+            android:strokeWidth="3.5" />
+
+        <!-- Left eye stalk -->
+        <path
+            android:pathData="M46,36 C44,29 41,25 38,20"
+            android:fillColor="#00000000"
+            android:strokeColor="#5BE9FF"
+            android:strokeWidth="3"
+            android:strokeLineCap="round" />
+
+        <!-- Left eye -->
+        <path
+            android:pathData="M38,18 m-3,0 a3,3 0 1 0 6,0 a3,3 0 1 0 -6,0"
+            android:fillColor="#5BE9FF" />
+
+        <!-- Right eye stalk -->
+        <path
+            android:pathData="M62,36 C64,29 67,25 70,20"
+            android:fillColor="#00000000"
+            android:strokeColor="#5BE9FF"
+            android:strokeWidth="3"
+            android:strokeLineCap="round" />
+
+        <!-- Right eye -->
+        <path
+            android:pathData="M70,18 m-3,0 a3,3 0 1 0 6,0 a3,3 0 1 0 -6,0"
+            android:fillColor="#5BE9FF" />
+
+        <!-- Left claw -->
+        <path
+            android:pathData="M36,52 C24,46 14,50 12,58 C10,66 18,72 26,67"
+            android:fillColor="#00000000"
+            android:strokeColor="#5BE9FF"
+            android:strokeWidth="3.5"
+            android:strokeLineCap="round" />
+
+        <!-- Right claw -->
+        <path
+            android:pathData="M72,52 C84,46 94,50 96,58 C98,66 90,72 82,67"
+            android:fillColor="#00000000"
+            android:strokeColor="#5BE9FF"
+            android:strokeWidth="3.5"
+            android:strokeLineCap="round" />
+
+        <!-- Left leg -->
+        <path
+            android:pathData="M40,64 C32,68 28,74 30,80"
+            android:fillColor="#00000000"
+            android:strokeColor="#5BE9FF"
+            android:strokeWidth="2.5"
+            android:strokeLineCap="round" />
+
+        <!-- Right leg -->
+        <path
+            android:pathData="M68,64 C76,68 80,74 78,80"
+            android:fillColor="#00000000"
+            android:strokeColor="#5BE9FF"
+            android:strokeWidth="2.5"
+            android:strokeLineCap="round" />
+
+    </group>
+</vector>
