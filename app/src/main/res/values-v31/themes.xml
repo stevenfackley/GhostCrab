@@ -4,8 +4,6 @@
         <item name="windowSplashScreenBackground">#0F1115</item>
         <item name="windowSplashScreenAnimatedIcon">@drawable/animated_splash_crab</item>
         <item name="windowSplashScreenAnimationDuration">600</item>
-        <!-- logo_ghostcrab will be added by T4 (copies logo_cropped.png to drawable-nodpi/) -->
-        <!-- <item name="windowSplashScreenBrandingImage">@drawable/logo_ghostcrab</item> -->
         <item name="postSplashScreenTheme">@style/Theme.GhostCrab.Main</item>
     </style>
 </resources>
