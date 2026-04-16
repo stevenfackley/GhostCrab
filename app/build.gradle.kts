@@ -101,6 +101,13 @@ detekt {
     baseline = rootProject.file("config/detekt-baseline.xml")
 }
 
+tasks.withType<io.gitlab.arturbosch.detekt.Detekt>().configureEach {
+    baseline.set(rootProject.file("config/detekt-baseline.xml"))
+}
+tasks.withType<io.gitlab.arturbosch.detekt.DetektCreateBaselineTask>().configureEach {
+    baseline.set(rootProject.file("config/detekt-baseline.xml"))
+}
+
 dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
