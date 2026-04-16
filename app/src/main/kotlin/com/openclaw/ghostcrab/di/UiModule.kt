@@ -6,6 +6,7 @@ import com.openclaw.ghostcrab.ui.settings.SettingsViewModel
 import com.openclaw.ghostcrab.ui.config.ConfigEditorViewModel
 import com.openclaw.ghostcrab.ui.connection.ConnectionPickerViewModel
 import com.openclaw.ghostcrab.ui.connection.ManualEntryViewModel
+import com.openclaw.ghostcrab.ui.connection.QrScanViewModel
 import com.openclaw.ghostcrab.ui.connection.ScanViewModel
 import com.openclaw.ghostcrab.ui.dashboard.DashboardViewModel
 import com.openclaw.ghostcrab.ui.model.ModelManagerViewModel
@@ -32,4 +33,5 @@ val uiModule = module {
     viewModel { ModelManagerViewModel(get(), get()) }
     viewModel { AIRecommendationViewModel(get(), get(), get(), get()) }
     viewModel { SettingsViewModel(get(), get(), get()) }
+    viewModel { QrScanViewModel() }
 }
