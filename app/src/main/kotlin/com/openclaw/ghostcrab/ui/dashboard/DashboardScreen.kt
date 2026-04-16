@@ -18,6 +18,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -58,6 +59,7 @@ fun DashboardScreen(
     onNavigateToConfig: () -> Unit,
     onNavigateToModels: () -> Unit,
     onNavigateToAiRecommend: () -> Unit,
+    onNavigateToSettings: () -> Unit = {},
     viewModel: DashboardViewModel = koinViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -80,12 +82,12 @@ fun DashboardScreen(
                     }
                 },
                 actions = {
-                    OutlinedButton(
-                        onClick = { viewModel.disconnect() },
-                        modifier = Modifier.padding(end = Spacing.sm),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = BrandTokens.colorCrimsonError),
-                    ) {
-                        Text(stringResource(R.string.dashboard_disconnect))
+                    IconButton(onClick = onNavigateToSettings) {
+                        Icon(
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = stringResource(R.string.dashboard_action_settings),
+                            tint = BrandTokens.colorTextPrimary,
+                        )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(

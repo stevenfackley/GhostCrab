@@ -41,7 +41,7 @@
     <ID>FunctionNaming:DashboardScreen.kt$@Composable private fun ReadyContent( state: DashboardUiState.Ready, onNavigateToConfig: () -&gt; Unit, onNavigateToModels: () -&gt; Unit, onNavigateToAiRecommend: () -&gt; Unit, onDisconnect: () -&gt; Unit, modifier: Modifier = Modifier, )</ID>
     <ID>FunctionNaming:DashboardScreen.kt$@Composable private fun VersionPill(version: String)</ID>
     <ID>FunctionNaming:DashboardScreen.kt$@OptIn(ExperimentalLayoutApi::class) @Composable private fun GatewayHeaderCard(conn: GatewayConnection.Connected)</ID>
-    <ID>FunctionNaming:DashboardScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun DashboardScreen( onNavigateBack: () -&gt; Unit, onNavigateToConfig: () -&gt; Unit, onNavigateToModels: () -&gt; Unit, onNavigateToAiRecommend: () -&gt; Unit, viewModel: DashboardViewModel = koinViewModel(), )</ID>
+    <ID>FunctionNaming:DashboardScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun DashboardScreen( onNavigateBack: () -&gt; Unit, onNavigateToConfig: () -&gt; Unit, onNavigateToModels: () -&gt; Unit, onNavigateToAiRecommend: () -&gt; Unit, onNavigateToSettings: () -&gt; Unit = {}, viewModel: DashboardViewModel = koinViewModel(), )</ID>
     <ID>FunctionNaming:EnumDropdownRow.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun &lt;T : Enum&lt;T&gt;&gt; EnumDropdownRow( label: String, selected: T, options: List&lt;T&gt;, onSelected: (T) -&gt; Unit, labelFor: (T) -&gt; String = { it.name }, modifier: Modifier = Modifier, )</ID>
     <ID>FunctionNaming:FindOnNetworkStep.kt$@Composable public fun FindOnNetworkStep( onScan: () -&gt; Unit, onManualEntry: () -&gt; Unit, )</ID>
     <ID>FunctionNaming:GatewaySectionEditor.kt$@Composable fun GatewaySectionEditor( sectionValue: JsonElement, fieldErrors: Map&lt;String, String&gt;, onEdit: (JsonElement) -&gt; Unit, onFieldError: (field: String, error: String?) -&gt; Unit, )</ID>
@@ -70,6 +70,12 @@
     <ID>FunctionNaming:ScanScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun ScanScreen( onNavigateBack: () -&gt; Unit, onNavigateToManualEntry: (String) -&gt; Unit, onNavigateToDashboard: () -&gt; Unit, viewModel: ScanViewModel = koinViewModel(), )</ID>
     <ID>FunctionNaming:SecurityBanner.kt$@Composable fun HttpSecurityBanner(modifier: Modifier = Modifier)</ID>
     <ID>FunctionNaming:SecurityBanner.kt$@Composable fun NoAuthSecurityBanner(modifier: Modifier = Modifier)</ID>
+    <ID>FunctionNaming:SettingsScreen.kt$@Composable private fun AboutRow(label: String, value: String, mono: Boolean = false)</ID>
+    <ID>FunctionNaming:SettingsScreen.kt$@Composable private fun EditProfileDialog( profile: ConnectionProfile, onSave: (displayName: String, newToken: String?) -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
+    <ID>FunctionNaming:SettingsScreen.kt$@Composable private fun ProfileRow( profile: ConnectionProfile, onEdit: () -&gt; Unit, onDelete: () -&gt; Unit, )</ID>
+    <ID>FunctionNaming:SettingsScreen.kt$@Composable private fun ReadyContent( state: SettingsUiState.Ready, modifier: Modifier, onToggleCleartext: (Boolean) -&gt; Unit, onEditProfile: (ConnectionProfile) -&gt; Unit, onDeleteProfile: (ConnectionProfile) -&gt; Unit, onRequestClearAll: () -&gt; Unit, onReplayWalkthrough: () -&gt; Unit, )</ID>
+    <ID>FunctionNaming:SettingsScreen.kt$@Composable private fun SectionHeader(label: String)</ID>
+    <ID>FunctionNaming:SettingsScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun SettingsScreen(onNavigateBack: () -&gt; Unit)</ID>
     <ID>FunctionNaming:StartGatewayStep.kt$@Composable public fun StartGatewayStep(onNext: () -&gt; Unit)</ID>
     <ID>FunctionNaming:StringFieldRow.kt$@Composable fun StringFieldRow( label: String, value: String, onValueChange: (String) -&gt; Unit, modifier: Modifier = Modifier, mono: Boolean = false, singleLine: Boolean = true, error: String? = null, )</ID>
     <ID>FunctionNaming:ToggleRow.kt$@Composable fun ToggleRow( label: String, checked: Boolean, onCheckedChange: (Boolean) -&gt; Unit, modifier: Modifier = Modifier, )</ID>
@@ -98,6 +104,9 @@
     <ID>LongMethod:OnboardingScreen.kt$@Composable public fun OnboardingScreen( onSkip: () -&gt; Unit, onScan: () -&gt; Unit, onManualEntry: () -&gt; Unit, onDone: () -&gt; Unit, viewModel: OnboardingViewModel = koinViewModel(), )</ID>
     <ID>LongMethod:PendingChangesDiffSheet.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun PendingChangesDiffSheet( sectionKey: String, oldValue: JsonElement, newValue: JsonElement, onConfirm: () -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
     <ID>LongMethod:ScanScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun ScanScreen( onNavigateBack: () -&gt; Unit, onNavigateToManualEntry: (String) -&gt; Unit, onNavigateToDashboard: () -&gt; Unit, viewModel: ScanViewModel = koinViewModel(), )</ID>
+    <ID>LongMethod:SettingsScreen.kt$@Composable private fun EditProfileDialog( profile: ConnectionProfile, onSave: (displayName: String, newToken: String?) -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
+    <ID>LongMethod:SettingsScreen.kt$@Composable private fun ReadyContent( state: SettingsUiState.Ready, modifier: Modifier, onToggleCleartext: (Boolean) -&gt; Unit, onEditProfile: (ConnectionProfile) -&gt; Unit, onDeleteProfile: (ConnectionProfile) -&gt; Unit, onRequestClearAll: () -&gt; Unit, onReplayWalkthrough: () -&gt; Unit, )</ID>
+    <ID>LongMethod:SettingsScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun SettingsScreen(onNavigateBack: () -&gt; Unit)</ID>
     <ID>LongMethod:StartGatewayStep.kt$@Composable public fun StartGatewayStep(onNext: () -&gt; Unit)</ID>
     <ID>LongParameterList:ConfigEditorScreen.kt$( sectionKey: String, sectionValue: kotlinx.serialization.json.JsonElement, originalValue: kotlinx.serialization.json.JsonElement, isExpanded: Boolean, hasPending: Boolean, fieldErrors: Map&lt;String, String&gt;, onToggleExpand: () -&gt; Unit, onEdit: (kotlinx.serialization.json.JsonElement) -&gt; Unit, onFieldError: (String, String?) -&gt; Unit, onSave: () -&gt; Unit, onDiscard: () -&gt; Unit, )</ID>
     <ID>MaxLineLength:ApplySuggestionsSheet.kt$itemsIndexed</ID>
@@ -135,6 +144,7 @@
     <ID>TooGenericExceptionThrown:DashboardViewModelTest.kt$DashboardViewModelTest$throw RuntimeException("connection refused")</ID>
     <ID>TooGenericExceptionThrown:DashboardViewModelTest.kt$DashboardViewModelTest$throw RuntimeException("timeout")</ID>
     <ID>TooManyFunctions:DashboardScreen.kt$com.openclaw.ghostcrab.ui.dashboard.DashboardScreen.kt</ID>
+    <ID>TooManyFunctions:SettingsViewModel.kt$SettingsViewModel : ViewModel</ID>
     <ID>UnusedParameter:ConfigEditorScreen.kt$originalValue: kotlinx.serialization.json.JsonElement</ID>
     <ID>UnusedParameter:OnboardingScreen.kt$onSkip: () -&gt; Unit</ID>
     <ID>UnusedPrivateProperty:ScanScreen.kt$val isActivelyScanning = state is ScanState.Scanning || (state is ScanState.Results &amp;&amp; !(state as ScanState.Results).scanCompleted)</ID>

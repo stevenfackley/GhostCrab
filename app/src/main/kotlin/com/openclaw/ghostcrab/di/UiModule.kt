@@ -2,6 +2,7 @@ package com.openclaw.ghostcrab.di
 
 import com.openclaw.ghostcrab.data.api.OpenClawApiClient
 import com.openclaw.ghostcrab.ui.airecommend.AIRecommendationViewModel
+import com.openclaw.ghostcrab.ui.settings.SettingsViewModel
 import com.openclaw.ghostcrab.ui.config.ConfigEditorViewModel
 import com.openclaw.ghostcrab.ui.connection.ConnectionPickerViewModel
 import com.openclaw.ghostcrab.ui.connection.ManualEntryViewModel
@@ -30,5 +31,5 @@ val uiModule = module {
     viewModel { ConfigEditorViewModel(get(), get()) }
     viewModel { ModelManagerViewModel(get(), get()) }
     viewModel { AIRecommendationViewModel(get(), get(), get(), get()) }
-    // Phase 9: SettingsViewModel
+    viewModel { SettingsViewModel(get(), get(), get()) }
 }
