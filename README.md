@@ -110,10 +110,10 @@ See [`docs/PRIVACY_POLICY.md`](docs/PRIVACY_POLICY.md) for the full policy.
 | 4 | Dashboard, health polling, security banners | ✅ Done |
 | 5 | Onboarding walkthrough | ✅ Done |
 | 6 | Config editor (forms over `openclaw.json`) | ✅ Done |
-| 7 | Model manager | 🔲 In progress |
-| 8 | AI recommendations (gateway-proxied) | 🔲 Planned |
-| 9 | Settings, profile management, about | 🔲 Planned |
-| 10 | Hardening, release | 🔲 Planned |
+| 7 | Model manager | ✅ Done |
+| 8 | AI recommendations (gateway-proxied) | ✅ Done |
+| 9 | Settings, profile management, about | ✅ Done |
+| 10 | Hardening, release | ✅ Done |
 
 ---
 
