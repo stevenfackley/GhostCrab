@@ -17,6 +17,7 @@ data class HealthSnapshot(
     val isStale: Boolean = false,
 ) {
     companion object {
+        // Should remain > 1.5 × DashboardViewModel.POLL_INTERVAL_MS (currently 30 s → threshold 60 s)
         const val STALE_THRESHOLD_MS = 60_000L
     }
 }
