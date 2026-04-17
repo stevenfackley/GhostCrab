@@ -100,10 +100,12 @@ All ViewModels use `_state.update {}`. No raw read-modify-write remains. Layer b
 
 ## What's Next
 
-1. **Instrumented tests** — none exist. `ConnectionProfileStore`, `NsdDiscoveryServiceImpl`, Compose UI flows are candidates.
+1. **Run instrumented tests on device** — `./gradlew connectedDebugAndroidTest` with a connected emulator/device. Phase 12 added 3 test classes (13 tests total):
+   - `ConnectionProfileStoreInstrumentedTest` — 8 tests, real Keystore/EncryptedSharedPreferences round-trip
+   - `NsdDiscoveryServiceInstrumentedTest` — 2 tests, real `NsdManager` register+discover (flaky on host-only emulator; use physical device)
+   - `ConnectionPickerScreenTest` — 3 Compose UI smoke tests with fake VM (no Koin)
 2. **ProGuard/R8 verification** — confirm release AAB from CI runs without crashes (Ktor serialization, Koin reflection).
-3. **LOW/testing-gap items** above if time permits before v1.0.
-4. **Out-of-scope for v1.0** (CLAUDE.md): WebSocket streaming, offline config cache, multi-connection, Play Billing.
+3. **Out-of-scope for v1.0** (CLAUDE.md): WebSocket streaming, offline config cache, multi-connection, Play Billing.
 
 ---
 
