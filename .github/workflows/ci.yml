@@ -30,7 +30,7 @@ jobs:
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: test-results
           path: app/build/reports/tests/testDebugUnitTest/
@@ -40,7 +40,7 @@ jobs:
 
       - name: Upload lint report
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: lint-report
           path: app/build/reports/lint-results-debug.html
@@ -50,7 +50,7 @@ jobs:
 
       - name: Upload detekt report
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: detekt-report
           path: app/build/reports/detekt/
@@ -93,7 +93,7 @@ jobs:
 
       - name: Upload AAB
         if: steps.signing.outputs.keystore_path != ''
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: release-aab
           path: app/build/outputs/bundle/release/app-release.aab
