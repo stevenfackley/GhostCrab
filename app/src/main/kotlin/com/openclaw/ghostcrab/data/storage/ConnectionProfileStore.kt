@@ -1,6 +1,7 @@
 package com.openclaw.ghostcrab.data.storage
 
 import android.content.Context
+import android.content.SharedPreferences
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
@@ -28,7 +29,23 @@ private val KEY_PROFILES = stringPreferencesKey("profiles_json")
  *
  * Thread-safe. All suspend functions are safe to call from any dispatcher.
  */
-class ConnectionProfileStore(private val context: Context) {
+class ConnectionProfileStore(
+    private val context: Context,
+    // Keystore init is 20–200ms and docs warn against multiple instances on the same file.
+    // Injectable for testing — production uses the default lambda.
+    private val encryptedPrefsFactory: (Context) -> SharedPreferences = { ctx ->
+        val masterKey = MasterKey.Builder(ctx)
+            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+            .build()
+        EncryptedSharedPreferences.create(
+            ctx,
+            "ghostcrab_tokens",
+            masterKey,
+            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
+        )
+    },
+) {
 
     // ── DataStore ─────────────────────────────────────────────────────────────
 
@@ -96,19 +113,7 @@ class ConnectionProfileStore(private val context: Context) {
         }
     }
 
-    // Keystore init is 20–200ms and the docs warn against multiple instances on the same file.
-    private val encryptedPrefs by lazy {
-        val masterKey = MasterKey.Builder(context)
-            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-            .build()
-        EncryptedSharedPreferences.create(
-            context,
-            "ghostcrab_tokens",
-            masterKey,
-            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
-        )
-    }
+    private val encryptedPrefs: SharedPreferences by lazy { encryptedPrefsFactory(context) }
 
     private fun tokenKey(profileId: String) = "token_$profileId"
 }
