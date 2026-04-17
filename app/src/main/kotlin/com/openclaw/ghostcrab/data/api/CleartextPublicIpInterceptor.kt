@@ -3,7 +3,6 @@ package com.openclaw.ghostcrab.data.api
 import okhttp3.Interceptor
 import okhttp3.Response
 import java.io.IOException
-import java.net.InetAddress
 
 /**
  * OkHttp interceptor that blocks cleartext HTTP requests to public (non-LAN) IP addresses
@@ -43,7 +42,22 @@ internal class CleartextPublicIpInterceptor(
             } else {
                 host
             }
-            val addr = runCatching { InetAddress.getByName(rawIp) }.getOrNull() ?: return false
+            // For IPv4 literals: parse the 4 octets directly into a byte array — no DNS possible.
+            // For IPv6 literals: getByName does not perform DNS on numeric literals, but
+            // IPv6 public-IP blocking is best-effort only (ULA/link-local heuristics are imprecise).
+            val addr = if (rawIp.matches(IPV4_REGEX)) {
+                val parts = rawIp.split(".")
+                val bytes = parts.map { part ->
+                    val v = part.toIntOrNull() ?: return false
+                    if (v < 0 || v > 255) return false
+                    v.toByte()
+                }.toByteArray()
+                if (bytes.size != 4) return false
+                runCatching { java.net.InetAddress.getByAddress(bytes) }.getOrNull() ?: return false
+            } else {
+                // IPv6 numeric literal — getByName does not resolve DNS for numeric inputs
+                runCatching { java.net.InetAddress.getByName(rawIp) }.getOrNull() ?: return false
+            }
             return !addr.isLoopbackAddress && !addr.isSiteLocalAddress && !addr.isLinkLocalAddress
         }
 
