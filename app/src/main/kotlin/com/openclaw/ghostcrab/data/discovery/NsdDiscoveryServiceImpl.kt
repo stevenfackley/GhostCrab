@@ -49,8 +49,8 @@ class NsdDiscoveryServiceImpl(private val context: Context) : DiscoveryService {
 
         val multicastLock = wifiManager.createMulticastLock("ghostcrab_mdns").apply {
             setReferenceCounted(true)
-            acquire()
         }
+        runCatching { multicastLock.acquire() }
 
         activeChannel = channel
 
