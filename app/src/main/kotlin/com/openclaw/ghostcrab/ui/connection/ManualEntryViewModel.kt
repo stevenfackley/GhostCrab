@@ -1,6 +1,5 @@
 package com.openclaw.ghostcrab.ui.connection
 
-import android.util.Patterns
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.openclaw.ghostcrab.domain.model.ConnectionProfile
@@ -14,14 +13,23 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.net.URI
 import java.util.UUID
 
+const val DEFAULT_GATEWAY_PORT = "18789"
+
 data class ManualEntryFormState(
-    val url: String = "",
+    val useHttps: Boolean = false,
+    val host: String = "",
+    val port: String = DEFAULT_GATEWAY_PORT,
     val token: String = "",
     val tokenVisible: Boolean = false,
-    val urlError: String? = null,
-)
+    val hostError: String? = null,
+    val portError: String? = null,
+) {
+    val scheme: String get() = if (useHttps) "https" else "http"
+    val assembledUrl: String get() = "$scheme://${host.trim()}:${port.trim()}"
+}
 
 sealed interface ManualEntryUiState {
     data object Idle : ManualEntryUiState
@@ -47,13 +55,34 @@ class ManualEntryViewModel(
     private val _events = MutableSharedFlow<ManualEntryEvent>()
     val events: SharedFlow<ManualEntryEvent> = _events.asSharedFlow()
 
-    fun onUrlChange(value: String) {
-        _form.update { it.copy(url = value, urlError = null) }
+    fun onHostChange(value: String) {
+        _form.update { it.copy(host = value, hostError = null) }
     }
 
-    /** Pre-populates the URL field; called once by the screen when launched from LAN scan. */
+    fun onPortChange(value: String) {
+        val digitsOnly = value.filter(Char::isDigit).take(5)
+        _form.update { it.copy(port = digitsOnly, portError = null) }
+    }
+
+    fun onHttpsToggle(useHttps: Boolean) {
+        _form.update { it.copy(useHttps = useHttps) }
+    }
+
+    /** Parses a full URL from LAN scan and populates scheme/host/port individually. */
     fun setPrefillUrl(url: String) {
-        _form.update { it.copy(url = url, urlError = null) }
+        val uri = runCatching { URI(url.trim()) }.getOrNull()
+        val scheme = uri?.scheme?.lowercase()
+        val host = uri?.host.orEmpty()
+        val port = uri?.port?.takeIf { it > 0 }?.toString() ?: DEFAULT_GATEWAY_PORT
+        _form.update {
+            it.copy(
+                useHttps = scheme == "https",
+                host = host,
+                port = port,
+                hostError = null,
+                portError = null,
+            )
+        }
     }
 
     fun onTokenChange(value: String) {
@@ -66,27 +95,26 @@ class ManualEntryViewModel(
 
     fun connect() {
         val state = _form.value
-        val urlError = validateUrl(state.url)
-        if (urlError != null) {
-            _form.update { it.copy(urlError = urlError) }
+        val hostError = validateHost(state.host)
+        val portError = validatePort(state.port)
+        if (hostError != null || portError != null) {
+            _form.update { it.copy(hostError = hostError, portError = portError) }
             return
         }
 
+        val url = state.assembledUrl
         viewModelScope.launch {
             _uiState.value = ManualEntryUiState.Connecting
             val token = state.token.trim().takeIf { it.isNotEmpty() }
             runCatching {
-                connectionManager.connect(state.url.trim(), token)
+                connectionManager.connect(url, token)
             }.onSuccess {
-                // TOCTOU: read connectionState after connect() returns. The state is Connected here
-                // because connect() only returns on success, but a concurrent disconnect could
-                // theoretically arrive between the two lines — displayName falls back to URL in that case.
                 val connected = connectionManager.connectionState.value
                 val profile = ConnectionProfile(
                     id = UUID.randomUUID().toString(),
                     displayName = (connected as? com.openclaw.ghostcrab.domain.model.GatewayConnection.Connected)
-                        ?.displayName ?: state.url.trim(),
-                    url = state.url.trim(),
+                        ?.displayName ?: url,
+                    url = url,
                     lastConnectedAt = System.currentTimeMillis(),
                     hasToken = token != null,
                 )
@@ -99,17 +127,21 @@ class ManualEntryViewModel(
         }
     }
 
-    private fun validateUrl(url: String): String? {
-        if (url.isBlank()) return "URL is required"
-        val trimmed = url.trim()
-        if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://")) {
-            return "URL must start with http:// or https://"
-        }
-        if (!Patterns.WEB_URL.matcher(trimmed).matches()) return "Invalid URL format"
-        val port = runCatching {
-            java.net.URI(trimmed).port
-        }.getOrDefault(-1)
-        if (port != -1 && (port < 1 || port > 65535)) return "Port must be between 1 and 65535"
+    private fun validateHost(host: String): String? {
+        val trimmed = host.trim()
+        if (trimmed.isEmpty()) return "Host is required"
+        if (trimmed.contains("://")) return "Remove scheme — use the HTTPS toggle instead"
+        if (trimmed.contains('/')) return "Host must not contain '/'"
+        if (trimmed.contains(':')) return "Port goes in the Port field, not the Host field"
+        if (trimmed.any { it.isWhitespace() }) return "Host must not contain whitespace"
+        return null
+    }
+
+    private fun validatePort(port: String): String? {
+        val trimmed = port.trim()
+        if (trimmed.isEmpty()) return "Port is required"
+        val n = trimmed.toIntOrNull() ?: return "Port must be a number"
+        if (n < 1 || n > 65535) return "Port must be between 1 and 65535"
         return null
     }
 }

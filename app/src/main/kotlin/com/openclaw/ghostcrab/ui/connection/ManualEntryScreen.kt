@@ -1,12 +1,15 @@
 package com.openclaw.ghostcrab.ui.connection
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -25,6 +28,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -32,12 +37,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.unit.dp
 import com.openclaw.ghostcrab.ui.components.HttpSecurityBanner
 import com.openclaw.ghostcrab.ui.theme.BrandTokens
 import com.openclaw.ghostcrab.ui.theme.MonoFontFamily
@@ -55,12 +61,10 @@ fun ManualEntryScreen(
     val form by viewModel.form.collectAsState()
     val uiState by viewModel.uiState.collectAsState()
 
-    // Pre-fill URL when navigating from LAN scan
     LaunchedEffect(prefillUrl) {
         if (prefillUrl != null) viewModel.setPrefillUrl(prefillUrl)
     }
 
-    // Collect one-shot navigation events
     LaunchedEffect(Unit) {
         viewModel.events.collect { event ->
             when (event) {
@@ -71,8 +75,7 @@ fun ManualEntryScreen(
 
     val isConnecting = uiState is ManualEntryUiState.Connecting
     val errorMessage = (uiState as? ManualEntryUiState.Error)?.message
-
-    val showHttpBanner = form.url.trim().startsWith("http://", ignoreCase = true)
+    val showHttpBanner = !form.useHttps
 
     Scaffold(
         topBar = {
@@ -113,34 +116,92 @@ fun ManualEntryScreen(
                 Spacer(Modifier.height(Spacing.md))
             }
 
-            // URL field
-            OutlinedTextField(
-                value = form.url,
-                onValueChange = viewModel::onUrlChange,
-                label = { Text("Gateway URL") },
-                placeholder = {
-                    Text(
-                        "http://192.168.1.50:18789",
-                        fontFamily = MonoFontFamily,
-                        color = BrandTokens.colorTextDisabled,
-                    )
-                },
-                textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = MonoFontFamily),
-                isError = form.urlError != null,
-                supportingText = {
-                    if (form.urlError != null) {
-                        Text(form.urlError!!, color = BrandTokens.colorCrimsonError)
-                    }
-                },
-                keyboardOptions = KeyboardOptions(
-                    keyboardType = KeyboardType.Uri,
-                    imeAction = ImeAction.Next,
-                ),
-                singleLine = true,
-                enabled = !isConnecting,
+            // HTTPS toggle
+            Row(
                 modifier = Modifier.fillMaxWidth(),
-                colors = fieldColors(),
-            )
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Column {
+                    Text(
+                        "Use HTTPS",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = BrandTokens.colorTextPrimary,
+                    )
+                    Text(
+                        if (form.useHttps) "https://" else "http://",
+                        style = MaterialTheme.typography.bodySmall.copy(fontFamily = MonoFontFamily),
+                        color = BrandTokens.colorTextSecondary,
+                    )
+                }
+                Switch(
+                    checked = form.useHttps,
+                    onCheckedChange = viewModel::onHttpsToggle,
+                    enabled = !isConnecting,
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = BrandTokens.colorAbyss,
+                        checkedTrackColor = BrandTokens.colorCyanPrimary,
+                        uncheckedThumbColor = BrandTokens.colorTextSecondary,
+                        uncheckedTrackColor = BrandTokens.colorOutline,
+                    ),
+                )
+            }
+
+            Spacer(Modifier.height(Spacing.md))
+
+            // Host + Port row
+            Row(modifier = Modifier.fillMaxWidth()) {
+                OutlinedTextField(
+                    value = form.host,
+                    onValueChange = viewModel::onHostChange,
+                    label = { Text("Host / IP") },
+                    placeholder = {
+                        Text(
+                            "192.168.0.23",
+                            fontFamily = MonoFontFamily,
+                            color = BrandTokens.colorTextDisabled,
+                        )
+                    },
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = MonoFontFamily),
+                    isError = form.hostError != null,
+                    supportingText = {
+                        if (form.hostError != null) {
+                            Text(form.hostError!!, color = BrandTokens.colorCrimsonError)
+                        }
+                    },
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Uri,
+                        imeAction = ImeAction.Next,
+                    ),
+                    singleLine = true,
+                    enabled = !isConnecting,
+                    modifier = Modifier.weight(1f),
+                    colors = fieldColors(),
+                )
+
+                Spacer(Modifier.width(Spacing.sm))
+
+                OutlinedTextField(
+                    value = form.port,
+                    onValueChange = viewModel::onPortChange,
+                    label = { Text("Port") },
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = MonoFontFamily),
+                    isError = form.portError != null,
+                    supportingText = {
+                        if (form.portError != null) {
+                            Text(form.portError!!, color = BrandTokens.colorCrimsonError)
+                        }
+                    },
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Number,
+                        imeAction = ImeAction.Next,
+                    ),
+                    singleLine = true,
+                    enabled = !isConnecting,
+                    modifier = Modifier.width(120.dp),
+                    colors = fieldColors(),
+                )
+            }
 
             Spacer(Modifier.height(Spacing.md))
 
@@ -182,9 +243,17 @@ fun ManualEntryScreen(
                 colors = fieldColors(),
             )
 
+            Spacer(Modifier.height(Spacing.md))
+
+            // Assembled URL preview — mono-spaced, shows exactly what will be hit
+            Text(
+                text = form.assembledUrl,
+                style = MaterialTheme.typography.bodySmall.copy(fontFamily = MonoFontFamily),
+                color = BrandTokens.colorTextSecondary,
+            )
+
             Spacer(Modifier.height(Spacing.lg))
 
-            // Error message — verbatim from exception per brand voice rules
             if (errorMessage != null) {
                 Text(
                     text = errorMessage,
@@ -194,7 +263,6 @@ fun ManualEntryScreen(
                 Spacer(Modifier.height(Spacing.md))
             }
 
-            // Connect button
             Button(
                 onClick = viewModel::connect,
                 enabled = !isConnecting,
