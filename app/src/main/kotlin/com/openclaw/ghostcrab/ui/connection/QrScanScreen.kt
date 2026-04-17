@@ -1,5 +1,6 @@
 package com.openclaw.ghostcrab.ui.connection
 
+import android.annotation.SuppressLint
 import android.Manifest
 import android.app.Activity
 import android.content.Intent
@@ -8,7 +9,6 @@ import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
-import androidx.camera.core.ExperimentalGetImage
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
@@ -190,7 +190,7 @@ private fun QrTopBar(onNavigateBack: () -> Unit) {
     )
 }
 
-@androidx.annotation.OptIn(ExperimentalGetImage::class)
+@SuppressLint("UnsafeOptInUsageError")
 @Composable
 private fun CameraPreview(
     modifier: Modifier,
@@ -234,7 +234,7 @@ private fun CameraPreview(
     )
 }
 
-@androidx.annotation.OptIn(ExperimentalGetImage::class)
+@SuppressLint("UnsafeOptInUsageError")
 private fun analyzeProxy(
     proxy: ImageProxy,
     scanner: com.google.mlkit.vision.barcode.BarcodeScanner,
