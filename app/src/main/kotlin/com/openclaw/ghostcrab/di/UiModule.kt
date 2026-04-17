@@ -17,7 +17,13 @@ val uiModule = module {
     viewModel { ConnectionPickerViewModel(get(), get(), get()) }
     viewModel { ManualEntryViewModel(get(), get()) }
     viewModel { ScanViewModel(get(), get(), get()) }
-    viewModel { DashboardViewModel(connectionManager = get(), modelRepository = get(), healthChecker = ::gatewayHealthCheck) }
+    viewModel {
+        DashboardViewModel(
+            connectionManager = get(),
+            modelRepository = get(),
+            healthChecker = ::gatewayHealthCheck,
+        )
+    }
     viewModel { OnboardingViewModel(get()) }
     viewModel { ConfigEditorViewModel(get(), get()) }
     viewModel { ModelManagerViewModel(get(), get()) }

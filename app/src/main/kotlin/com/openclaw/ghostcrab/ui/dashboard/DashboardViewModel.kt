@@ -84,7 +84,11 @@ class DashboardViewModel(
                     consecutiveFailures = 0
                     _state.update {
                         if (it is DashboardUiState.Ready) it.copy(
-                            health = HealthSnapshot(lastOkMs = System.currentTimeMillis(), lastError = null, isStale = false),
+                            health = HealthSnapshot(
+                                lastOkMs = System.currentTimeMillis(),
+                                lastError = null,
+                                isStale = false,
+                            ),
                         ) else it
                     }
                 } catch (e: CancellationException) {

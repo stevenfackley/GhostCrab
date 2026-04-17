@@ -113,7 +113,11 @@ class AIRecommendationViewModel(
     fun toggleChange(change: SuggestedChange) {
         _state.update { state ->
             if (state !is AIRecommendationUiState.Ready) return@update state
-            val updated = if (change in state.selectedChanges) state.selectedChanges - change else state.selectedChanges + change
+            val updated = if (change in state.selectedChanges) {
+                state.selectedChanges - change
+            } else {
+                state.selectedChanges + change
+            }
             state.copy(selectedChanges = updated)
         }
     }
@@ -143,15 +147,23 @@ class AIRecommendationViewModel(
                     appliedCount++
                 }
                 // Re-read state so any toggles made mid-apply aren't clobbered
-                _state.update { (it as? AIRecommendationUiState.Ready)?.copy(isApplying = false, applySuccess = true) ?: it }
+                _state.update {
+                    (it as? AIRecommendationUiState.Ready)
+                        ?.copy(isApplying = false, applySuccess = true) ?: it
+                }
             } catch (e: GatewayException) {
                 val total = snapshot.selectedChanges.size
                 val errorMsg = if (appliedCount > 0) {
-                    "Applied $appliedCount of $total changes; stopped at change ${appliedCount + 1}: ${e.message ?: "Unknown error"}"
+                    "Applied $appliedCount of $total changes; " +
+                        "stopped at change ${appliedCount + 1}: " +
+                        (e.message ?: "Unknown error")
                 } else {
                     e.message ?: "Failed to apply changes"
                 }
-                _state.update { (it as? AIRecommendationUiState.Ready)?.copy(isApplying = false, applyError = errorMsg) ?: it }
+                _state.update {
+                    (it as? AIRecommendationUiState.Ready)
+                        ?.copy(isApplying = false, applyError = errorMsg) ?: it
+                }
             }
         }
     }
