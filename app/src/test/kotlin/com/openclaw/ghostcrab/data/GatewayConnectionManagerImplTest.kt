@@ -15,6 +15,8 @@ import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertInstanceOf
@@ -151,5 +153,35 @@ class GatewayConnectionManagerImplTest {
         val result = manager.probeAuth(url)
 
         assertEquals(AuthRequirement.Token, result)
+    }
+
+    // ── Concurrency ───────────────────────────────────────────────────────────
+
+    @Test
+    fun `two concurrent connect calls result in exactly one Connected state`() = runTest {
+        coEvery { probeClient.health() } returns HealthResponse("ok")
+        coEvery { probeClient.status() } throws GatewayAuthException(url, 401)
+        coEvery { sessionClient.status() } returns statusOk
+
+        val url2 = "http://192.168.1.51:18789"
+        val probeClient2: OpenClawApiClient = mockk(relaxed = true)
+        val sessionClient2: OpenClawApiClient = mockk(relaxed = true)
+        coEvery { probeClient2.health() } returns HealthResponse("ok")
+        coEvery { probeClient2.status() } throws GatewayAuthException(url2, 401)
+        coEvery { sessionClient2.status() } returns statusOk.copy(displayName = "Gateway 2")
+        every { factory.unauthenticated(url2, any()) } returns probeClient2
+        every { factory.authenticated(url2, any(), any()) } returns sessionClient2
+
+        // Launch two concurrent connects; wrap in runCatching so mutex contention
+        // (or any ordering artefact) doesn't fail the test via an unhandled exception.
+        val job1 = async { runCatching { manager.connect(url, token) } }
+        val job2 = async { runCatching { manager.connect(url2, token) } }
+        awaitAll(job1, job2)
+
+        // Final state must be Connected (to whichever URL won the mutex last)
+        val finalState = manager.connectionState.value
+        assertInstanceOf(GatewayConnection.Connected::class.java, finalState)
+        // The mutex serialises them: the second winner must have closed the first winner's client
+        verify(atLeast = 1) { sessionClient.close() }
     }
 }
