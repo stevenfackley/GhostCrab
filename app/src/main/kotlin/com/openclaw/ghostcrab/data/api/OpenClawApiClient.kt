@@ -38,8 +38,10 @@ import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.SerializationException
 import java.net.ConnectException
@@ -175,7 +177,7 @@ class OpenClawApiClient private constructor(
         val url = "$baseUrl/api/models/active"
         val response = httpClient.post(url) {
             contentType(ContentType.Application.Json)
-            setBody("""{"id":"$modelId"}""")
+            setBody(buildJsonObject { put("id", modelId) }.toString())
         }
         when (response.status) {
             HttpStatusCode.OK, HttpStatusCode.NoContent -> Unit
