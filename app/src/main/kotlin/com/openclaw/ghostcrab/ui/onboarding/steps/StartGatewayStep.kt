@@ -27,7 +27,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import com.openclaw.ghostcrab.R
 import com.openclaw.ghostcrab.ui.components.CodeBlock
-import com.openclaw.ghostcrab.ui.onboarding.OnboardingViewModel
+import com.openclaw.ghostcrab.domain.util.generateToken
 import com.openclaw.ghostcrab.ui.theme.BrandTokens
 import com.openclaw.ghostcrab.ui.theme.Spacing
 
@@ -47,7 +47,7 @@ private val FIREWALL_COMMANDS = listOf(
  */
 @Composable
 public fun StartGatewayStep(onNext: () -> Unit) {
-    var token by rememberSaveable { mutableStateOf(OnboardingViewModel.generateToken()) }
+    var token by rememberSaveable { mutableStateOf(generateToken()) }
     var firewallTab by rememberSaveable { mutableIntStateOf(0) }
 
     Column {
@@ -132,7 +132,7 @@ public fun StartGatewayStep(onNext: () -> Unit) {
                 code = token,
                 modifier = Modifier.weight(1f),
             )
-            IconButton(onClick = { token = OnboardingViewModel.generateToken() }) {
+            IconButton(onClick = { token = generateToken() }) {
                 Icon(
                     imageVector = Icons.Default.Refresh,
                     contentDescription = "Regenerate token",

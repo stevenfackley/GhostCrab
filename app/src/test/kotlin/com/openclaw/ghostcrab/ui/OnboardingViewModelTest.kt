@@ -2,6 +2,7 @@ package com.openclaw.ghostcrab.ui
 
 import com.openclaw.ghostcrab.domain.model.OnboardingStep
 import com.openclaw.ghostcrab.domain.repository.OnboardingRepository
+import com.openclaw.ghostcrab.domain.util.generateToken
 import com.openclaw.ghostcrab.ui.onboarding.OnboardingViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -97,7 +98,7 @@ class OnboardingViewModelTest {
 
     @Test
     fun `generateToken returns 32-byte base64url string`() {
-        val token = OnboardingViewModel.generateToken()
+        val token = generateToken()
         // 32 bytes base64url-encoded without padding = ceil(32 * 4/3) = 43 chars
         assertEquals(43, token.length)
         // Must only contain URL-safe base64 chars (A-Z a-z 0-9 - _)

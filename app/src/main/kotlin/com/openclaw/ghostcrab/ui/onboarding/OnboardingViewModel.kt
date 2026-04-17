@@ -86,17 +86,4 @@ public class OnboardingViewModel(
         _step.value = OnboardingStep.Completed
         repository.markCompleted()
     }
-
-    public companion object {
-        /**
-         * Generates a cryptographically random 32-byte token encoded as URL-safe Base64.
-         *
-         * @return A 43-character base64url string (no padding) suitable for use as a bearer token.
-         */
-        public fun generateToken(): String {
-            val bytes = ByteArray(32)
-            java.security.SecureRandom().nextBytes(bytes)
-            return java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
-        }
-    }
 }
