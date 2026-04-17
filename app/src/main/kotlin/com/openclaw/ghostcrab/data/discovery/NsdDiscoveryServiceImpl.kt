@@ -57,6 +57,7 @@ class NsdDiscoveryServiceImpl(private val context: Context) : DiscoveryService {
         val discoveryListener = object : NsdManager.DiscoveryListener {
             override fun onDiscoveryStarted(serviceType: String) {}
 
+            @Suppress("DEPRECATION") // NsdServiceInfo.host deprecated API 34; required for minSdk 26
             override fun onServiceFound(serviceInfo: NsdServiceInfo) {
                 launch {
                     val resolved = resolveWithRetry(serviceInfo) ?: return@launch

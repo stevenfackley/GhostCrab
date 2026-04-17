@@ -19,6 +19,8 @@ import com.openclaw.ghostcrab.ui.theme.Spacing
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 
+private val PrettyJson = Json { prettyPrint = true }
+
 /**
  * A multi-line raw JSON editor for an arbitrary config section.
  *
@@ -39,7 +41,7 @@ fun RawJsonSectionEditor(
     onEdit: (JsonElement) -> Unit,
 ) {
     val prettyJson = remember(sectionValue) {
-        Json { prettyPrint = true }.encodeToString(JsonElement.serializer(), sectionValue)
+        PrettyJson.encodeToString(JsonElement.serializer(), sectionValue)
     }
     var rawText by remember(prettyJson) { mutableStateOf(prettyJson) }
     var parseError by remember { mutableStateOf<String?>(null) }

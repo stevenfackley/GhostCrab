@@ -104,8 +104,19 @@ All ViewModels use `_state.update {}`. No raw read-modify-write remains. Layer b
    - `ConnectionProfileStoreInstrumentedTest` — 8 tests, real Keystore/EncryptedSharedPreferences round-trip
    - `NsdDiscoveryServiceInstrumentedTest` — 2 tests, real `NsdManager` register+discover (flaky on host-only emulator; use physical device)
    - `ConnectionPickerScreenTest` — 3 Compose UI smoke tests with fake VM (no Koin)
-2. **ProGuard/R8 verification** — confirm release AAB from CI runs without crashes (Ktor serialization, Koin reflection).
+2. **Runtime R8 smoke test** — `adb install app-release-unsigned.apk` (or signed AAB) and walk the happy path to confirm no `ClassNotFoundException` / `NoSuchMethodError` from over-aggressive shrinking.
 3. **Out-of-scope for v1.0** (CLAUDE.md): WebSocket streaming, offline config cache, multi-connection, Play Billing.
+
+---
+
+## Phase 13 — R8 Release Build Verification (completed)
+
+- `./gradlew assembleRelease` — BUILD SUCCESSFUL (2m 2s), produces `app-release-unsigned.apk` (25 MB).
+- No `missing_rules.txt` generated → R8 had all keep rules it needed.
+- **81 `$$serializer` classes** retained via existing `-keep @kotlinx.serialization.Serializable class com.openclaw.ghostcrab.**` rule. Verified in `mapping/release/seeds.txt`.
+- Ktor / Koin / coroutines classes survived (keep rules in `app/proguard-rules.pro`).
+- Native libs packaged unstripped (expected): `libbarhopper_v3.so` (ML Kit), `libimage_processing_util_jni.so` (CameraX), `libdatastore_shared_counter.so`, `libandroidx.graphics.path.so`, `libsurface_util_jni.so`.
+- Fixed 2 kotlinc warnings: `NsdDiscoveryServiceImpl.kt` `host` deprecation suppression, `RawJsonSectionEditor.kt` hoisted `Json { prettyPrint = true }` to file-level val.
 
 ---
 
