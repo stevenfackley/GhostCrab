@@ -94,6 +94,14 @@ class OnboardingViewModelTest {
         assertTrue(fakeRepo.completedCalled)
     }
 
+    @Test
+    fun `skip() from mid-flow step emits Completed and calls markCompleted`() = runTest {
+        val vm = makeVm(savedStep = OnboardingStep.InstallGateway)
+        vm.skip()
+        assertEquals(OnboardingStep.Completed, vm.step.value)
+        assertTrue(fakeRepo.completedCalled)
+    }
+
     // ── Token generation ──────────────────────────────────────────────────────
 
     @Test
