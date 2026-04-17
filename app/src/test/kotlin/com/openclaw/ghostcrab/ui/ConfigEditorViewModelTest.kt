@@ -163,6 +163,7 @@ class ConfigEditorViewModelTest {
         val state = vm.state.value as ConfigEditorUiState.Ready
         assertTrue(state.saveSuccess)
         assertEquals(updatedConfig, state.config)
+        assertTrue(state.pendingChanges.isEmpty())
     }
 
     @Test
@@ -179,6 +180,22 @@ class ConfigEditorViewModelTest {
 
         val state = vm.state.value as ConfigEditorUiState.Ready
         assertEquals("gateway", state.concurrentEditSection)
+    }
+
+    @Test
+    fun `confirmSave 412 with reload failure transitions to Error`() = runTest(testDispatcher) {
+        val repo = FakeConfigRepository(configToReturn = sampleConfig)
+        val (vm, _) = makeVm(initialConnection = connectedState, repo = repo)
+        advanceUntilIdle()
+
+        repo.updateError = GatewayApiException("http://192.168.1.50:18789/config/gateway", 412)
+        repo.reloadError = GatewayApiException("http://192.168.1.50:18789/config", 503)
+
+        vm.editSection("gateway", sampleEdit)
+        vm.confirmSave("gateway")
+        advanceUntilIdle()
+
+        assertInstanceOf(ConfigEditorUiState.Error::class.java, vm.state.value)
     }
 
     @Test
@@ -218,10 +235,12 @@ class ConfigEditorViewModelTest {
 private class FakeConfigRepository(
     var configToReturn: OpenClawConfig = OpenClawConfig(emptyMap()),
     var updateError: Exception? = null,
+    var reloadError: Exception? = null,
     var getCallCount: Int = 0,
 ) : ConfigRepository {
     override suspend fun getConfig(): OpenClawConfig {
         getCallCount++
+        reloadError?.takeIf { getCallCount > 1 }?.let { throw it }
         return configToReturn
     }
 
