@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -5,6 +7,15 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.detekt)
 }
+
+// Read signing creds from local.properties first, then env vars (CI).
+val signingProps = Properties().apply {
+    val f = rootProject.file("local.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}
+fun signingCred(key: String): String? =
+    signingProps.getProperty(key)?.takeIf { it.isNotBlank() }
+        ?: System.getenv(key)?.takeIf { it.isNotBlank() }
 
 android {
     namespace = "com.openclaw.ghostcrab"
@@ -30,12 +41,12 @@ android {
 
     signingConfigs {
         create("release") {
-            val keystorePath = System.getenv("KEYSTORE_PATH")?.takeIf { it.isNotBlank() }
+            val keystorePath = signingCred("KEYSTORE_PATH")
             if (keystorePath != null) {
                 storeFile = file(keystorePath)
-                storePassword = System.getenv("KEYSTORE_PASSWORD")
-                keyAlias = System.getenv("KEY_ALIAS")
-                keyPassword = System.getenv("KEY_PASSWORD")
+                storePassword = signingCred("KEYSTORE_PASSWORD")
+                keyAlias = signingCred("KEY_ALIAS")
+                keyPassword = signingCred("KEY_PASSWORD") ?: signingCred("KEYSTORE_PASSWORD")
             }
         }
     }
@@ -49,7 +60,7 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            signingConfig = if (System.getenv("KEYSTORE_PATH")?.isNotBlank() == true) {
+            signingConfig = if (signingCred("KEYSTORE_PATH") != null) {
                 signingConfigs.getByName("release")
             } else {
                 null

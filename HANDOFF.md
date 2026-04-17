@@ -109,6 +109,16 @@ All ViewModels use `_state.update {}`. No raw read-modify-write remains. Layer b
 
 ---
 
+## Phase 14 — Release Signing (completed)
+
+- Generated `C:\Users\steve\.android\ghostcrab-release.jks` — PKCS12, RSA-4096, 30-year validity, alias `ghostcrab-release`.
+- `app/build.gradle.kts` — signing config now resolves `KEYSTORE_PATH` / `KEYSTORE_PASSWORD` / `KEY_ALIAS` / `KEY_PASSWORD` from `local.properties` first, env vars second (CI).
+- `app/build/outputs/apk/release/app-release.apk` (26 MB) signed with APK Signature Scheme v2 — verified via `apksigner verify --verbose`.
+- Credentials in `local.properties` (git-ignored). Full documentation in `docs/RELEASE_SIGNING.md`.
+- **Next:** back up the keystore file + password to password manager / offline medium, then enroll in Play App Signing before first AAB upload.
+
+---
+
 ## Phase 13 — R8 Release Build Verification (completed)
 
 - `./gradlew assembleRelease` — BUILD SUCCESSFUL (2m 2s), produces `app-release-unsigned.apk` (25 MB).

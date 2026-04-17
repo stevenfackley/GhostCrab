@@ -5,7 +5,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-_(no changes yet)_
+### Added
+
+- **Release signing config** — `app/build.gradle.kts` reads `KEYSTORE_PATH`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD` from `local.properties` first, then process env vars (CI fallback). Unsigned build remains the default when no keystore is configured.
+- **Release keystore** — PKCS12, RSA-4096, 30-year validity at `%USERPROFILE%\.android\ghostcrab-release.jks`. Documented in [`docs/RELEASE_SIGNING.md`](docs/RELEASE_SIGNING.md).
 
 ---
 

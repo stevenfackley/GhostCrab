@@ -50,6 +50,20 @@ It is not a consumer AI chat app. It is a configuration and administration clien
 
 ---
 
+## Release Build
+
+```bash
+# Signed release APK (requires local.properties with signing creds — see docs/RELEASE_SIGNING.md)
+./gradlew :app:assembleRelease --no-configuration-cache
+
+# Signed AAB for Play Store
+./gradlew :app:bundleRelease --no-configuration-cache
+```
+
+See [`docs/RELEASE_SIGNING.md`](docs/RELEASE_SIGNING.md) for keystore location, CI wiring, and backup guidance.
+
+---
+
 ## Development
 
 ```bash
