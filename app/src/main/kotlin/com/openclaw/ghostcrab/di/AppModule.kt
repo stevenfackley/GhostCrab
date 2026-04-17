@@ -7,5 +7,5 @@ import org.koin.dsl.module
  * Included in [com.openclaw.ghostcrab.GhostCrabApp].
  */
 val appModule = module {
-    includes(dataModule, domainModule, uiModule)
+    includes(dataModule, uiModule)
 }
