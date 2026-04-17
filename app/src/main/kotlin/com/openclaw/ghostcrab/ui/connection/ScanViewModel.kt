@@ -173,6 +173,7 @@ class ScanViewModel(
     }
 
     override fun onCleared() {
+        super.onCleared()
         scanJob?.cancel()
     }
 }
