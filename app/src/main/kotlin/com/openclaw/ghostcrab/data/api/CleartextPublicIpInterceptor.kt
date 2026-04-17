@@ -35,31 +35,35 @@ internal class CleartextPublicIpInterceptor(
          * Hostnames and private/loopback IPs return `false`.
          */
         internal fun isPublicIpLiteral(host: String): Boolean {
-            val isIpLiteral = host.matches(IPV4_REGEX) || host.contains(":")
-            if (!isIpLiteral) return false
+            if (!host.matches(IPV4_REGEX) && !host.contains(":")) return false
             val rawIp = if (host.startsWith("[") && host.endsWith("]")) {
                 host.drop(1).dropLast(1)
             } else {
                 host
             }
-            // For IPv4 literals: parse the 4 octets directly into a byte array — no DNS possible.
-            // For IPv6 literals: getByName does not perform DNS on numeric literals, but
-            // IPv6 public-IP blocking is best-effort only (ULA/link-local heuristics are imprecise).
-            val addr = if (rawIp.matches(IPV4_REGEX)) {
-                val parts = rawIp.split(".")
-                val bytes = parts.map { part ->
-                    val v = part.toIntOrNull() ?: return false
-                    if (v < 0 || v > 255) return false
-                    v.toByte()
-                }.toByteArray()
-                if (bytes.size != 4) return false
-                runCatching { java.net.InetAddress.getByAddress(bytes) }.getOrNull() ?: return false
-            } else {
-                // IPv6 numeric literal — getByName does not resolve DNS for numeric inputs
-                runCatching { java.net.InetAddress.getByName(rawIp) }.getOrNull() ?: return false
-            }
-            return !addr.isLoopbackAddress && !addr.isSiteLocalAddress && !addr.isLinkLocalAddress
+            val addr = parseIpLiteral(rawIp)
+            return addr != null &&
+                !addr.isLoopbackAddress &&
+                !addr.isSiteLocalAddress &&
+                !addr.isLinkLocalAddress
         }
+
+        // For IPv4 literals: parse the 4 octets directly into a byte array — no DNS possible.
+        // For IPv6 literals: getByName does not resolve DNS for numeric inputs, but
+        // IPv6 public-IP blocking is best-effort (ULA/link-local heuristics are imprecise).
+        private fun parseIpLiteral(rawIp: String): java.net.InetAddress? = runCatching {
+            if (rawIp.matches(IPV4_REGEX)) {
+                val bytes = ByteArray(4)
+                rawIp.split(".").forEachIndexed { i, part ->
+                    val v = part.toInt()
+                    require(v in 0..255)
+                    bytes[i] = v.toByte()
+                }
+                java.net.InetAddress.getByAddress(bytes)
+            } else {
+                java.net.InetAddress.getByName(rawIp)
+            }
+        }.getOrNull()
 
         private val IPV4_REGEX = Regex("""^\d{1,3}(\.\d{1,3}){3}$""")
     }

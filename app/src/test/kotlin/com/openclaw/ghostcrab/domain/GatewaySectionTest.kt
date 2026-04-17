@@ -34,7 +34,9 @@ class GatewaySectionTest {
 
     @Test fun `toGatewaySection parses full JSON correctly`() {
         val json = Json.parseToJsonElement(
-            """{"http":{"host":"0.0.0.0","port":8080},"auth":{"mode":"bearer","token":"abc"},"mdns":{"enabled":false,"serviceName":"my-gw"}}"""
+            """{"http":{"host":"0.0.0.0","port":8080},""" +
+                """"auth":{"mode":"bearer","token":"abc"},""" +
+                """"mdns":{"enabled":false,"serviceName":"my-gw"}}""",
         )
         val section = json.toGatewaySection()
         assertEquals(8080, section.http.port)
