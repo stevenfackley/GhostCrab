@@ -90,6 +90,19 @@ public fun TroubleshootingDrawer(
                     stringResource(R.string.onboarding_troubleshoot_auth_2),
                 ),
             )
+            Spacer(Modifier.height(Spacing.md))
+
+            TroubleshootSection(
+                title = stringResource(R.string.onboarding_troubleshoot_host_vs_lan_title),
+                items = listOf(
+                    stringResource(R.string.onboarding_troubleshoot_host_vs_lan_1),
+                    stringResource(R.string.onboarding_troubleshoot_host_vs_lan_2),
+                    stringResource(R.string.onboarding_troubleshoot_host_vs_lan_3),
+                    stringResource(R.string.onboarding_troubleshoot_host_vs_lan_4),
+                    stringResource(R.string.onboarding_troubleshoot_host_vs_lan_5),
+                    stringResource(R.string.onboarding_troubleshoot_host_vs_lan_6),
+                ),
+            )
             Spacer(Modifier.height(Spacing.xxl))
         }
     }

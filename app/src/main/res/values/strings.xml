@@ -182,4 +182,11 @@
     <string name="onboarding_troubleshoot_auth_title">Auth error</string>
     <string name="onboarding_troubleshoot_auth_1">Does the token in openclaw.json match what you entered in GhostCrab?</string>
     <string name="onboarding_troubleshoot_auth_2">Try restarting the gateway after editing openclaw.json.</string>
+    <string name="onboarding_troubleshoot_host_vs_lan_title">Host browser works, phone doesn\'t</string>
+    <string name="onboarding_troubleshoot_host_vs_lan_1">Re-read the host IP carefully. A one-digit typo (192.168.0.23 vs 192.168.9.23) looks identical and will silently time out forever. Compare against ipconfig / ifconfig on the host.</string>
+    <string name="onboarding_troubleshoot_host_vs_lan_2">The IP you enter here must be the host\'s LAN IP. Never 127.0.0.1, localhost, or 10.0.2.2 — those only resolve on the host itself.</string>
+    <string name="onboarding_troubleshoot_host_vs_lan_3">Docker Desktop on Windows + WSL2 Mirrored networking is incompatible. If C:\\Users\\&lt;you&gt;\\.wslconfig contains networkingMode=Mirrored, loopback will work but LAN port forwarding silently breaks. Remove that line, run: wsl --shutdown, then restart Docker Desktop.</string>
+    <string name="onboarding_troubleshoot_host_vs_lan_4">Windows firewall rule must match the active network profile. Check: Get-NetConnectionProfile. If it shows Public, -Profile Private alone will not match — use -Profile Any or widen the existing rule: Set-NetFirewallRule -DisplayName "OpenClaw Gateway" -Profile Any.</string>
+    <string name="onboarding_troubleshoot_host_vs_lan_5">Confirm LAN reachability from a second device on the same Wi-Fi: curl http://[host-ip]:18789/health. If that also fails, the phone is not the problem — router client-isolation, firewall, or gateway bind-address is.</string>
+    <string name="onboarding_troubleshoot_host_vs_lan_6">If clearing the app fixed it, you had a stale saved profile with a typo. Re-enter the IP carefully and use Scan LAN when possible — auto-discovery avoids manual-typing bugs.</string>
 </resources>
