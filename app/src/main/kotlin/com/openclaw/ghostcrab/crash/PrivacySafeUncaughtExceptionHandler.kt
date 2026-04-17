@@ -20,6 +20,10 @@ class PrivacySafeUncaughtExceptionHandler(
 
     override fun uncaughtException(thread: Thread, throwable: Throwable) {
         Log.e(TAG, sanitize(throwable.stackTraceToString()))
+        // The *unsanitized* throwable is forwarded to delegate (the system handler) so
+        // the process terminates normally. If a third-party crash SDK (Crashlytics, Sentry,
+        // ACRA) is ever added, wrap throwable before passing it here — exception messages
+        // from GatewayAuthException / GatewayUnreachableException can contain full URLs.
         delegate?.uncaughtException(thread, throwable)
     }
 
