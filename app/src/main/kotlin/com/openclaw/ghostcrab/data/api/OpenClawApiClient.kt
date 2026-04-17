@@ -84,14 +84,22 @@ class OpenClawApiClient private constructor(
      *
      * May require authentication depending on gateway configuration.
      *
+     * Some gateways (e.g. upstream `ghcr.io/openclaw/openclaw:latest`) serve an HTML admin UI
+     * at `/status` instead of a JSON payload. In that case we return a default [StatusResponse]
+     * so the connect flow still succeeds — the gateway is clearly reachable.
+     *
      * @throws GatewayAuthException if auth is required and no/invalid token is present.
      * @throws GatewayUnreachableException if the host cannot be reached.
      * @throws GatewayTimeoutException if the request times out.
      */
     suspend fun status(): StatusResponse = safeRequest(baseUrl) {
-        httpClient.get("$baseUrl/status").let { response ->
-            response.mapErrors(baseUrl)
+        val response = httpClient.get("$baseUrl/status")
+        response.mapErrors(baseUrl)
+        val contentType = response.headers["Content-Type"].orEmpty()
+        if (contentType.contains("json", ignoreCase = true)) {
             response.body()
+        } else {
+            StatusResponse()
         }
     }
 
