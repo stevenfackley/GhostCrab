@@ -1,9 +1,16 @@
 package com.openclaw.ghostcrab.data
 
 import com.openclaw.ghostcrab.data.api.CleartextPublicIpInterceptor
+import io.mockk.every
+import io.mockk.mockk
+import okhttp3.Interceptor
+import okhttp3.Request
+import org.junit.jupiter.api.Assertions.assertDoesNotThrow
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import java.io.IOException
 
 class CleartextPublicIpInterceptorTest {
 
@@ -52,5 +59,49 @@ class CleartextPublicIpInterceptorTest {
     @Test
     fun `invalid IP string is not public`() {
         assertFalse(CleartextPublicIpInterceptor.isPublicIpLiteral("999.999.999.999"))
+    }
+
+    // ── Interceptor end-to-end wiring ─────────────────────────────────────────
+
+    private fun makeChain(url: String): Interceptor.Chain {
+        val request = Request.Builder().url(url).build()
+        return mockk {
+            every { request() } returns request
+            every { proceed(any()) } returns mockk(relaxed = true)
+        }
+    }
+
+    @Test
+    fun `interceptor throws IOException for public IP when cleartext is blocked`() {
+        val interceptor = CleartextPublicIpInterceptor(isAllowed = { false })
+        val chain = makeChain("http://8.8.8.8/api/health")
+
+        assertThrows(IOException::class.java) {
+            interceptor.intercept(chain)
+        }
+    }
+
+    @Test
+    fun `interceptor allows request when isAllowed returns true`() {
+        val interceptor = CleartextPublicIpInterceptor(isAllowed = { true })
+        val chain = makeChain("http://8.8.8.8/api/health")
+
+        assertDoesNotThrow { interceptor.intercept(chain) }
+    }
+
+    @Test
+    fun `interceptor allows private IP even when isAllowed returns false`() {
+        val interceptor = CleartextPublicIpInterceptor(isAllowed = { false })
+        val chain = makeChain("http://192.168.1.50:18789/api/health")
+
+        assertDoesNotThrow { interceptor.intercept(chain) }
+    }
+
+    @Test
+    fun `interceptor allows HTTPS to public IP regardless of isAllowed`() {
+        val interceptor = CleartextPublicIpInterceptor(isAllowed = { false })
+        val chain = makeChain("https://8.8.8.8/api/health")
+
+        assertDoesNotThrow { interceptor.intercept(chain) }
     }
 }
