@@ -37,6 +37,8 @@ android {
         buildConfigField("Boolean", "AI_PRO_ENABLED", "true")
         // Git SHA baked in at build time — exposed on the About screen.
         buildConfigField("String", "GIT_SHA", "\"$gitSha\"")
+        // Skill install foundation — dark in release until we ship it.
+        buildConfigField("Boolean", "SKILLS_INSTALL_ENABLED", "false")
     }
 
     signingConfigs {
@@ -55,6 +57,7 @@ android {
         debug {
             applicationIdSuffix = ".debug"
             buildConfigField("Boolean", "DEBUG_BUILD", "true")
+            buildConfigField("Boolean", "SKILLS_INSTALL_ENABLED", "true")
         }
         release {
             isMinifyEnabled = true
