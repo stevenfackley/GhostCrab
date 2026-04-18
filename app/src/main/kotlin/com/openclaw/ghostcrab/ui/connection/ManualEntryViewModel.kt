@@ -5,12 +5,14 @@ import androidx.lifecycle.viewModelScope
 import com.openclaw.ghostcrab.domain.model.ConnectionProfile
 import com.openclaw.ghostcrab.domain.repository.ConnectionProfileRepository
 import com.openclaw.ghostcrab.domain.repository.GatewayConnectionManager
+import com.openclaw.ghostcrab.domain.repository.OnboardingRepository
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.net.URI
@@ -44,6 +46,7 @@ sealed interface ManualEntryEvent {
 class ManualEntryViewModel(
     private val connectionManager: GatewayConnectionManager,
     private val profileRepository: ConnectionProfileRepository,
+    private val onboardingRepository: OnboardingRepository,
 ) : ViewModel() {
 
     private val _form = MutableStateFlow(ManualEntryFormState())
@@ -110,15 +113,20 @@ class ManualEntryViewModel(
                 connectionManager.connect(url, token)
             }.onSuccess {
                 val connected = connectionManager.connectionState.value
+                val displayName =
+                    (connected as? com.openclaw.ghostcrab.domain.model.GatewayConnection.Connected)
+                        ?.displayName ?: url
+                val existingId = profileRepository.getProfiles().first()
+                    .firstOrNull { it.url == url }?.id
                 val profile = ConnectionProfile(
-                    id = UUID.randomUUID().toString(),
-                    displayName = (connected as? com.openclaw.ghostcrab.domain.model.GatewayConnection.Connected)
-                        ?.displayName ?: url,
+                    id = existingId ?: UUID.randomUUID().toString(),
+                    displayName = displayName,
                     url = url,
                     lastConnectedAt = System.currentTimeMillis(),
                     hasToken = token != null,
                 )
                 profileRepository.saveProfile(profile, token)
+                onboardingRepository.markCompleted()
                 _uiState.value = ManualEntryUiState.Idle
                 _events.emit(ManualEntryEvent.NavigateToDashboard)
             }.onFailure { e ->
@@ -127,6 +135,7 @@ class ManualEntryViewModel(
         }
     }
 
+    @Suppress("ReturnCount")
     private fun validateHost(host: String): String? {
         val trimmed = host.trim()
         if (trimmed.isEmpty()) return "Host is required"
@@ -137,6 +146,7 @@ class ManualEntryViewModel(
         return null
     }
 
+    @Suppress("ReturnCount")
     private fun validatePort(port: String): String? {
         val trimmed = port.trim()
         if (trimmed.isEmpty()) return "Port is required"

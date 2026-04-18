@@ -106,15 +106,24 @@ class OpenClawApiClient private constructor(
     /**
      * GET `/config` — fetches the full `openclaw.json` configuration.
      *
+     * Some gateway builds (e.g. `ghcr.io/openclaw/openclaw:latest`) serve an HTML admin UI
+     * at `/config` instead of JSON. In that case we return an empty config + null ETag so the
+     * editor opens in a clearly-empty (not "disconnected") state. See commit 0c63686.
+     *
      * @return Pair of section map and optional ETag header value.
      * @throws GatewayApiException on unexpected HTTP errors.
      */
     suspend fun getConfig(): Pair<Map<String, JsonElement>, String?> = safeRequest(baseUrl) {
         val response = httpClient.get("$baseUrl/config")
         response.mapErrors(baseUrl)
-        val etag = response.headers["ETag"]
-        val body: JsonObject = response.body()
-        body to etag
+        val contentType = response.headers["Content-Type"].orEmpty()
+        if (contentType.contains("json", ignoreCase = true)) {
+            val etag = response.headers["ETag"]
+            val body: JsonObject = response.body()
+            body to etag
+        } else {
+            emptyMap<String, JsonElement>() to null
+        }
     }
 
     /**
@@ -169,7 +178,12 @@ class OpenClawApiClient private constructor(
         val url = "$baseUrl/api/models/status"
         val response = httpClient.get(url)
         response.mapErrors(url)
-        response.body()
+        val contentType = response.headers["Content-Type"].orEmpty()
+        if (contentType.contains("json", ignoreCase = true)) {
+            response.body()
+        } else {
+            emptyList()
+        }
     }
 
     /**

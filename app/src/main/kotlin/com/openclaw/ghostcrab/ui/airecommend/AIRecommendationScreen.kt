@@ -14,9 +14,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.OpenInBrowser
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -26,6 +29,7 @@ import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
@@ -43,19 +47,23 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.openclaw.ghostcrab.R
 import com.openclaw.ghostcrab.domain.model.GatewayConnection
+import com.openclaw.ghostcrab.ui.components.CodeBlock
 import com.openclaw.ghostcrab.ui.components.GlassSurface
 import com.openclaw.ghostcrab.ui.theme.BrandTokens
 import com.openclaw.ghostcrab.ui.theme.MonoFontFamily
 import com.openclaw.ghostcrab.ui.theme.Spacing
+import kotlinx.coroutines.launch
 import org.koin.androidx.compose.koinViewModel
 
 /**
@@ -133,15 +141,17 @@ fun AIRecommendationScreen(onNavigateBack: () -> Unit) {
         ) {
             Spacer(Modifier.height(Spacing.sm))
 
-            // Query input + Ask button — always visible unless loading
-            QuerySection(
-                query = query,
-                onQueryChange = { query = it },
-                isLoading = state is AIRecommendationUiState.Loading,
-                onSubmit = { viewModel.submitQuery(query) },
-            )
+            // Query input hidden when skill missing — user must install the skill first
+            if (state !is AIRecommendationUiState.SkillUnavailable) {
+                QuerySection(
+                    query = query,
+                    onQueryChange = { query = it },
+                    isLoading = state is AIRecommendationUiState.Loading,
+                    onSubmit = { viewModel.submitQuery(query) },
+                )
 
-            Spacer(Modifier.height(Spacing.md))
+                Spacer(Modifier.height(Spacing.md))
+            }
 
             // Main content area
             Box(modifier = Modifier.weight(1f)) {
@@ -158,7 +168,13 @@ fun AIRecommendationScreen(onNavigateBack: () -> Unit) {
                     }
 
                     is AIRecommendationUiState.SkillUnavailable -> {
-                        SkillUnavailableContent()
+                        val copiedMessage = stringResource(R.string.ai_skill_unavailable_copied)
+                        val scope = rememberCoroutineScope()
+                        SkillUnavailableContent(
+                            onCopied = {
+                                scope.launch { snackbarHostState.showSnackbar(copiedMessage) }
+                            },
+                        )
                     }
 
                     is AIRecommendationUiState.Error -> {
@@ -294,12 +310,15 @@ private fun IdleContent() {
 // ── Skill unavailable ─────────────────────────────────────────────────────────
 
 @Composable
-private fun SkillUnavailableContent() {
+private fun SkillUnavailableContent(onCopied: () -> Unit) {
+    val context = LocalContext.current
+    val clawhubUrl = stringResource(R.string.ai_skill_unavailable_clawhub_url)
+    val installCommand = stringResource(R.string.ai_skill_unavailable_hint)
+
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         GlassSurface(modifier = Modifier.padding(Spacing.md)) {
             Column(
                 modifier = Modifier.padding(Spacing.md),
-                horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(Spacing.sm),
             ) {
                 Text(
@@ -315,13 +334,31 @@ private fun SkillUnavailableContent() {
                         color = BrandTokens.colorTextSecondary,
                     ),
                 )
-                Text(
-                    text = stringResource(R.string.ai_skill_unavailable_hint),
-                    style = MaterialTheme.typography.bodySmall.copy(
-                        fontFamily = MonoFontFamily,
-                        color = BrandTokens.colorCyanPulse,
-                    ),
+                Spacer(Modifier.height(Spacing.xs))
+                CodeBlock(
+                    code = installCommand,
+                    onCopied = onCopied,
                 )
+                Spacer(Modifier.height(Spacing.xs))
+                OutlinedButton(
+                    onClick = {
+                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(clawhubUrl))
+                        context.startActivity(intent)
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.OpenInBrowser,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                        tint = BrandTokens.colorCyanPrimary,
+                    )
+                    Spacer(Modifier.size(Spacing.xs))
+                    Text(
+                        text = stringResource(R.string.ai_skill_unavailable_open_browser),
+                        color = BrandTokens.colorCyanPrimary,
+                    )
+                }
             }
         }
     }

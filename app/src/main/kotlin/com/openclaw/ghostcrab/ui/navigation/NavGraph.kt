@@ -57,64 +57,40 @@ fun NavGraph() {
         }
 
         composable(
-            route = "manual_entry?prefillUrl={prefillUrl}&onboarding={onboarding}",
+            route = "manual_entry?prefillUrl={prefillUrl}",
             arguments = listOf(
                 navArgument("prefillUrl") {
                     nullable = true
                     defaultValue = null
                     type = NavType.StringType
                 },
-                navArgument("onboarding") {
-                    defaultValue = false
-                    type = NavType.BoolType
-                },
             ),
         ) { backStackEntry ->
             val prefillUrl = backStackEntry.arguments?.getString("prefillUrl")
-            val isOnboarding = backStackEntry.arguments?.getBoolean("onboarding") ?: false
             ManualEntryScreen(
                 prefillUrl = prefillUrl,
                 onNavigateBack = { navController.popBackStack() },
                 onNavigateToDashboard = {
-                    if (isOnboarding) {
-                        // Pop back to onboarding so it can call markOnboardingConnected()
-                        navController.navigate("onboarding") {
-                            popUpTo("onboarding") { inclusive = false }
-                        }
-                    } else {
-                        navController.navigate("dashboard") {
-                            popUpTo("connection_picker") { inclusive = true }
-                        }
+                    navController.navigate("dashboard") {
+                        popUpTo("connection_picker") { inclusive = true }
                     }
                 },
             )
         }
 
-        composable(
-            route = "scan?onboarding={onboarding}",
-            arguments = listOf(
-                navArgument("onboarding") {
-                    defaultValue = false
-                    type = NavType.BoolType
-                },
-            ),
-        ) { backStackEntry ->
-            val isOnboarding = backStackEntry.arguments?.getBoolean("onboarding") ?: false
+        composable("scan") {
             ScanScreen(
                 onNavigateBack = { navController.popBackStack() },
                 onNavigateToManualEntry = { url ->
                     val encoded = Uri.encode(url)
-                    navController.navigate("manual_entry?prefillUrl=$encoded&onboarding=$isOnboarding")
+                    navController.navigate("manual_entry?prefillUrl=$encoded")
+                },
+                onEnterManually = {
+                    navController.navigate("manual_entry")
                 },
                 onNavigateToDashboard = {
-                    if (isOnboarding) {
-                        navController.navigate("onboarding") {
-                            popUpTo("onboarding") { inclusive = false }
-                        }
-                    } else {
-                        navController.navigate("dashboard") {
-                            popUpTo("connection_picker") { inclusive = true }
-                        }
+                    navController.navigate("dashboard") {
+                        popUpTo("connection_picker") { inclusive = true }
                     }
                 },
             )
@@ -142,10 +118,10 @@ fun NavGraph() {
                     }
                 },
                 onScan = {
-                    navController.navigate("scan?onboarding=true")
+                    navController.navigate("scan")
                 },
                 onManualEntry = {
-                    navController.navigate("manual_entry?onboarding=true")
+                    navController.navigate("manual_entry")
                 },
                 onDone = {
                     navController.navigate("connection_picker") {

@@ -26,6 +26,7 @@ import com.openclaw.ghostcrab.ui.theme.Spacing
  * @param sheetState Controls the expanded/hidden state of the sheet.
  * @param onDismiss Called when the user dismisses the sheet.
  */
+@Suppress("LongMethod")
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 public fun TroubleshootingDrawer(

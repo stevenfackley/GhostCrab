@@ -4,6 +4,7 @@ import app.cash.turbine.test
 import com.openclaw.ghostcrab.domain.model.GatewayConnection
 import com.openclaw.ghostcrab.domain.repository.ConnectionProfileRepository
 import com.openclaw.ghostcrab.domain.repository.GatewayConnectionManager
+import com.openclaw.ghostcrab.domain.repository.OnboardingRepository
 import com.openclaw.ghostcrab.ui.connection.DEFAULT_GATEWAY_PORT
 import com.openclaw.ghostcrab.ui.connection.ManualEntryEvent
 import com.openclaw.ghostcrab.ui.connection.ManualEntryUiState
@@ -35,6 +36,7 @@ class ManualEntryViewModelTest {
     private val testDispatcher = UnconfinedTestDispatcher()
     private lateinit var connectionManager: GatewayConnectionManager
     private lateinit var profileRepository: ConnectionProfileRepository
+    private lateinit var onboardingRepository: OnboardingRepository
     private lateinit var vm: ManualEntryViewModel
 
     @BeforeEach
@@ -42,10 +44,11 @@ class ManualEntryViewModelTest {
         Dispatchers.setMain(testDispatcher)
         connectionManager = mockk(relaxed = true)
         profileRepository = mockk(relaxed = true)
+        onboardingRepository = mockk(relaxed = true)
         every { connectionManager.connectionState } returns
             MutableStateFlow(GatewayConnection.Disconnected)
         every { profileRepository.getProfiles() } returns flowOf(emptyList())
-        vm = ManualEntryViewModel(connectionManager, profileRepository)
+        vm = ManualEntryViewModel(connectionManager, profileRepository, onboardingRepository)
     }
 
     @AfterEach

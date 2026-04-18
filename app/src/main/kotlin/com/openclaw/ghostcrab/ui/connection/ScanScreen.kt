@@ -57,6 +57,7 @@ import org.koin.androidx.compose.koinViewModel
  *
  * @param onNavigateBack Navigate up to ConnectionPicker.
  * @param onNavigateToManualEntry Navigate to ManualEntry with [prefillUrl] pre-populated.
+ * @param onEnterManually Navigate to ManualEntry with no prefill (empty/error fallback).
  * @param onNavigateToDashboard Navigate to Dashboard after a successful connection.
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -64,6 +65,7 @@ import org.koin.androidx.compose.koinViewModel
 fun ScanScreen(
     onNavigateBack: () -> Unit,
     onNavigateToManualEntry: (String) -> Unit,
+    onEnterManually: () -> Unit,
     onNavigateToDashboard: () -> Unit,
     viewModel: ScanViewModel = koinViewModel(),
 ) {
@@ -114,24 +116,38 @@ fun ScanScreen(
                 .fillMaxSize()
                 .padding(innerPadding),
         ) {
-            when (val s = state) {
-                ScanState.Idle -> {}
-
-                is ScanState.Scanning -> ScanningContent()
-
-                is ScanState.Results -> ResultsContent(
-                    gateways = s.gateways,
-                    isScanning = !s.scanCompleted,
-                    onGatewayTapped = viewModel::onGatewaySelected,
-                    onScanAgain = viewModel::startScan,
-                )
-
-                is ScanState.Error -> ErrorContent(
-                    reason = s.reason,
-                    onRetry = viewModel::startScan,
-                )
-            }
+            ScanScreenBody(
+                state = state,
+                onGatewaySelected = viewModel::onGatewaySelected,
+                onStartScan = viewModel::startScan,
+                onEnterManually = onEnterManually,
+            )
         }
+    }
+}
+
+@Composable
+private fun ScanScreenBody(
+    state: ScanState,
+    onGatewaySelected: (DiscoveredGateway) -> Unit,
+    onStartScan: () -> Unit,
+    onEnterManually: () -> Unit,
+) {
+    when (state) {
+        ScanState.Idle -> {}
+        is ScanState.Scanning -> ScanningContent()
+        is ScanState.Results -> ResultsContent(
+            gateways = state.gateways,
+            isScanning = !state.scanCompleted,
+            onGatewayTapped = onGatewaySelected,
+            onScanAgain = onStartScan,
+            onEnterManually = onEnterManually,
+        )
+        is ScanState.Error -> ErrorContent(
+            reason = state.reason,
+            onRetry = onStartScan,
+            onEnterManually = onEnterManually,
+        )
     }
 }
 
@@ -191,6 +207,7 @@ private fun ResultsContent(
     isScanning: Boolean,
     onGatewayTapped: (DiscoveredGateway) -> Unit,
     onScanAgain: () -> Unit,
+    onEnterManually: () -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
         // Pulse banner while still scanning
@@ -200,6 +217,7 @@ private fun ResultsContent(
 
         if (gateways.isEmpty() && !isScanning) {
             EmptyResultsContent(
+                onEnterManually = onEnterManually,
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth(),
@@ -220,15 +238,24 @@ private fun ResultsContent(
         }
 
         if (!isScanning) {
-            OutlinedButton(
-                onClick = onScanAgain,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(Spacing.md),
-            ) {
-                Icon(Icons.Default.Refresh, contentDescription = null)
-                Spacer(Modifier.width(Spacing.xs))
-                Text("Scan again")
+            Column(modifier = Modifier.padding(Spacing.md)) {
+                OutlinedButton(
+                    onClick = onScanAgain,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(Icons.Default.Refresh, contentDescription = null)
+                    Spacer(Modifier.width(Spacing.xs))
+                    Text("Scan again")
+                }
+                if (gateways.isNotEmpty()) {
+                    Spacer(Modifier.height(Spacing.sm))
+                    OutlinedButton(
+                        onClick = onEnterManually,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Enter URL manually")
+                    }
+                }
             }
         }
     }
@@ -297,14 +324,28 @@ private fun GatewayCard(
 }
 
 @Composable
-private fun EmptyResultsContent(modifier: Modifier = Modifier) {
-    Box(modifier = modifier, contentAlignment = Alignment.Center) {
+private fun EmptyResultsContent(
+    onEnterManually: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier.padding(Spacing.md),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
         Text(
             text = "No OpenClaw gateways detected on this network.\n" +
-                "mDNS may be blocked. Enter a URL manually.",
+                "mDNS may be blocked — try entering the URL manually.",
             style = MaterialTheme.typography.bodyMedium,
             color = BrandTokens.colorTextSecondary,
         )
+        Spacer(Modifier.height(Spacing.lg))
+        OutlinedButton(
+            onClick = onEnterManually,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("Enter URL manually")
+        }
     }
 }
 
@@ -312,6 +353,7 @@ private fun EmptyResultsContent(modifier: Modifier = Modifier) {
 private fun ErrorContent(
     reason: String,
     onRetry: () -> Unit,
+    onEnterManually: () -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -326,8 +368,18 @@ private fun ErrorContent(
             color = BrandTokens.colorCrimsonError,
         )
         Spacer(Modifier.height(Spacing.lg))
-        OutlinedButton(onClick = onRetry) {
+        OutlinedButton(
+            onClick = onRetry,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
             Text("Try again")
+        }
+        Spacer(Modifier.height(Spacing.sm))
+        OutlinedButton(
+            onClick = onEnterManually,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("Enter URL manually")
         }
     }
 }

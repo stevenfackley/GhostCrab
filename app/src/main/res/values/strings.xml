@@ -66,8 +66,11 @@
     <string name="ai_ask_button">Ask</string>
     <string name="ai_idle_hint">Describe what you want — e.g. "best coding model for 16 GB RAM" — and the gateway AI will suggest config changes.</string>
     <string name="ai_skill_unavailable_title">AI skill not installed</string>
-    <string name="ai_skill_unavailable_body">This gateway does not have the skill-ai-recommend skill installed. Add it to enable AI recommendations.</string>
-    <string name="ai_skill_unavailable_hint">openclaw skill install skill-ai-recommend</string>
+    <string name="ai_skill_unavailable_body">This gateway doesn\'t have an AI recommendation skill installed. We recommend wanng-ide/auto-skill-hunter from ClawHub.</string>
+    <string name="ai_skill_unavailable_hint">openclaw skills install wanng-ide/auto-skill-hunter</string>
+    <string name="ai_skill_unavailable_copied">Install command copied</string>
+    <string name="ai_skill_unavailable_open_browser">View on ClawHub</string>
+    <string name="ai_skill_unavailable_clawhub_url">https://clawhub.ai/wanng-ide/auto-skill-hunter</string>
     <string name="ai_recommendations_label">RECOMMENDATION</string>
     <string name="ai_suggestions_count">%1$d config change(s) suggested</string>
     <string name="ai_apply_suggestions">Apply Suggestions</string>

@@ -15,7 +15,7 @@ import org.koin.dsl.module
 
 val uiModule = module {
     viewModel { ConnectionPickerViewModel(get(), get(), get()) }
-    viewModel { ManualEntryViewModel(get(), get()) }
+    viewModel { ManualEntryViewModel(get(), get(), get()) }
     viewModel { ScanViewModel(get(), get(), get()) }
     viewModel {
         DashboardViewModel(
