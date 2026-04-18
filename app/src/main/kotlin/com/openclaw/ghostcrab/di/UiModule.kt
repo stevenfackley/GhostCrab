@@ -27,7 +27,7 @@ val uiModule = module {
     viewModel { OnboardingViewModel(get()) }
     viewModel { ConfigEditorViewModel(get(), get()) }
     viewModel { ModelManagerViewModel(get(), get()) }
-    viewModel { AIRecommendationViewModel(get(), get(), get(), get()) }
+    viewModel { AIRecommendationViewModel(get(), get(), get(), get(), getOrNull()) }
     viewModel { SettingsViewModel(get(), get(), get()) }
     viewModel { QrScanViewModel() }
 }

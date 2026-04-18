@@ -14,6 +14,10 @@ import com.openclaw.ghostcrab.domain.repository.AIRecommendationService
 import com.openclaw.ghostcrab.domain.repository.ConfigRepository
 import com.openclaw.ghostcrab.domain.repository.GatewayConnectionManager
 import com.openclaw.ghostcrab.domain.repository.ModelRepository
+import com.openclaw.ghostcrab.domain.repository.ScopeProbe
+import com.openclaw.ghostcrab.domain.repository.ScopeProbeResult
+import io.mockk.coEvery
+import io.mockk.mockk
 import com.openclaw.ghostcrab.ui.airecommend.AIRecommendationUiState
 import com.openclaw.ghostcrab.ui.airecommend.AIRecommendationViewModel
 import kotlinx.coroutines.Dispatchers
@@ -84,6 +88,7 @@ class AIRecommendationViewModelTest {
         service: FakeAIService = FakeAIService(available = true),
         config: FakeAIConfigRepository = FakeAIConfigRepository(),
         models: FakeAIModelRepository = FakeAIModelRepository(),
+        scopeProbe: ScopeProbe? = null,
     ): Pair<AIRecommendationViewModel, MutableStateFlow<GatewayConnection>> {
         val flow = MutableStateFlow(initialConnection)
         val vm = AIRecommendationViewModel(
@@ -91,6 +96,7 @@ class AIRecommendationViewModelTest {
             connectionManager = FakeAIConnectionManager(flow),
             configRepository = config,
             modelRepository = models,
+            scopeProbe = scopeProbe,
         )
         return vm to flow
     }
@@ -270,6 +276,21 @@ class AIRecommendationViewModelTest {
         val state = vm.state.value as AIRecommendationUiState.Ready
         assertNull(state.applyError)
         assertFalse(state.applySuccess)
+    }
+
+    @Test
+    fun `AIServiceUnavailable with scope probe reporting missing operator_admin sets missingScope`() = runTest {
+        val scopeProbe = mockk<ScopeProbe>()
+        coEvery { scopeProbe.probe() } returns ScopeProbeResult.Known(setOf("operator.read"))
+        val service = FakeAIService(available = true).apply {
+            error = AIServiceUnavailableException(gatewayUrl)
+        }
+
+        val (vm, _) = makeVm(service = service, scopeProbe = scopeProbe)
+        vm.submitQuery("anything")
+
+        val s = vm.state.value as AIRecommendationUiState.SkillUnavailable
+        assertEquals("operator.admin", s.missingScope)
     }
 }
 

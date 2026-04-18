@@ -15,11 +15,11 @@ sealed interface AIRecommendationUiState {
     data object Loading : AIRecommendationUiState
 
     /**
-     * AI skill not installed on the connected gateway.
-     *
-     * Show empty state with link to install docs.
+     * Gateway doesn't expose the AI-recommend skill. [missingScope] is non-null when
+     * we know the user's token lacks the scope needed to install it — lets the UI
+     * show scope-specific copy instead of the generic "install via CLI" card.
      */
-    data object SkillUnavailable : AIRecommendationUiState
+    data class SkillUnavailable(val missingScope: String? = null) : AIRecommendationUiState
 
     /**
      * Recommendation received and ready to display.

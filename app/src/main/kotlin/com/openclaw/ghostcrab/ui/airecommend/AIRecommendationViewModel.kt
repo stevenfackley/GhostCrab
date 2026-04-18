@@ -13,6 +13,8 @@ import com.openclaw.ghostcrab.domain.repository.AIRecommendationService
 import com.openclaw.ghostcrab.domain.repository.ConfigRepository
 import com.openclaw.ghostcrab.domain.repository.GatewayConnectionManager
 import com.openclaw.ghostcrab.domain.repository.ModelRepository
+import com.openclaw.ghostcrab.domain.repository.ScopeProbe
+import com.openclaw.ghostcrab.domain.repository.ScopeProbeResult
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -38,12 +40,15 @@ import kotlinx.serialization.json.put
  * @param connectionManager Provides live connection state.
  * @param configRepository Used to read the current gateway config when building query context.
  * @param modelRepository Used to identify the active model when building query context.
+ * @param scopeProbe Optional — probes token scopes to surface scope-specific install copy.
+ *   Null in release builds (not registered in Koin).
  */
 class AIRecommendationViewModel(
     private val aiService: AIRecommendationService,
     private val connectionManager: GatewayConnectionManager,
     private val configRepository: ConfigRepository,
     private val modelRepository: ModelRepository,
+    private val scopeProbe: ScopeProbe? = null,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow<AIRecommendationUiState>(AIRecommendationUiState.Idle)
@@ -92,7 +97,14 @@ class AIRecommendationViewModel(
                     selectedChanges = recommendation.suggestedChanges.toSet(),
                 )
             } catch (e: AIServiceUnavailableException) {
-                _state.value = AIRecommendationUiState.SkillUnavailable
+                val missingScope = if (scopeProbe != null) {
+                    when (val r = scopeProbe.probe()) {
+                        is ScopeProbeResult.Known -> if (r.has("operator.admin")) null else "operator.admin"
+                        ScopeProbeResult.UnknownOldGateway -> null
+                        is ScopeProbeResult.Failed -> null
+                    }
+                } else null
+                _state.value = AIRecommendationUiState.SkillUnavailable(missingScope)
             } catch (e: AIQuotaExceededException) {
                 _state.value = AIRecommendationUiState.Error(
                     "AI rate limit exceeded at ${e.url}. Please wait before retrying.",
@@ -197,7 +209,7 @@ class AIRecommendationViewModel(
             if (_state.value is AIRecommendationUiState.Idle ||
                 _state.value is AIRecommendationUiState.SkillUnavailable
             ) {
-                _state.value = AIRecommendationUiState.SkillUnavailable
+                _state.value = AIRecommendationUiState.SkillUnavailable()
             }
         } else if (_state.value is AIRecommendationUiState.SkillUnavailable) {
             _state.value = AIRecommendationUiState.Idle
