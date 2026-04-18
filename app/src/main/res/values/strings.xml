@@ -71,6 +71,9 @@
     <string name="ai_skill_unavailable_copied">Install command copied</string>
     <string name="ai_skill_unavailable_open_browser">View on ClawHub</string>
     <string name="ai_skill_unavailable_clawhub_url">https://clawhub.ai/wanng-ide/auto-skill-hunter</string>
+    <string name="ai_skill_unavailable_scope_title">Token missing operator.admin</string>
+    <string name="ai_skill_unavailable_scope_body">Your token can\'t install skills. Regenerate with operator.admin scope on the host:</string>
+    <string name="ai_skill_unavailable_scope_command">openclaw auth grant operator.admin</string>
     <string name="ai_recommendations_label">RECOMMENDATION</string>
     <string name="ai_suggestions_count">%1$d config change(s) suggested</string>
     <string name="ai_apply_suggestions">Apply Suggestions</string>

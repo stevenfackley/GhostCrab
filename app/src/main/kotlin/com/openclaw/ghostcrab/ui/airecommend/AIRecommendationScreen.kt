@@ -169,10 +169,11 @@ fun AIRecommendationScreen(onNavigateBack: () -> Unit) {
 
                     is AIRecommendationUiState.SkillUnavailable -> {
                         val copiedMessage = stringResource(R.string.ai_skill_unavailable_copied)
-                        val scope = rememberCoroutineScope()
+                        val coroScope = rememberCoroutineScope()
                         SkillUnavailableContent(
+                            missingScope = s.missingScope,
                             onCopied = {
-                                scope.launch { snackbarHostState.showSnackbar(copiedMessage) }
+                                coroScope.launch { snackbarHostState.showSnackbar(copiedMessage) }
                             },
                         )
                     }
@@ -309,11 +310,30 @@ private fun IdleContent() {
 
 // ── Skill unavailable ─────────────────────────────────────────────────────────
 
+@Suppress("LongMethod")
 @Composable
-private fun SkillUnavailableContent(onCopied: () -> Unit) {
+private fun SkillUnavailableContent(
+    missingScope: String?,
+    onCopied: () -> Unit,
+) {
     val context = LocalContext.current
     val clawhubUrl = stringResource(R.string.ai_skill_unavailable_clawhub_url)
-    val installCommand = stringResource(R.string.ai_skill_unavailable_hint)
+
+    val title = if (missingScope == "operator.admin") {
+        stringResource(R.string.ai_skill_unavailable_scope_title)
+    } else {
+        stringResource(R.string.ai_skill_unavailable_title)
+    }
+    val body = if (missingScope == "operator.admin") {
+        stringResource(R.string.ai_skill_unavailable_scope_body)
+    } else {
+        stringResource(R.string.ai_skill_unavailable_body)
+    }
+    val command = if (missingScope == "operator.admin") {
+        stringResource(R.string.ai_skill_unavailable_scope_command)
+    } else {
+        stringResource(R.string.ai_skill_unavailable_hint)
+    }
 
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         GlassSurface(modifier = Modifier.padding(Spacing.md)) {
@@ -322,42 +342,45 @@ private fun SkillUnavailableContent(onCopied: () -> Unit) {
                 verticalArrangement = Arrangement.spacedBy(Spacing.sm),
             ) {
                 Text(
-                    text = stringResource(R.string.ai_skill_unavailable_title),
+                    text = title,
                     style = MaterialTheme.typography.titleMedium.copy(
-                        color = BrandTokens.colorAmberWarn,
+                        color = if (missingScope != null) BrandTokens.colorCrimsonError
+                        else BrandTokens.colorAmberWarn,
                         fontWeight = FontWeight.Bold,
                     ),
                 )
                 Text(
-                    text = stringResource(R.string.ai_skill_unavailable_body),
+                    text = body,
                     style = MaterialTheme.typography.bodySmall.copy(
                         color = BrandTokens.colorTextSecondary,
                     ),
                 )
                 Spacer(Modifier.height(Spacing.xs))
-                CodeBlock(
-                    code = installCommand,
-                    onCopied = onCopied,
-                )
-                Spacer(Modifier.height(Spacing.xs))
-                OutlinedButton(
-                    onClick = {
-                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(clawhubUrl))
-                        context.startActivity(intent)
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.OpenInBrowser,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                        tint = BrandTokens.colorCyanPrimary,
-                    )
-                    Spacer(Modifier.size(Spacing.xs))
-                    Text(
-                        text = stringResource(R.string.ai_skill_unavailable_open_browser),
-                        color = BrandTokens.colorCyanPrimary,
-                    )
+                CodeBlock(code = command, onCopied = onCopied)
+
+                // Browser button hidden when scope is the blocker — the user needs
+                // to run a local command, not visit the catalog.
+                if (missingScope == null) {
+                    Spacer(Modifier.height(Spacing.xs))
+                    OutlinedButton(
+                        onClick = {
+                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(clawhubUrl))
+                            context.startActivity(intent)
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.OpenInBrowser,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                            tint = BrandTokens.colorCyanPrimary,
+                        )
+                        Spacer(Modifier.size(Spacing.xs))
+                        Text(
+                            text = stringResource(R.string.ai_skill_unavailable_open_browser),
+                            color = BrandTokens.colorCyanPrimary,
+                        )
+                    }
                 }
             }
         }
