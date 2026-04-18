@@ -1,5 +1,8 @@
 package com.openclaw.ghostcrab.data.ws
 
+import io.ktor.client.plugins.websocket.webSocketSession
+import io.ktor.websocket.close
+import io.ktor.websocket.readText
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -8,6 +11,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
@@ -110,4 +114,52 @@ class GatewayWsClient private constructor(
         fun forTesting(session: WsSession, tokenProvider: () -> String?): GatewayWsClient =
             GatewayWsClient(session = session, tokenProvider = tokenProvider)
     }
+}
+
+// ── Production Ktor adapter ───────────────────────────────────────────────────
+
+/**
+ * Production [WsSession] backed by a real Ktor [DefaultClientWebSocketSession].
+ *
+ * @param delegate The Ktor session carrying raw WS frames.
+ */
+class KtorWsSession internal constructor(
+    private val delegate: io.ktor.client.plugins.websocket.DefaultClientWebSocketSession,
+) : WsSession {
+    override suspend fun send(text: String) {
+        delegate.send(io.ktor.websocket.Frame.Text(text))
+    }
+
+    override fun incoming(): Flow<String> = flow {
+        for (frame in delegate.incoming) {
+            if (frame is io.ktor.websocket.Frame.Text) emit(frame.readText())
+        }
+    }
+
+    override suspend fun close() {
+        delegate.close()
+    }
+}
+
+/**
+ * Opens a WS connection to [baseUrl]/ws and returns a [GatewayWsClient] backed by it.
+ *
+ * `http://` → `ws://`, `https://` → `wss://` via `^http` regex replacement.
+ *
+ * @param httpClient Ktor [HttpClient] with the WebSockets plugin installed.
+ * @param baseUrl Base URL of the gateway (e.g. `http://192.168.1.1:8080`).
+ * @param tokenProvider Supplier for the current bearer token (may return null).
+ * @return A connected [GatewayWsClient].
+ */
+suspend fun openGatewayWs(
+    httpClient: io.ktor.client.HttpClient,
+    baseUrl: String,
+    tokenProvider: () -> String?,
+): GatewayWsClient {
+    val wsUrl = baseUrl.replaceFirst(Regex("^http"), "ws").trimEnd('/') + "/ws"
+    val session = httpClient.webSocketSession(wsUrl) {
+        val token = tokenProvider()
+        if (token != null) headers.append("Authorization", "Bearer $token")
+    }
+    return GatewayWsClient.forTesting(KtorWsSession(session), tokenProvider)
 }
