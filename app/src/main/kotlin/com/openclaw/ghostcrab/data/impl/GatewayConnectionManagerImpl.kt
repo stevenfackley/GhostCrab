@@ -80,6 +80,7 @@ class GatewayConnectionManagerImpl(
                     isHttps = isHttps,
                     capabilities = statusResponse.capabilities,
                     hardwareInfo = statusResponse.hardware,
+                    tokenOrNull = token,
                 )
             } catch (e: GatewayException) {
                 activeClient?.close()

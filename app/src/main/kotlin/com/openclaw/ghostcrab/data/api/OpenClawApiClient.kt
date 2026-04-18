@@ -269,6 +269,7 @@ class OpenClawApiClient private constructor(
             engine {
                 addInterceptor(CleartextPublicIpInterceptor { allowCleartextPublicIPs })
             }
+            install(io.ktor.client.plugins.websocket.WebSockets)
             install(ContentNegotiation) {
                 json(Json {
                     ignoreUnknownKeys = true
