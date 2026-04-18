@@ -18,6 +18,7 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
+import kotlin.coroutines.CoroutineContext
 
 /** Thin abstraction over a Ktor WS session — enables injecting a fake in tests. */
 interface WsSession {
@@ -38,8 +39,9 @@ class GatewayWsClient private constructor(
     private val session: WsSession,
     private val tokenProvider: () -> String?,
     private val json: Json = Json { ignoreUnknownKeys = true; encodeDefaults = true },
+    dispatcher: CoroutineContext = Dispatchers.Default,
 ) {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val scope = CoroutineScope(SupervisorJob() + dispatcher)
     private val nextId = AtomicLong(1)
     private val pending = ConcurrentHashMap<Long, CompletableDeferred<JsonRpcResponse>>()
     private val _notifications = MutableSharedFlow<JsonRpcNotification>(extraBufferCapacity = 64)
@@ -110,9 +112,20 @@ class GatewayWsClient private constructor(
         /**
          * For unit tests only — wires directly to a [FakeWsSession] without Ktor.
          * Production code should construct via DI with a Ktor-backed [WsSession].
+         *
+         * @param dispatcher Coroutine context for the internal reader loop. Tests should
+         *   pass [Dispatchers.Unconfined] (or a test dispatcher) so frame dispatch is
+         *   deterministic; production uses the default [Dispatchers.Default].
          */
-        fun forTesting(session: WsSession, tokenProvider: () -> String?): GatewayWsClient =
-            GatewayWsClient(session = session, tokenProvider = tokenProvider)
+        fun forTesting(
+            session: WsSession,
+            tokenProvider: () -> String?,
+            dispatcher: CoroutineContext = Dispatchers.Unconfined,
+        ): GatewayWsClient = GatewayWsClient(
+            session = session,
+            tokenProvider = tokenProvider,
+            dispatcher = dispatcher,
+        )
     }
 }
 
