@@ -20,7 +20,7 @@ fun signingCred(key: String): String? =
 
 android {
     namespace = "com.openclaw.ghostcrab"
-    compileSdk = 35
+    compileSdk = 36
 
     val gitSha: String = try {
         providers.exec { commandLine("git", "rev-parse", "--short", "HEAD") }
@@ -30,7 +30,7 @@ android {
     defaultConfig {
         applicationId = "com.openclaw.ghostcrab"
         minSdk = 26
-        targetSdk = 35
+        targetSdk = 36
         versionCode = 1
         versionName = "0.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -93,7 +93,7 @@ android {
             )
         }
     }
-    buildToolsVersion = "35.0.0"
+    buildToolsVersion = "36.0.0"
 }
 
 kotlin {
@@ -173,6 +173,8 @@ dependencies {
     implementation(libs.camerax.camera2)
     implementation(libs.camerax.lifecycle)
     implementation(libs.camerax.view)
+    // CameraX 1.6 dropped the transitive Guava ListenableFuture; restore it.
+    implementation(libs.guava)
 
     // ML Kit QR decode (on-device, no network call)
     implementation(libs.mlkit.barcode.scanning)
