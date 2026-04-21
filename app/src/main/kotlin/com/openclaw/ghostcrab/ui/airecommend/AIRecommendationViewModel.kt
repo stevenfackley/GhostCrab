@@ -8,10 +8,13 @@ import com.openclaw.ghostcrab.domain.exception.GatewayException
 import com.openclaw.ghostcrab.domain.model.GatewayConnection
 import com.openclaw.ghostcrab.domain.model.OpenClawConfig
 import com.openclaw.ghostcrab.domain.model.RecommendationContext
+import com.openclaw.ghostcrab.domain.model.SkillInstallError
+import com.openclaw.ghostcrab.domain.model.SkillInstallProgress
 import com.openclaw.ghostcrab.domain.model.SuggestedChange
 import com.openclaw.ghostcrab.domain.repository.AIRecommendationService
 import com.openclaw.ghostcrab.domain.repository.ConfigRepository
 import com.openclaw.ghostcrab.domain.repository.GatewayConnectionManager
+import com.openclaw.ghostcrab.domain.repository.InstalledSkillRepository
 import com.openclaw.ghostcrab.domain.repository.ModelRepository
 import com.openclaw.ghostcrab.domain.repository.ScopeProbe
 import com.openclaw.ghostcrab.domain.repository.ScopeProbeResult
@@ -42,6 +45,8 @@ import kotlinx.serialization.json.put
  * @param modelRepository Used to identify the active model when building query context.
  * @param scopeProbe Optional — probes token scopes to surface scope-specific install copy.
  *   Null in release builds (not registered in Koin).
+ * @param installRepo Optional — in-app skill installer. Null when SKILLS_INSTALL_ENABLED is off.
+ *   Presence drives the `canInstall` flag on [AIRecommendationUiState.SkillUnavailable].
  */
 class AIRecommendationViewModel(
     private val aiService: AIRecommendationService,
@@ -49,12 +54,16 @@ class AIRecommendationViewModel(
     private val configRepository: ConfigRepository,
     private val modelRepository: ModelRepository,
     private val scopeProbe: ScopeProbe? = null,
+    private val installRepo: InstalledSkillRepository? = null,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow<AIRecommendationUiState>(AIRecommendationUiState.Idle)
 
     /** Observable UI state. */
     val state: StateFlow<AIRecommendationUiState> = _state.asStateFlow()
+
+    /** Remembered so we can auto-resubmit after a successful install. Empty when never submitted. */
+    private var lastQuery: String = ""
 
     init {
         viewModelScope.launch {
@@ -86,6 +95,7 @@ class AIRecommendationViewModel(
     fun submitQuery(query: String) {
         val trimmed = query.trim()
         if (trimmed.isEmpty()) return
+        lastQuery = trimmed
         viewModelScope.launch {
             _state.value = AIRecommendationUiState.Loading
             try {
@@ -104,7 +114,10 @@ class AIRecommendationViewModel(
                         is ScopeProbeResult.Failed -> null
                     }
                 } else null
-                _state.value = AIRecommendationUiState.SkillUnavailable(missingScope)
+                _state.value = AIRecommendationUiState.SkillUnavailable(
+                    missingScope = missingScope,
+                    canInstall = installRepo != null && missingScope == null,
+                )
             } catch (e: AIQuotaExceededException) {
                 _state.value = AIRecommendationUiState.Error(
                     "AI rate limit exceeded at ${e.url}. Please wait before retrying.",
@@ -181,17 +194,19 @@ class AIRecommendationViewModel(
     }
 
     /**
-     * Clears the apply-success flag after the snackbar has been shown.
+     * Clears apply-success / apply-error state after the snackbar has been shown.
+     *
+     * @param clearSuccess If true, resets [AIRecommendationUiState.Ready.applySuccess] to false.
+     * @param clearError If true, resets [AIRecommendationUiState.Ready.applyError] to null.
      */
-    fun clearApplySuccess() {
-        _state.update { (it as? AIRecommendationUiState.Ready)?.copy(applySuccess = false) ?: it }
-    }
-
-    /**
-     * Clears the apply-error message after the snackbar has been shown.
-     */
-    fun clearApplyError() {
-        _state.update { (it as? AIRecommendationUiState.Ready)?.copy(applyError = null) ?: it }
+    fun clearApplyFlags(clearSuccess: Boolean = false, clearError: Boolean = false) {
+        _state.update { current ->
+            val ready = current as? AIRecommendationUiState.Ready ?: return@update current
+            ready.copy(
+                applySuccess = if (clearSuccess) false else ready.applySuccess,
+                applyError = if (clearError) null else ready.applyError,
+            )
+        }
     }
 
     /**
@@ -199,6 +214,63 @@ class AIRecommendationViewModel(
      */
     fun reset() {
         _state.value = AIRecommendationUiState.Idle
+    }
+
+    /**
+     * Installs the AI-recommend skill from ClawHub and — on success — auto-resubmits the
+     * last query (or transitions to [AIRecommendationUiState.Idle] if none was made yet).
+     *
+     * No-op unless current state is [AIRecommendationUiState.SkillUnavailable] with
+     * [AIRecommendationUiState.SkillUnavailable.canInstall] true and no install already
+     * in flight. If [installRepo] is null the call is silently ignored.
+     *
+     * On terminal failure, stores the error on the state; call [dismissInstallError] to clear.
+     * If the error is [SkillInstallError.Unauthorized] the `missingScope` is populated and
+     * `canInstall` flipped false so the Install button disappears.
+     */
+    fun installSkill() {
+        val repo = installRepo ?: return
+        val current = (_state.value as? AIRecommendationUiState.SkillUnavailable)
+            ?.takeIf { it.canInstall && it.installProgress == null } ?: return
+
+        viewModelScope.launch {
+            repo.install(AI_RECOMMEND_SLUG).collect { progress ->
+                when (progress) {
+                    is SkillInstallProgress.Succeeded -> {
+                        if (lastQuery.isNotEmpty()) {
+                            submitQuery(lastQuery)
+                        } else {
+                            _state.value = AIRecommendationUiState.Idle
+                        }
+                    }
+                    is SkillInstallProgress.Failed -> {
+                        val err = progress.error
+                        val scopeFromErr = (err as? SkillInstallError.Unauthorized)?.missingScope
+                        _state.update {
+                            (it as? AIRecommendationUiState.SkillUnavailable)?.copy(
+                                installProgress = null,
+                                installError = err,
+                                missingScope = scopeFromErr ?: it.missingScope,
+                                canInstall = scopeFromErr == null && it.canInstall,
+                            ) ?: it
+                        }
+                    }
+                    else -> {
+                        _state.update {
+                            (it as? AIRecommendationUiState.SkillUnavailable)
+                                ?.copy(installProgress = progress) ?: it
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /** Clears [AIRecommendationUiState.SkillUnavailable.installError] after the user dismisses it. */
+    fun dismissInstallError() {
+        _state.update {
+            (it as? AIRecommendationUiState.SkillUnavailable)?.copy(installError = null) ?: it
+        }
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────
@@ -209,7 +281,9 @@ class AIRecommendationViewModel(
             if (_state.value is AIRecommendationUiState.Idle ||
                 _state.value is AIRecommendationUiState.SkillUnavailable
             ) {
-                _state.value = AIRecommendationUiState.SkillUnavailable()
+                _state.value = AIRecommendationUiState.SkillUnavailable(
+                    canInstall = installRepo != null,
+                )
             }
         } else if (_state.value is AIRecommendationUiState.SkillUnavailable) {
             _state.value = AIRecommendationUiState.Idle
@@ -252,5 +326,10 @@ class AIRecommendationViewModel(
         Json.parseToJsonElement(value)
     }.getOrElse {
         JsonPrimitive(value)
+    }
+
+    private companion object {
+        /** ClawHub slug for the AI recommendation skill. Must match strings.xml copy. */
+        const val AI_RECOMMEND_SLUG = "wanng-ide/auto-skill-hunter"
     }
 }

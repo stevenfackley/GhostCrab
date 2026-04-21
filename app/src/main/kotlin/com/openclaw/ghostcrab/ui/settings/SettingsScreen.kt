@@ -1,3 +1,5 @@
+@file:Suppress("TooManyFunctions") // Compose screen split into many small @Composable helpers by design.
+
 package com.openclaw.ghostcrab.ui.settings
 
 import androidx.compose.foundation.layout.Arrangement
@@ -61,19 +63,33 @@ import org.koin.androidx.compose.koinViewModel
  * Settings screen — profile management, app preferences, security actions, and app info.
  *
  * @param onNavigateBack Called to pop back to Dashboard.
+ * @param onNavigateToInstalledSkills Opens the Installed Skills manager. Only invoked when
+ *   `BuildConfig.SKILLS_INSTALL_ENABLED` is true; the screen hides its entry point otherwise.
  */
+/**
+ * Callbacks surfaced by the Settings screen. Bundled into one object so the downstream
+ * composables don't blow past detekt's LongParameterList threshold.
+ */
+private data class SettingsCallbacks(
+    val onToggleCleartext: (Boolean) -> Unit,
+    val onEditProfile: (ConnectionProfile) -> Unit,
+    val onDeleteProfile: (ConnectionProfile) -> Unit,
+    val onRequestClearAll: () -> Unit,
+    val onReplayWalkthrough: () -> Unit,
+    val onNavigateToInstalledSkills: () -> Unit,
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(onNavigateBack: () -> Unit) {
+fun SettingsScreen(
+    onNavigateBack: () -> Unit,
+    onNavigateToInstalledSkills: () -> Unit = {},
+) {
     val viewModel: SettingsViewModel = koinViewModel()
     val state by viewModel.state.collectAsState()
     val snackbarHostState = androidx.compose.runtime.remember { SnackbarHostState() }
-
     val onboardingResetMessage = stringResource(R.string.settings_onboarding_reset_success)
-
-    val readyState = androidx.compose.runtime.remember(state) {
-        state as? SettingsUiState.Ready
-    }
+    val readyState = androidx.compose.runtime.remember(state) { state as? SettingsUiState.Ready }
 
     LaunchedEffect(readyState?.onboardingResetSuccess) {
         if (readyState?.onboardingResetSuccess == true) {
@@ -81,7 +97,6 @@ fun SettingsScreen(onNavigateBack: () -> Unit) {
             viewModel.clearOnboardingResetSuccess()
         }
     }
-
     LaunchedEffect(readyState?.errorMessage) {
         val msg = readyState?.errorMessage
         if (msg != null) {
@@ -93,143 +108,165 @@ fun SettingsScreen(onNavigateBack: () -> Unit) {
     Scaffold(
         containerColor = BrandTokens.colorAbyss,
         snackbarHost = { SnackbarHost(snackbarHostState) },
-        topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = stringResource(R.string.settings_title),
-                        style = MaterialTheme.typography.titleLarge.copy(
-                            color = BrandTokens.colorTextPrimary,
-                        ),
-                    )
-                },
-                navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = stringResource(R.string.settings_back_cd),
-                            tint = BrandTokens.colorTextPrimary,
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = BrandTokens.colorAbyss),
+        topBar = { SettingsTopBar(onNavigateBack) },
+    ) { innerPadding ->
+        SettingsBody(
+            state = state,
+            modifier = Modifier.padding(innerPadding),
+            viewModel = viewModel,
+            onNavigateToInstalledSkills = onNavigateToInstalledSkills,
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SettingsTopBar(onNavigateBack: () -> Unit) {
+    TopAppBar(
+        title = {
+            Text(
+                text = stringResource(R.string.settings_title),
+                style = MaterialTheme.typography.titleLarge.copy(color = BrandTokens.colorTextPrimary),
             )
         },
-    ) { innerPadding ->
-        when (val s = state) {
-            is SettingsUiState.Loading -> {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(innerPadding),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    CircularProgressIndicator(color = BrandTokens.colorCyanPrimary)
-                }
-            }
-
-            is SettingsUiState.Ready -> {
-                ReadyContent(
-                    state = s,
-                    modifier = Modifier.padding(innerPadding),
-                    onToggleCleartext = { viewModel.setAllowCleartextPublicIPs(it) },
-                    onEditProfile = { viewModel.startEditProfile(it) },
-                    onDeleteProfile = { viewModel.requestDeleteProfile(it.id) },
-                    onRequestClearAll = { viewModel.requestClearAllProfiles() },
-                    onReplayWalkthrough = { viewModel.replayWalkthrough() },
+        navigationIcon = {
+            IconButton(onClick = onNavigateBack) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = stringResource(R.string.settings_back_cd),
+                    tint = BrandTokens.colorTextPrimary,
                 )
+            }
+        },
+        colors = TopAppBarDefaults.topAppBarColors(containerColor = BrandTokens.colorAbyss),
+    )
+}
 
-                // Delete profile confirmation
-                val pendingId = s.pendingDeleteProfileId
-                if (pendingId != null) {
-                    val profile = s.profiles.find { it.id == pendingId }
-                    AlertDialog(
-                        onDismissRequest = { viewModel.cancelDeleteProfile() },
-                        title = {
-                            Text(
-                                stringResource(R.string.settings_delete_profile_title),
-                                color = BrandTokens.colorTextPrimary,
-                            )
-                        },
-                        text = {
-                            Text(
-                                stringResource(
-                                    R.string.settings_delete_profile_body,
-                                    profile?.displayName ?: pendingId,
-                                ),
-                                color = BrandTokens.colorTextSecondary,
-                            )
-                        },
-                        confirmButton = {
-                            TextButton(onClick = { viewModel.confirmDeleteProfile() }) {
-                                Text(
-                                    stringResource(R.string.settings_delete_confirm),
-                                    color = BrandTokens.colorCrimsonError,
-                                    fontWeight = FontWeight.Bold,
-                                )
-                            }
-                        },
-                        dismissButton = {
-                            TextButton(onClick = { viewModel.cancelDeleteProfile() }) {
-                                Text(
-                                    stringResource(R.string.settings_cancel),
-                                    color = BrandTokens.colorTextSecondary,
-                                )
-                            }
-                        },
-                        containerColor = BrandTokens.colorAbyssRaised,
-                    )
-                }
-
-                // Clear all confirmation
-                if (s.showClearAllConfirmation) {
-                    AlertDialog(
-                        onDismissRequest = { viewModel.cancelClearAllProfiles() },
-                        title = {
-                            Text(
-                                stringResource(R.string.settings_clear_all_title),
-                                color = BrandTokens.colorTextPrimary,
-                            )
-                        },
-                        text = {
-                            Text(
-                                stringResource(R.string.settings_clear_all_body),
-                                color = BrandTokens.colorTextSecondary,
-                            )
-                        },
-                        confirmButton = {
-                            TextButton(onClick = { viewModel.confirmClearAllProfiles() }) {
-                                Text(
-                                    stringResource(R.string.settings_clear_all_confirm),
-                                    color = BrandTokens.colorCrimsonError,
-                                    fontWeight = FontWeight.Bold,
-                                )
-                            }
-                        },
-                        dismissButton = {
-                            TextButton(onClick = { viewModel.cancelClearAllProfiles() }) {
-                                Text(
-                                    stringResource(R.string.settings_cancel),
-                                    color = BrandTokens.colorTextSecondary,
-                                )
-                            }
-                        },
-                        containerColor = BrandTokens.colorAbyssRaised,
-                    )
-                }
-
-                // Edit profile sheet
-                val editing = s.editingProfile
-                if (editing != null) {
-                    EditProfileDialog(
-                        profile = editing,
-                        onSave = { name, token -> viewModel.saveProfileEdit(name, token) },
-                        onDismiss = { viewModel.cancelEditProfile() },
-                    )
-                }
+@Composable
+private fun SettingsBody(
+    state: SettingsUiState,
+    modifier: Modifier,
+    viewModel: SettingsViewModel,
+    onNavigateToInstalledSkills: () -> Unit,
+) {
+    when (val s = state) {
+        is SettingsUiState.Loading -> {
+            Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(color = BrandTokens.colorCyanPrimary)
             }
         }
+        is SettingsUiState.Ready -> {
+            val callbacks = SettingsCallbacks(
+                onToggleCleartext = viewModel::setAllowCleartextPublicIPs,
+                onEditProfile = viewModel::startEditProfile,
+                onDeleteProfile = { viewModel.requestDeleteProfile(it.id) },
+                onRequestClearAll = viewModel::requestClearAllProfiles,
+                onReplayWalkthrough = viewModel::replayWalkthrough,
+                onNavigateToInstalledSkills = onNavigateToInstalledSkills,
+            )
+            ReadyContent(state = s, modifier = modifier, callbacks = callbacks)
+            SettingsDialogs(state = s, viewModel = viewModel)
+        }
     }
+}
+
+@Composable
+private fun SettingsDialogs(state: SettingsUiState.Ready, viewModel: SettingsViewModel) {
+    state.pendingDeleteProfileId?.let { pendingId ->
+        val profile = state.profiles.find { it.id == pendingId }
+        DeleteProfileDialog(
+            displayName = profile?.displayName ?: pendingId,
+            onConfirm = viewModel::confirmDeleteProfile,
+            onDismiss = viewModel::cancelDeleteProfile,
+        )
+    }
+    if (state.showClearAllConfirmation) {
+        ClearAllDialog(
+            onConfirm = viewModel::confirmClearAllProfiles,
+            onDismiss = viewModel::cancelClearAllProfiles,
+        )
+    }
+    state.editingProfile?.let { editing ->
+        EditProfileDialog(
+            profile = editing,
+            onSave = viewModel::saveProfileEdit,
+            onDismiss = viewModel::cancelEditProfile,
+        )
+    }
+}
+
+@Composable
+private fun DeleteProfileDialog(displayName: String, onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                stringResource(R.string.settings_delete_profile_title),
+                color = BrandTokens.colorTextPrimary,
+            )
+        },
+        text = {
+            Text(
+                stringResource(R.string.settings_delete_profile_body, displayName),
+                color = BrandTokens.colorTextSecondary,
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text(
+                    stringResource(R.string.settings_delete_confirm),
+                    color = BrandTokens.colorCrimsonError,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(
+                    stringResource(R.string.settings_cancel),
+                    color = BrandTokens.colorTextSecondary,
+                )
+            }
+        },
+        containerColor = BrandTokens.colorAbyssRaised,
+    )
+}
+
+@Composable
+private fun ClearAllDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                stringResource(R.string.settings_clear_all_title),
+                color = BrandTokens.colorTextPrimary,
+            )
+        },
+        text = {
+            Text(
+                stringResource(R.string.settings_clear_all_body),
+                color = BrandTokens.colorTextSecondary,
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text(
+                    stringResource(R.string.settings_clear_all_confirm),
+                    color = BrandTokens.colorCrimsonError,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(
+                    stringResource(R.string.settings_cancel),
+                    color = BrandTokens.colorTextSecondary,
+                )
+            }
+        },
+        containerColor = BrandTokens.colorAbyssRaised,
+    )
 }
 
 // ── Ready content ─────────────────────────────────────────────────────────────
@@ -238,11 +275,7 @@ fun SettingsScreen(onNavigateBack: () -> Unit) {
 private fun ReadyContent(
     state: SettingsUiState.Ready,
     modifier: Modifier,
-    onToggleCleartext: (Boolean) -> Unit,
-    onEditProfile: (ConnectionProfile) -> Unit,
-    onDeleteProfile: (ConnectionProfile) -> Unit,
-    onRequestClearAll: () -> Unit,
-    onReplayWalkthrough: () -> Unit,
+    callbacks: SettingsCallbacks,
 ) {
     Column(
         modifier = modifier
@@ -251,155 +284,169 @@ private fun ReadyContent(
             .padding(horizontal = Spacing.md),
     ) {
         Spacer(Modifier.height(Spacing.sm))
+        ConnectionsSection(state, callbacks)
+        Spacer(Modifier.height(Spacing.md))
+        OnboardingSection(callbacks.onReplayWalkthrough)
+        Spacer(Modifier.height(Spacing.md))
+        if (BuildConfig.SKILLS_INSTALL_ENABLED) {
+            SkillsSection(callbacks.onNavigateToInstalledSkills)
+            Spacer(Modifier.height(Spacing.md))
+        }
+        SecuritySection(callbacks.onRequestClearAll)
+        Spacer(Modifier.height(Spacing.md))
+        AboutSection()
+        Spacer(Modifier.height(Spacing.xxl))
+    }
+}
 
-        // ── Connections ───────────────────────────────────────────────────────
-        SectionHeader(stringResource(R.string.settings_section_connections))
-
-        GlassSurface(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.fillMaxWidth()) {
-                // Allow cleartext toggle
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = stringResource(R.string.settings_cleartext_label),
-                            style = MaterialTheme.typography.bodyMedium.copy(
-                                color = BrandTokens.colorTextPrimary,
-                            ),
-                        )
-                        Text(
-                            text = stringResource(R.string.settings_cleartext_hint),
-                            style = MaterialTheme.typography.bodySmall.copy(
-                                color = BrandTokens.colorTextSecondary,
-                            ),
-                        )
-                    }
-                    Switch(
-                        checked = state.allowCleartextPublicIPs,
-                        onCheckedChange = onToggleCleartext,
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = BrandTokens.colorAbyss,
-                            checkedTrackColor = BrandTokens.colorAmberWarn,
-                            uncheckedThumbColor = BrandTokens.colorTextSecondary,
-                            uncheckedTrackColor = BrandTokens.colorGlass,
-                        ),
-                    )
-                }
-
-                if (state.profiles.isNotEmpty()) {
-                    HorizontalDivider(
-                        color = BrandTokens.colorOutline,
-                        modifier = Modifier.padding(vertical = Spacing.sm),
-                    )
-                }
-
-                // Profile list
+@Composable
+private fun ConnectionsSection(state: SettingsUiState.Ready, callbacks: SettingsCallbacks) {
+    SectionHeader(stringResource(R.string.settings_section_connections))
+    GlassSurface(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            CleartextRow(checked = state.allowCleartextPublicIPs, onToggle = callbacks.onToggleCleartext)
+            if (state.profiles.isNotEmpty()) {
+                HorizontalDivider(
+                    color = BrandTokens.colorOutline,
+                    modifier = Modifier.padding(vertical = Spacing.sm),
+                )
                 state.profiles.forEach { profile ->
                     ProfileRow(
                         profile = profile,
-                        onEdit = { onEditProfile(profile) },
-                        onDelete = { onDeleteProfile(profile) },
+                        onEdit = { callbacks.onEditProfile(profile) },
+                        onDelete = { callbacks.onDeleteProfile(profile) },
                     )
                 }
-
-                if (state.profiles.isEmpty()) {
-                    Spacer(Modifier.height(Spacing.xs))
-                    Text(
-                        text = stringResource(R.string.settings_no_profiles),
-                        style = MaterialTheme.typography.bodySmall.copy(
-                            color = BrandTokens.colorTextSecondary,
-                        ),
-                    )
-                }
-            }
-        }
-
-        Spacer(Modifier.height(Spacing.md))
-
-        // ── Onboarding ────────────────────────────────────────────────────────
-        SectionHeader(stringResource(R.string.settings_section_onboarding))
-
-        GlassSurface(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.fillMaxWidth()) {
+            } else {
+                Spacer(Modifier.height(Spacing.xs))
                 Text(
-                    text = stringResource(R.string.settings_replay_hint),
-                    style = MaterialTheme.typography.bodySmall.copy(
-                        color = BrandTokens.colorTextSecondary,
-                    ),
+                    text = stringResource(R.string.settings_no_profiles),
+                    style = MaterialTheme.typography.bodySmall.copy(color = BrandTokens.colorTextSecondary),
                 )
-                Spacer(Modifier.height(Spacing.sm))
-                OutlinedButton(
-                    onClick = onReplayWalkthrough,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text(
-                        text = stringResource(R.string.settings_replay_button),
-                        color = BrandTokens.colorCyanPrimary,
-                    )
-                }
             }
         }
+    }
+}
 
-        Spacer(Modifier.height(Spacing.md))
+@Composable
+private fun CleartextRow(checked: Boolean, onToggle: (Boolean) -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = stringResource(R.string.settings_cleartext_label),
+                style = MaterialTheme.typography.bodyMedium.copy(color = BrandTokens.colorTextPrimary),
+            )
+            Text(
+                text = stringResource(R.string.settings_cleartext_hint),
+                style = MaterialTheme.typography.bodySmall.copy(color = BrandTokens.colorTextSecondary),
+            )
+        }
+        Switch(
+            checked = checked,
+            onCheckedChange = onToggle,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = BrandTokens.colorAbyss,
+                checkedTrackColor = BrandTokens.colorAmberWarn,
+                uncheckedThumbColor = BrandTokens.colorTextSecondary,
+                uncheckedTrackColor = BrandTokens.colorGlass,
+            ),
+        )
+    }
+}
 
-        // ── Security ──────────────────────────────────────────────────────────
-        SectionHeader(stringResource(R.string.settings_section_security))
-
-        GlassSurface(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.fillMaxWidth()) {
+@Composable
+private fun OnboardingSection(onReplay: () -> Unit) {
+    SectionHeader(stringResource(R.string.settings_section_onboarding))
+    GlassSurface(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Text(
+                text = stringResource(R.string.settings_replay_hint),
+                style = MaterialTheme.typography.bodySmall.copy(color = BrandTokens.colorTextSecondary),
+            )
+            Spacer(Modifier.height(Spacing.sm))
+            OutlinedButton(onClick = onReplay, modifier = Modifier.fillMaxWidth()) {
                 Text(
-                    text = stringResource(R.string.settings_clear_all_hint),
-                    style = MaterialTheme.typography.bodySmall.copy(
-                        color = BrandTokens.colorTextSecondary,
-                    ),
+                    text = stringResource(R.string.settings_replay_button),
+                    color = BrandTokens.colorCyanPrimary,
                 )
-                Spacer(Modifier.height(Spacing.sm))
-                Button(
-                    onClick = onRequestClearAll,
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = BrandTokens.colorCrimsonError,
-                        contentColor = BrandTokens.colorTextPrimary,
-                    ),
-                ) {
-                    Text(
-                        text = stringResource(R.string.settings_clear_all_button),
-                        fontWeight = FontWeight.Bold,
-                    )
-                }
             }
         }
+    }
+}
 
-        Spacer(Modifier.height(Spacing.md))
+@Composable
+private fun SkillsSection(onManage: () -> Unit) {
+    SectionHeader(stringResource(R.string.settings_section_skills))
+    GlassSurface(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Text(
+                text = stringResource(R.string.settings_skills_hint),
+                style = MaterialTheme.typography.bodySmall.copy(color = BrandTokens.colorTextSecondary),
+            )
+            Spacer(Modifier.height(Spacing.sm))
+            OutlinedButton(onClick = onManage, modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    text = stringResource(R.string.settings_skills_manage_button),
+                    color = BrandTokens.colorCyanPrimary,
+                )
+            }
+        }
+    }
+}
 
-        // ── About ─────────────────────────────────────────────────────────────
-        SectionHeader(stringResource(R.string.settings_section_about))
-
-        GlassSurface(modifier = Modifier.fillMaxWidth()) {
-            Column(
+@Composable
+private fun SecuritySection(onRequestClearAll: () -> Unit) {
+    SectionHeader(stringResource(R.string.settings_section_security))
+    GlassSurface(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Text(
+                text = stringResource(R.string.settings_clear_all_hint),
+                style = MaterialTheme.typography.bodySmall.copy(color = BrandTokens.colorTextSecondary),
+            )
+            Spacer(Modifier.height(Spacing.sm))
+            Button(
+                onClick = onRequestClearAll,
                 modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(Spacing.xs),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = BrandTokens.colorCrimsonError,
+                    contentColor = BrandTokens.colorTextPrimary,
+                ),
             ) {
-                AboutRow(
-                    label = stringResource(R.string.settings_about_version),
-                    value = BuildConfig.VERSION_NAME,
-                )
-                AboutRow(
-                    label = stringResource(R.string.settings_about_build),
-                    value = BuildConfig.GIT_SHA,
-                    mono = true,
-                )
-                AboutRow(
-                    label = stringResource(R.string.settings_about_api_compat),
-                    value = stringResource(R.string.settings_about_api_compat_value),
+                Text(
+                    text = stringResource(R.string.settings_clear_all_button),
+                    fontWeight = FontWeight.Bold,
                 )
             }
         }
+    }
+}
 
-        Spacer(Modifier.height(Spacing.xxl))
+@Composable
+private fun AboutSection() {
+    SectionHeader(stringResource(R.string.settings_section_about))
+    GlassSurface(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(Spacing.xs),
+        ) {
+            AboutRow(
+                label = stringResource(R.string.settings_about_version),
+                value = BuildConfig.VERSION_NAME,
+            )
+            AboutRow(
+                label = stringResource(R.string.settings_about_build),
+                value = BuildConfig.GIT_SHA,
+                mono = true,
+            )
+            AboutRow(
+                label = stringResource(R.string.settings_about_api_compat),
+                value = stringResource(R.string.settings_about_api_compat_value),
+            )
+        }
     }
 }
 

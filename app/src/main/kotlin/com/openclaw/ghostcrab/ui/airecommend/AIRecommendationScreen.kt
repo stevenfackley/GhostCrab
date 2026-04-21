@@ -1,3 +1,5 @@
+@file:Suppress("TooManyFunctions") // Compose screen split into many small @Composable helpers by design.
+
 package com.openclaw.ghostcrab.ui.airecommend
 
 import androidx.compose.foundation.layout.Arrangement
@@ -58,6 +60,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.openclaw.ghostcrab.R
 import com.openclaw.ghostcrab.domain.model.GatewayConnection
+import com.openclaw.ghostcrab.domain.model.SkillInstallError
+import com.openclaw.ghostcrab.domain.model.SkillInstallProgress
 import com.openclaw.ghostcrab.ui.components.CodeBlock
 import com.openclaw.ghostcrab.ui.components.GlassSurface
 import com.openclaw.ghostcrab.ui.theme.BrandTokens
@@ -95,7 +99,7 @@ fun AIRecommendationScreen(onNavigateBack: () -> Unit) {
         if (readyState?.applySuccess == true) {
             showApplySheet = false
             snackbarHostState.showSnackbar(applySuccessMessage)
-            viewModel.clearApplySuccess()
+            viewModel.clearApplyFlags(clearSuccess = true)
         }
     }
 
@@ -103,7 +107,7 @@ fun AIRecommendationScreen(onNavigateBack: () -> Unit) {
         val error = readyState?.applyError
         if (error != null) {
             snackbarHostState.showSnackbar(error)
-            viewModel.clearApplyError()
+            viewModel.clearApplyFlags(clearError = true)
         }
     }
 
@@ -172,6 +176,11 @@ fun AIRecommendationScreen(onNavigateBack: () -> Unit) {
                         val coroScope = rememberCoroutineScope()
                         SkillUnavailableContent(
                             missingScope = s.missingScope,
+                            canInstall = s.canInstall,
+                            installProgress = s.installProgress,
+                            installError = s.installError,
+                            onInstall = { viewModel.installSkill() },
+                            onDismissError = { viewModel.dismissInstallError() },
                             onCopied = {
                                 coroScope.launch { snackbarHostState.showSnackbar(copiedMessage) }
                             },
@@ -310,30 +319,44 @@ private fun IdleContent() {
 
 // ── Skill unavailable ─────────────────────────────────────────────────────────
 
-@Suppress("LongMethod")
+private data class SkillUnavailableCopy(val title: String, val body: String, val command: String)
+
+@Composable
+private fun rememberSkillUnavailableCopy(missingScope: String?): SkillUnavailableCopy {
+    val isScopeGap = missingScope == "operator.admin"
+    val title = stringResource(
+        if (isScopeGap) R.string.ai_skill_unavailable_scope_title
+        else R.string.ai_skill_unavailable_title,
+    )
+    val body = stringResource(
+        if (isScopeGap) R.string.ai_skill_unavailable_scope_body
+        else R.string.ai_skill_unavailable_body,
+    )
+    val command = stringResource(
+        if (isScopeGap) R.string.ai_skill_unavailable_scope_command
+        else R.string.ai_skill_unavailable_hint,
+    )
+    return SkillUnavailableCopy(title, body, command)
+}
+
 @Composable
 private fun SkillUnavailableContent(
     missingScope: String?,
+    canInstall: Boolean,
+    installProgress: SkillInstallProgress?,
+    installError: SkillInstallError?,
+    onInstall: () -> Unit,
+    onDismissError: () -> Unit,
     onCopied: () -> Unit,
 ) {
-    val context = LocalContext.current
-    val clawhubUrl = stringResource(R.string.ai_skill_unavailable_clawhub_url)
-
-    val title = if (missingScope == "operator.admin") {
-        stringResource(R.string.ai_skill_unavailable_scope_title)
-    } else {
-        stringResource(R.string.ai_skill_unavailable_title)
-    }
-    val body = if (missingScope == "operator.admin") {
-        stringResource(R.string.ai_skill_unavailable_scope_body)
-    } else {
-        stringResource(R.string.ai_skill_unavailable_body)
-    }
-    val command = if (missingScope == "operator.admin") {
-        stringResource(R.string.ai_skill_unavailable_scope_command)
-    } else {
-        stringResource(R.string.ai_skill_unavailable_hint)
-    }
+    val copy = rememberSkillUnavailableCopy(missingScope)
+    val installing = installProgress != null
+    // Mirror the CLI-code block hide logic: once install is in flight or the skill installer
+    // is actively usable, the CLI copy is noise — keep the card focused on the in-app flow.
+    val showCliBlock = !installing && installProgress !is SkillInstallProgress.Succeeded
+    val showInstallButton = canInstall && installProgress == null && installError == null
+    val showLiveProgress = installProgress != null && installProgress !is SkillInstallProgress.Succeeded
+    val showBrowserButton = missingScope == null && !installing
 
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         GlassSurface(modifier = Modifier.padding(Spacing.md)) {
@@ -342,7 +365,7 @@ private fun SkillUnavailableContent(
                 verticalArrangement = Arrangement.spacedBy(Spacing.sm),
             ) {
                 Text(
-                    text = title,
+                    text = copy.title,
                     style = MaterialTheme.typography.titleMedium.copy(
                         color = if (missingScope != null) BrandTokens.colorCrimsonError
                         else BrandTokens.colorAmberWarn,
@@ -350,37 +373,169 @@ private fun SkillUnavailableContent(
                     ),
                 )
                 Text(
-                    text = body,
+                    text = copy.body,
                     style = MaterialTheme.typography.bodySmall.copy(
                         color = BrandTokens.colorTextSecondary,
                     ),
                 )
-                Spacer(Modifier.height(Spacing.xs))
-                CodeBlock(code = command, onCopied = onCopied)
-
-                // Browser button hidden when scope is the blocker — the user needs
-                // to run a local command, not visit the catalog.
-                if (missingScope == null) {
+                if (showCliBlock) {
                     Spacer(Modifier.height(Spacing.xs))
-                    OutlinedButton(
-                        onClick = {
-                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(clawhubUrl))
-                            context.startActivity(intent)
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.OpenInBrowser,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp),
-                            tint = BrandTokens.colorCyanPrimary,
-                        )
-                        Spacer(Modifier.size(Spacing.xs))
-                        Text(
-                            text = stringResource(R.string.ai_skill_unavailable_open_browser),
-                            color = BrandTokens.colorCyanPrimary,
-                        )
-                    }
+                    CodeBlock(code = copy.command, onCopied = onCopied)
+                }
+                if (showInstallButton) {
+                    Spacer(Modifier.height(Spacing.xs))
+                    InstallButton(onInstall)
+                }
+                if (showLiveProgress) {
+                    Spacer(Modifier.height(Spacing.xs))
+                    InstallProgressRow(progress = installProgress)
+                }
+                if (installError != null) {
+                    Spacer(Modifier.height(Spacing.xs))
+                    InstallErrorRow(
+                        error = installError,
+                        onRetry = onInstall,
+                        onDismiss = onDismissError,
+                        canRetry = canInstall,
+                    )
+                }
+                if (showBrowserButton) {
+                    Spacer(Modifier.height(Spacing.xs))
+                    OpenBrowserButton()
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun InstallButton(onInstall: () -> Unit) {
+    Button(
+        onClick = onInstall,
+        modifier = Modifier.fillMaxWidth(),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = BrandTokens.colorCyanPrimary,
+            contentColor = BrandTokens.colorAbyss,
+        ),
+    ) {
+        Text(
+            text = stringResource(R.string.ai_skill_install_button),
+            fontWeight = FontWeight.Bold,
+        )
+    }
+}
+
+@Composable
+private fun OpenBrowserButton() {
+    val context = LocalContext.current
+    val clawhubUrl = stringResource(R.string.ai_skill_unavailable_clawhub_url)
+    OutlinedButton(
+        onClick = {
+            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(clawhubUrl)))
+        },
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Icon(
+            imageVector = Icons.Default.OpenInBrowser,
+            contentDescription = null,
+            modifier = Modifier.size(18.dp),
+            tint = BrandTokens.colorCyanPrimary,
+        )
+        Spacer(Modifier.size(Spacing.xs))
+        Text(
+            text = stringResource(R.string.ai_skill_unavailable_open_browser),
+            color = BrandTokens.colorCyanPrimary,
+        )
+    }
+}
+
+@Composable
+private fun InstallProgressRow(progress: SkillInstallProgress) {
+    val label = when (progress) {
+        is SkillInstallProgress.Connecting -> stringResource(R.string.ai_skill_install_connecting, progress.target)
+        is SkillInstallProgress.Downloading -> progress.pct
+            ?.let { stringResource(R.string.ai_skill_install_downloading, it) }
+            ?: stringResource(R.string.ai_skill_install_downloading_indeterminate)
+        is SkillInstallProgress.Verifying -> stringResource(R.string.ai_skill_install_verifying, progress.sha256Prefix)
+        is SkillInstallProgress.Applying -> stringResource(R.string.ai_skill_install_applying, progress.step)
+        SkillInstallProgress.Idle, is SkillInstallProgress.Failed, is SkillInstallProgress.Succeeded -> ""
+    }
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+    ) {
+        CircularProgressIndicator(
+            modifier = Modifier.size(18.dp),
+            color = BrandTokens.colorCyanPrimary,
+            strokeWidth = 2.dp,
+        )
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodySmall.copy(color = BrandTokens.colorTextSecondary),
+        )
+    }
+}
+
+@Composable
+private fun InstallErrorRow(
+    error: SkillInstallError,
+    canRetry: Boolean,
+    onRetry: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val message = when (error) {
+        is SkillInstallError.Unauthorized -> stringResource(
+            R.string.ai_skill_install_error_unauthorized,
+            error.missingScope,
+        )
+        is SkillInstallError.NotFound -> stringResource(
+            R.string.ai_skill_install_error_not_found,
+            error.slug,
+        )
+        is SkillInstallError.DependencyConflict -> stringResource(
+            R.string.ai_skill_install_error_dependency,
+            error.conflicts.joinToString(", "),
+        )
+        is SkillInstallError.VerificationFailed -> stringResource(
+            R.string.ai_skill_install_error_verification,
+        )
+        is SkillInstallError.Network -> stringResource(
+            R.string.ai_skill_install_error_network,
+            error.cause,
+        )
+        is SkillInstallError.Protocol -> stringResource(
+            R.string.ai_skill_install_error_protocol,
+            error.rpcCode,
+            error.message,
+        )
+        is SkillInstallError.Unknown -> stringResource(
+            R.string.ai_skill_install_error_unknown,
+            error.cause,
+        )
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+        Text(
+            text = message,
+            style = MaterialTheme.typography.bodySmall.copy(color = BrandTokens.colorCrimsonError),
+        )
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(Spacing.xs, Alignment.End),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            TextButton(onClick = onDismiss) {
+                Text(
+                    stringResource(R.string.ai_skill_install_error_dismiss),
+                    color = BrandTokens.colorTextSecondary,
+                )
+            }
+            if (error.isRetryable && canRetry) {
+                TextButton(onClick = onRetry) {
+                    Text(
+                        stringResource(R.string.ai_skill_install_error_retry),
+                        color = BrandTokens.colorCyanPrimary,
+                        fontWeight = FontWeight.Bold,
+                    )
                 }
             }
         }

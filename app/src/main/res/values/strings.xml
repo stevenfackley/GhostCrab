@@ -74,6 +74,21 @@
     <string name="ai_skill_unavailable_scope_title">Token missing operator.admin</string>
     <string name="ai_skill_unavailable_scope_body">Your token can\'t install skills. Regenerate with operator.admin scope on the host:</string>
     <string name="ai_skill_unavailable_scope_command">openclaw auth grant operator.admin</string>
+    <string name="ai_skill_install_button">Install Skill</string>
+    <string name="ai_skill_install_connecting">Connecting to %1$s…</string>
+    <string name="ai_skill_install_downloading">Downloading… %1$d%%</string>
+    <string name="ai_skill_install_downloading_indeterminate">Downloading…</string>
+    <string name="ai_skill_install_verifying">Verifying signature (%1$s)…</string>
+    <string name="ai_skill_install_applying">Applying: %1$s</string>
+    <string name="ai_skill_install_error_unauthorized">Install blocked — token is missing %1$s scope.</string>
+    <string name="ai_skill_install_error_not_found">Skill not found on ClawHub: %1$s</string>
+    <string name="ai_skill_install_error_dependency">Dependency conflict: %1$s</string>
+    <string name="ai_skill_install_error_verification">Signature mismatch — refusing to install.</string>
+    <string name="ai_skill_install_error_network">Install failed (network): %1$s</string>
+    <string name="ai_skill_install_error_protocol">Install failed (code %1$d): %2$s</string>
+    <string name="ai_skill_install_error_unknown">Install failed: %1$s</string>
+    <string name="ai_skill_install_error_retry">Retry</string>
+    <string name="ai_skill_install_error_dismiss">Dismiss</string>
     <string name="ai_recommendations_label">RECOMMENDATION</string>
     <string name="ai_suggestions_count">%1$d config change(s) suggested</string>
     <string name="ai_apply_suggestions">Apply Suggestions</string>
@@ -123,6 +138,30 @@
     <string name="settings_clear_all_title">Clear all profiles?</string>
     <string name="settings_clear_all_body">This permanently deletes all saved profiles and stored tokens. You will need to reconnect manually.</string>
     <string name="settings_clear_all_confirm">Clear All</string>
+
+    <!-- Settings — Skills section -->
+    <string name="settings_section_skills">Skills</string>
+    <string name="settings_skills_hint">Manage gateway skills installed from ClawHub.</string>
+    <string name="settings_skills_manage_button">Manage Installed Skills</string>
+
+    <!-- Installed Skills screen -->
+    <string name="installed_skills_title">Installed Skills</string>
+    <string name="installed_skills_back_cd">Back</string>
+    <string name="installed_skills_refresh_cd">Refresh</string>
+    <string name="installed_skills_empty_title">No skills installed</string>
+    <string name="installed_skills_empty_body">Skills extend what your gateway can do. Install one from the AI Recommendations screen.</string>
+    <string name="installed_skills_source_clawhub">ClawHub</string>
+    <string name="installed_skills_source_local">Local</string>
+    <string name="installed_skills_source_unknown">Unknown source</string>
+    <string name="installed_skills_version">v%1$s</string>
+    <string name="installed_skills_installed_at">Installed %1$s</string>
+    <string name="installed_skills_uninstall_cd">Uninstall skill</string>
+    <string name="installed_skills_uninstall_title">Uninstall %1$s?</string>
+    <string name="installed_skills_uninstall_body">This removes the skill from the gateway immediately. Any features that depend on it will stop working until it is reinstalled.</string>
+    <string name="installed_skills_uninstall_confirm">Uninstall</string>
+    <string name="installed_skills_uninstall_success">%1$s uninstalled</string>
+    <string name="installed_skills_refresh_failed">Refresh failed: %1$s</string>
+    <string name="installed_skills_uninstall_failed">Uninstall failed: %1$s</string>
 
     <!-- Settings — About section -->
     <string name="settings_section_about">About</string>

@@ -1,6 +1,7 @@
 package com.openclaw.ghostcrab.di
 
 import com.openclaw.ghostcrab.ui.airecommend.AIRecommendationViewModel
+import com.openclaw.ghostcrab.ui.installedskills.InstalledSkillsViewModel
 import com.openclaw.ghostcrab.ui.settings.SettingsViewModel
 import com.openclaw.ghostcrab.ui.config.ConfigEditorViewModel
 import com.openclaw.ghostcrab.ui.connection.ConnectionPickerViewModel
@@ -27,7 +28,10 @@ val uiModule = module {
     viewModel { OnboardingViewModel(get()) }
     viewModel { ConfigEditorViewModel(get(), get()) }
     viewModel { ModelManagerViewModel(get(), get()) }
-    viewModel { AIRecommendationViewModel(get(), get(), get(), get(), getOrNull()) }
+    viewModel { AIRecommendationViewModel(get(), get(), get(), get(), getOrNull(), getOrNull()) }
     viewModel { SettingsViewModel(get(), get(), get()) }
     viewModel { QrScanViewModel() }
+    if (com.openclaw.ghostcrab.BuildConfig.SKILLS_INSTALL_ENABLED) {
+        viewModel { InstalledSkillsViewModel(get()) }
+    }
 }

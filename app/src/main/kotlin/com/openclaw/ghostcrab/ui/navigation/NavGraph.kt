@@ -7,8 +7,10 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.openclaw.ghostcrab.BuildConfig
 import com.openclaw.ghostcrab.ui.airecommend.AIRecommendationScreen
 import com.openclaw.ghostcrab.ui.config.ConfigEditorScreen
+import com.openclaw.ghostcrab.ui.installedskills.InstalledSkillsScreen
 import com.openclaw.ghostcrab.ui.settings.SettingsScreen
 import com.openclaw.ghostcrab.ui.connection.ConnectionPickerScreen
 import com.openclaw.ghostcrab.ui.connection.ManualEntryScreen
@@ -143,7 +145,19 @@ fun NavGraph() {
             AIRecommendationScreen(onNavigateBack = { navController.popBackStack() })
         }
         composable("settings") {
-            SettingsScreen(onNavigateBack = { navController.popBackStack() })
+            SettingsScreen(
+                onNavigateBack = { navController.popBackStack() },
+                onNavigateToInstalledSkills = {
+                    if (BuildConfig.SKILLS_INSTALL_ENABLED) {
+                        navController.navigate("installed_skills")
+                    }
+                },
+            )
+        }
+        if (BuildConfig.SKILLS_INSTALL_ENABLED) {
+            composable("installed_skills") {
+                InstalledSkillsScreen(onNavigateBack = { navController.popBackStack() })
+            }
         }
     }
 }

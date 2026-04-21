@@ -6,16 +6,25 @@ import com.openclaw.ghostcrab.domain.exception.GatewayApiException
 import com.openclaw.ghostcrab.domain.model.AIRecommendation
 import com.openclaw.ghostcrab.domain.model.AuthRequirement
 import com.openclaw.ghostcrab.domain.model.GatewayConnection
+import com.openclaw.ghostcrab.domain.model.InstalledSkill
 import com.openclaw.ghostcrab.domain.model.ModelInfo
 import com.openclaw.ghostcrab.domain.model.OpenClawConfig
 import com.openclaw.ghostcrab.domain.model.RecommendationContext
+import com.openclaw.ghostcrab.domain.model.SkillInstallError
+import com.openclaw.ghostcrab.domain.model.SkillInstallProgress
+import com.openclaw.ghostcrab.domain.model.SkillSource
 import com.openclaw.ghostcrab.domain.model.SuggestedChange
 import com.openclaw.ghostcrab.domain.repository.AIRecommendationService
 import com.openclaw.ghostcrab.domain.repository.ConfigRepository
 import com.openclaw.ghostcrab.domain.repository.GatewayConnectionManager
+import com.openclaw.ghostcrab.domain.repository.InstalledSkillRepository
 import com.openclaw.ghostcrab.domain.repository.ModelRepository
 import com.openclaw.ghostcrab.domain.repository.ScopeProbe
 import com.openclaw.ghostcrab.domain.repository.ScopeProbeResult
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.emptyFlow
 import io.mockk.coEvery
 import io.mockk.mockk
 import com.openclaw.ghostcrab.ui.airecommend.AIRecommendationUiState
@@ -89,6 +98,7 @@ class AIRecommendationViewModelTest {
         config: FakeAIConfigRepository = FakeAIConfigRepository(),
         models: FakeAIModelRepository = FakeAIModelRepository(),
         scopeProbe: ScopeProbe? = null,
+        installRepo: InstalledSkillRepository? = null,
     ): Pair<AIRecommendationViewModel, MutableStateFlow<GatewayConnection>> {
         val flow = MutableStateFlow(initialConnection)
         val vm = AIRecommendationViewModel(
@@ -97,6 +107,7 @@ class AIRecommendationViewModelTest {
             configRepository = config,
             modelRepository = models,
             scopeProbe = scopeProbe,
+            installRepo = installRepo,
         )
         return vm to flow
     }
@@ -242,7 +253,7 @@ class AIRecommendationViewModelTest {
     }
 
     @Test
-    fun `clearApplySuccess clears flag`() = runTest {
+    fun `clearApplyFlags clearSuccess resets applySuccess flag`() = runTest {
         val c = change()
         val rec = recommendation(c)
         val service = FakeAIService(available = true, recommendation = rec)
@@ -254,7 +265,7 @@ class AIRecommendationViewModelTest {
         val stateWithSuccess = vm.state.value as AIRecommendationUiState.Ready
         assertTrue(stateWithSuccess.applySuccess)
 
-        vm.clearApplySuccess()
+        vm.clearApplyFlags(clearSuccess = true)
         val stateCleared = vm.state.value as AIRecommendationUiState.Ready
         assertFalse(stateCleared.applySuccess)
     }
@@ -292,6 +303,156 @@ class AIRecommendationViewModelTest {
         val s = vm.state.value as AIRecommendationUiState.SkillUnavailable
         assertEquals("operator.admin", s.missingScope)
     }
+
+    // ── Install flow ──────────────────────────────────────────────────────────
+
+    @Test
+    fun `SkillUnavailable has canInstall=true when installRepo is wired`() = runTest {
+        val service = FakeAIService(available = true).apply {
+            error = AIServiceUnavailableException(gatewayUrl)
+        }
+        val repo = FakeInstallRepo()
+        val (vm, _) = makeVm(service = service, installRepo = repo)
+
+        vm.submitQuery("query")
+
+        val s = vm.state.value as AIRecommendationUiState.SkillUnavailable
+        assertTrue(s.canInstall)
+        assertNull(s.missingScope)
+    }
+
+    @Test
+    fun `SkillUnavailable has canInstall=false when installRepo is null`() = runTest {
+        val service = FakeAIService(available = true).apply {
+            error = AIServiceUnavailableException(gatewayUrl)
+        }
+        val (vm, _) = makeVm(service = service, installRepo = null)
+
+        vm.submitQuery("query")
+
+        val s = vm.state.value as AIRecommendationUiState.SkillUnavailable
+        assertFalse(s.canInstall)
+    }
+
+    @Test
+    fun `installSkill is no-op when installRepo is null`() = runTest {
+        val service = FakeAIService(available = false)
+        val (vm, _) = makeVm(initialConnection = connectedNoSkill, service = service, installRepo = null)
+
+        val before = vm.state.value
+        vm.installSkill()
+        assertEquals(before, vm.state.value)
+    }
+
+    @Test
+    fun `installSkill Succeeded with empty lastQuery transitions to Idle`() = runTest {
+        val service = FakeAIService(available = false)
+        val repo = FakeInstallRepo().apply {
+            scripted = flowOf(
+                SkillInstallProgress.Connecting("gateway"),
+                SkillInstallProgress.Downloading(50),
+                SkillInstallProgress.Succeeded(
+                    InstalledSkill("wanng-ide/auto-skill-hunter", "1.0.0", SkillSource.ClawHub, 0L),
+                ),
+            )
+        }
+        val (vm, _) = makeVm(initialConnection = connectedNoSkill, service = service, installRepo = repo)
+
+        vm.installSkill()
+
+        assertInstanceOf(AIRecommendationUiState.Idle::class.java, vm.state.value)
+        assertEquals("wanng-ide/auto-skill-hunter", repo.installedSlug)
+    }
+
+    @Test
+    fun `installSkill Succeeded with prior query auto-resubmits`() = runTest {
+        val rec = recommendation(change())
+        val service = FakeAIService(available = true, recommendation = rec).apply {
+            error = AIServiceUnavailableException(gatewayUrl)
+        }
+        val repo = FakeInstallRepo().apply {
+            scripted = flow {
+                emit(SkillInstallProgress.Downloading(100))
+                // Clear service error so auto-resubmit succeeds
+                service.error = null
+                emit(SkillInstallProgress.Succeeded(
+                    InstalledSkill("wanng-ide/auto-skill-hunter", "1.0.0", SkillSource.ClawHub, 0L),
+                ))
+            }
+        }
+        val (vm, _) = makeVm(service = service, installRepo = repo)
+
+        vm.submitQuery("longer context")
+        assertInstanceOf(AIRecommendationUiState.SkillUnavailable::class.java, vm.state.value)
+
+        vm.installSkill()
+
+        // After Succeeded, VM resubmits lastQuery → Ready
+        val ready = assertInstanceOf(AIRecommendationUiState.Ready::class.java, vm.state.value)
+        assertEquals("longer context", ready.query)
+    }
+
+    @Test
+    fun `installSkill Failed Unauthorized flips canInstall false and populates missingScope`() = runTest {
+        val service = FakeAIService(available = true).apply {
+            error = AIServiceUnavailableException(gatewayUrl)
+        }
+        val repo = FakeInstallRepo().apply {
+            scripted = flowOf(
+                SkillInstallProgress.Failed(SkillInstallError.Unauthorized("operator.admin")),
+            )
+        }
+        val (vm, _) = makeVm(service = service, installRepo = repo)
+
+        vm.submitQuery("any")
+        vm.installSkill()
+
+        val s = vm.state.value as AIRecommendationUiState.SkillUnavailable
+        assertFalse(s.canInstall)
+        assertEquals("operator.admin", s.missingScope)
+        assertInstanceOf(SkillInstallError.Unauthorized::class.java, s.installError)
+        assertNull(s.installProgress)
+    }
+
+    @Test
+    fun `installSkill Failed Network preserves canInstall and sets retryable error`() = runTest {
+        val service = FakeAIService(available = true).apply {
+            error = AIServiceUnavailableException(gatewayUrl)
+        }
+        val repo = FakeInstallRepo().apply {
+            scripted = flowOf(SkillInstallProgress.Failed(SkillInstallError.Network("timeout")))
+        }
+        val (vm, _) = makeVm(service = service, installRepo = repo)
+
+        vm.submitQuery("any")
+        vm.installSkill()
+
+        val s = vm.state.value as AIRecommendationUiState.SkillUnavailable
+        assertTrue(s.canInstall)
+        val err = assertInstanceOf(SkillInstallError.Network::class.java, s.installError)
+        assertTrue(err.isRetryable)
+    }
+
+    @Test
+    fun `dismissInstallError clears installError only`() = runTest {
+        val service = FakeAIService(available = true).apply {
+            error = AIServiceUnavailableException(gatewayUrl)
+        }
+        val repo = FakeInstallRepo().apply {
+            scripted = flowOf(SkillInstallProgress.Failed(SkillInstallError.Network("x")))
+        }
+        val (vm, _) = makeVm(service = service, installRepo = repo)
+
+        vm.submitQuery("any")
+        vm.installSkill()
+        assertNotNull((vm.state.value as AIRecommendationUiState.SkillUnavailable).installError)
+
+        vm.dismissInstallError()
+        val s = vm.state.value as AIRecommendationUiState.SkillUnavailable
+        assertNull(s.installError)
+        assertTrue(s.canInstall)
+    }
+
 }
 
 // ── Fakes ─────────────────────────────────────────────────────────────────────
@@ -340,4 +501,17 @@ private class FakeAIConfigRepository : ConfigRepository {
 private class FakeAIModelRepository : ModelRepository {
     override suspend fun getModels(): List<ModelInfo> = emptyList()
     override suspend fun setActiveModel(modelId: String) = Unit
+}
+
+private class FakeInstallRepo : InstalledSkillRepository {
+    var scripted: Flow<SkillInstallProgress> = emptyFlow()
+    var installedSlug: String? = null
+
+    override fun observeInstalled() = flowOf(emptyList<InstalledSkill>())
+    override suspend fun refreshFromGateway(): Result<List<InstalledSkill>> = Result.success(emptyList())
+    override fun install(slug: String, version: String?): Flow<SkillInstallProgress> {
+        installedSlug = slug
+        return scripted
+    }
+    override suspend fun uninstall(slug: String): Result<Unit> = Result.success(Unit)
 }

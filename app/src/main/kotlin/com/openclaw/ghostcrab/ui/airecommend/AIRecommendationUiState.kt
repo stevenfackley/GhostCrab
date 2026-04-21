@@ -1,6 +1,8 @@
 package com.openclaw.ghostcrab.ui.airecommend
 
 import com.openclaw.ghostcrab.domain.model.AIRecommendation
+import com.openclaw.ghostcrab.domain.model.SkillInstallError
+import com.openclaw.ghostcrab.domain.model.SkillInstallProgress
 import com.openclaw.ghostcrab.domain.model.SuggestedChange
 
 /**
@@ -15,11 +17,24 @@ sealed interface AIRecommendationUiState {
     data object Loading : AIRecommendationUiState
 
     /**
-     * Gateway doesn't expose the AI-recommend skill. [missingScope] is non-null when
-     * we know the user's token lacks the scope needed to install it — lets the UI
-     * show scope-specific copy instead of the generic "install via CLI" card.
+     * Gateway doesn't expose the AI-recommend skill.
+     *
+     * @param missingScope Non-null when the user's token lacks the scope needed to install
+     *   the skill. UI shows scope-specific copy and hides the Install button.
+     * @param canInstall `true` when the in-app install path is wired (flag on + repo present)
+     *   and no scope is known to block install. Drives Install button visibility.
+     * @param installProgress Non-null while an install is in flight. Terminal progress is
+     *   folded back into state transitions (Idle on success, installError on failure) —
+     *   never retained here after completion.
+     * @param installError Non-null after an install has terminally failed. Cleared when
+     *   the user retries or dismisses.
      */
-    data class SkillUnavailable(val missingScope: String? = null) : AIRecommendationUiState
+    data class SkillUnavailable(
+        val missingScope: String? = null,
+        val canInstall: Boolean = false,
+        val installProgress: SkillInstallProgress? = null,
+        val installError: SkillInstallError? = null,
+    ) : AIRecommendationUiState
 
     /**
      * Recommendation received and ready to display.
