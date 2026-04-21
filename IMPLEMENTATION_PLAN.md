@@ -49,6 +49,7 @@ This plan is designed for **stateless execution**. Each phase below is a self-co
 | 9 | Settings, Profile Management, About | 🟢 Done | 2026-04-16 | 2026-04-16 | — | Sonnet 4.6 | SettingsRepository (allowCleartextPublicIPs DataStore pref); SettingsScreen with 4 sections (Connections, Onboarding, Security, About); profile edit dialog (displayName + token rotation); destructive confirmations for delete/clear-all; GIT_SHA + AI_PRO_ENABLED BuildConfig; Settings icon in Dashboard TopAppBar; 12 VM tests (76 total across all phases) |
 | 10 | Hardening: Tests, Crash Handling, Telemetry, Release | 🟢 Done | 2026-04-16 | 2026-04-16 | 8c99423 | Sonnet 4.6 | PrivacySafeUncaughtExceptionHandler; LeakCanary debug dep; complete ProGuard rules; release signing (env vars); 4 ADRs (0001–0004); CHANGELOG v0.1.0; +22 unit tests; CleartextPublicIpInterceptor; 5 HIGH + 10 IMPORTANT audit findings fixed; GatewayException import fix |
 | 11 | Cloudflare Tunnel + QR Connect + Logo + Splash | 🟢 Done | 2026-04-16 | 2026-04-16 | — | Sonnet 4.6 | QrScanScreen (CameraX + ML Kit), QrScanViewModel (8 tests), tunnel-qr helper (Docker + compose example), GhostCrab logo in TopAppBar, animated splash (AVD scale+fade crab), QR hero empty state |
+| 12 | Skills-Install (WS-backed) | 🟢 Code + unit tests · 🔴 On-device QA blocked | 2026-04-18 | 2026-04-19 | f73213e | Opus 4.7 | InstalledSkillRepositoryImpl over GatewayWsClient (JSON-RPC 2.0); skills.list/install/uninstall + skills.install.progress notifs; InstalledSkillsScreen + VM; scope probe via auth.whoami → operator.admin gate for AI Recommend install button; SKILLS_INSTALL_ENABLED BuildConfig flag (true debug / false release). All unit tests green. **On-device QA is blocked on gateway-parity gap — see §6.** |
 
 **Status legend:** ⬜ Not Started · 🟡 In Progress · 🟢 Done · 🔴 Blocked · ⚪ Skipped (with rationale)
 
@@ -592,10 +593,11 @@ WebSocket streaming · offline config cache · iOS · agent runtime on-device ·
 
 ## 5. Open Questions (track and resolve as phases progress)
 
-1. Exact endpoint for model swap. — Resolve in Phase 7.
-2. Does an `skill-ai-recommend` exist or must we build it? — Resolve in Phase 8.
+1. Exact endpoint for model swap. — **UNRESOLVED.** Phase 7 coded `GET /api/models/status` + `POST /api/models/active`; never verified against a real gateway. Audit on 2026-04-20 confirmed `ghcr.io/openclaw/openclaw` does not implement these paths (or any of `/api/*`). See §6.
+2. Does an `skill-ai-recommend` exist or must we build it? — **UNRESOLVED.** Phase 8 assumed `POST /api/ai/recommend`; same gap as #1.
 3. Gateway version negotiation strategy. — Resolve in Phase 4 (probably a `min_supported` constant + warning banner).
 4. Distribution channel (sideload vs Play Store) — defer to post-v1.0.
+5. Gateway-parity: does upstream intend to implement GhostCrab's expected HTTP/WS surface, or should we rewrite against `connect.challenge` + `device.pair.*` + `skills.status`/`skills.update`? — **Open post-v0.1.0.** See §6.
 
 ---
 
@@ -605,7 +607,7 @@ WebSocket streaming · offline config cache · iOS · agent runtime on-device ·
 
 | Date | Phase | Deviation | Rationale | Approved by |
 |------|-------|-----------|-----------|-------------|
-| — | — | — | — | — |
+| 2026-04-20 | 6, 7, 8, 12 | Gateway API surface the app targets does not exist upstream. `ghcr.io/openclaw/openclaw` v2026.4.11: no `/api/*` JSON routes; `/ws` uses an event-envelope + `connect.challenge` + `device.pair.*` pairing protocol, not raw JSON-RPC; skill methods are `skills.status`/`skills.update`, not `skills.list`/`skills.uninstall`. GH code search across `openclaw/*` for `api/models/status` and `skills.uninstall`: 0 hits. | Phases 6–8 and 12 were built to a speculative spec from the plan (Open Questions #1–#2) that nobody ever validated. Landing on-device QA via a mock gateway at `scripts/mock-gateway/` (port 18790) instead. Real gateway integration deferred until upstream ships a compatible API or we rewrite the client against the envelope protocol. | stevenfackley |
 
 ---
 

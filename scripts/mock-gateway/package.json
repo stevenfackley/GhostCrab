@@ -1,0 +1,13 @@
+{
+  "name": "ghostcrab-mock-gateway",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Mock OpenClaw Gateway matching the API surface GhostCrab was built against. For manual QA only.",
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}
