@@ -199,7 +199,7 @@ const server = http.createServer(async (req, res) => {
     text(res, 404, "not found");
   } catch (err) {
     console.error("ERROR", err);
-    json(res, 500, { error: String(err?.message ?? err) });
+    json(res, 500, { error: err?.message ?? "Internal server error" });
   }
 });
 
