@@ -60,12 +60,12 @@ class AIRecommendationServiceImplTest {
 
     // ── isAvailable ───────────────────────────────────────────────────────────
 
-    @Test fun `isAvailable true when connected with skill-ai-recommend capability`() = runTest {
-        every { manager.connectionState } returns MutableStateFlow(connected("skill-ai-recommend"))
+    @Test fun `isAvailable true when connected with ai_recommend capability`() = runTest {
+        every { manager.connectionState } returns MutableStateFlow(connected("ai.recommend"))
         assertTrue(service.isAvailable())
     }
 
-    @Test fun `isAvailable false when connected without skill-ai-recommend capability`() = runTest {
+    @Test fun `isAvailable false when connected without ai_recommend capability`() = runTest {
         every { manager.connectionState } returns MutableStateFlow(connected("other-skill"))
         assertFalse(service.isAvailable())
     }

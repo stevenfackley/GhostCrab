@@ -89,4 +89,4 @@ class AIRecommendationServiceImpl(
 
 }
 
-private const val SKILL_KEY = "skill-ai-recommend"
+private const val SKILL_KEY = "ai.recommend"

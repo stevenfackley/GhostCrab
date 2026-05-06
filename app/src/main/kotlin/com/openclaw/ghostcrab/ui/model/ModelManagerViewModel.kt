@@ -2,6 +2,7 @@ package com.openclaw.ghostcrab.ui.model
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.openclaw.ghostcrab.domain.exception.GatewayApiException
 import com.openclaw.ghostcrab.domain.exception.GatewayException
 import com.openclaw.ghostcrab.domain.model.GatewayConnection
 import com.openclaw.ghostcrab.domain.repository.GatewayConnectionManager
@@ -55,6 +56,12 @@ public class ModelManagerViewModel(
             try {
                 val models = modelRepository.getModels()
                 _state.value = ModelManagerUiState.Ready(models = models)
+            } catch (e: GatewayApiException) {
+                _state.value = if (e.statusCode == 404) {
+                    ModelManagerUiState.NotSupported
+                } else {
+                    ModelManagerUiState.Error(e.message ?: "Unknown error")
+                }
             } catch (e: GatewayException) {
                 _state.value = ModelManagerUiState.Error(e.message ?: "Unknown error")
             }

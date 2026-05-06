@@ -72,7 +72,7 @@ class AIRecommendationViewModelTest {
         version = "1.0.0",
         authRequirement = AuthRequirement.None,
         isHttps = false,
-        capabilities = listOf("skill-ai-recommend"),
+        capabilities = listOf("ai.recommend"),
         hardwareInfo = "16 GB RAM, RTX 3090",
     )
 

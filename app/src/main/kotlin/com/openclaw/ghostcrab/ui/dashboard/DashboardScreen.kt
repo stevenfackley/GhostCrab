@@ -165,6 +165,7 @@ private fun ReadyContent(
             onNavigateToModels = onNavigateToModels,
             onNavigateToAiRecommend = onNavigateToAiRecommend,
             onDisconnect = onDisconnect,
+            supportsModels = "models" in conn.capabilities,
         )
 
         Spacer(Modifier.height(Spacing.lg))
@@ -316,6 +317,7 @@ private fun QuickActionsRow(
     onNavigateToModels: () -> Unit,
     onNavigateToAiRecommend: () -> Unit,
     onDisconnect: () -> Unit,
+    supportsModels: Boolean,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -326,10 +328,12 @@ private fun QuickActionsRow(
             modifier = Modifier.weight(1f),
         ) { Text(stringResource(R.string.dashboard_action_configure)) }
 
-        OutlinedButton(
-            onClick = onNavigateToModels,
-            modifier = Modifier.weight(1f),
-        ) { Text(stringResource(R.string.dashboard_action_models)) }
+        if (supportsModels) {
+            OutlinedButton(
+                onClick = onNavigateToModels,
+                modifier = Modifier.weight(1f),
+            ) { Text(stringResource(R.string.dashboard_action_models)) }
+        }
     }
     Row(
         modifier = Modifier.fillMaxWidth(),

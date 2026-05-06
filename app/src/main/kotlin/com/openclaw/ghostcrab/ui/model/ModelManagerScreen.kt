@@ -144,6 +144,18 @@ public fun ModelManagerScreen(onNavigateBack: () -> Unit) {
                     // LaunchedEffect handles navigation; render nothing
                 }
 
+                is ModelManagerUiState.NotSupported -> {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text(
+                            text = stringResource(R.string.model_manager_not_supported),
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                color = BrandTokens.colorTextSecondary,
+                            ),
+                            modifier = Modifier.padding(Spacing.md),
+                        )
+                    }
+                }
+
                 is ModelManagerUiState.Error -> {
                     Column(
                         modifier = Modifier
