@@ -47,6 +47,7 @@
     <string name="model_manager_back_cd">Back</string>
     <string name="model_manager_retry">Retry</string>
     <string name="model_manager_empty">No models configured on this gateway.</string>
+    <string name="model_manager_not_supported">This gateway does not support model management.\nConnect to a gateway advertising the \"models\" capability.</string>
     <string name="model_status_active">ACTIVE</string>
     <string name="model_set_active">Set Active</string>
     <string name="model_swap_dialog_title">Switch active model?</string>

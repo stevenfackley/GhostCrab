@@ -8,6 +8,7 @@ import com.openclaw.ghostcrab.domain.model.ModelInfo
  * State transitions:
  * - App start / reload: [Loading]
  * - No active gateway connection: [Disconnected]
+ * - Gateway does not implement model management: [NotSupported]
  * - Network/API failure: [Error]
  * - Models loaded successfully: [Ready]
  */
@@ -18,6 +19,13 @@ public sealed interface ModelManagerUiState {
 
     /** No active gateway connection — screen should navigate back. */
     public data object Disconnected : ModelManagerUiState
+
+    /**
+     * Gateway returned 404 for the models endpoint — feature not implemented.
+     * The real upstream gateway (`ghcr.io/openclaw/openclaw`) is in this state by default;
+     * only gateways advertising the `"models"` capability in `/status` support this feature.
+     */
+    public data object NotSupported : ModelManagerUiState
 
     /**
      * Network or API error occurred.
