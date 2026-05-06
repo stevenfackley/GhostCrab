@@ -111,6 +111,36 @@ tasks.whenTaskAdded {
     }
 }
 
+// Force minimum safe versions for vulnerable transitive dependencies.
+// None of these are direct dependencies; all are pulled in by Ktor, MLKit, or build tooling.
+// Reviewed against Dependabot alerts 2026-05-06. Revisit when bumping major deps.
+configurations.all {
+    resolutionStrategy.eachDependency {
+        when {
+            // 13 alerts (4.1.94–4.1.132): request smuggling, HTTP/2 DoS, SslHandler crash, etc.
+            requested.group == "io.netty" ->
+                useVersion("4.1.133.Final")
+            // 3 alerts (bcprov + bcpkix < 1.84): timing channel, LDAP injection, broken crypto
+            requested.group == "org.bouncycastle" && requested.name == "bcprov-jdk18on" ->
+                useVersion("1.84")
+            requested.group == "org.bouncycastle" && requested.name == "bcpkix-jdk18on" ->
+                useVersion("1.84")
+            // jose4j < 0.9.6: DoS via compressed JWE
+            requested.group == "org.bitbucket.b_c" && requested.name == "jose4j" ->
+                useVersion("0.9.6")
+            // jdom2 < 2.0.6.1: XXE injection
+            requested.group == "org.jdom" && requested.name == "jdom2" ->
+                useVersion("2.0.6.1")
+            // commons-lang3 < 3.18.0: uncontrolled recursion
+            requested.group == "org.apache.commons" && requested.name == "commons-lang3" ->
+                useVersion("3.18.0")
+            // httpclient < 4.5.13: XSS
+            requested.group == "org.apache.httpcomponents" && requested.name == "httpclient" ->
+                useVersion("4.5.13")
+        }
+    }
+}
+
 detekt {
     config.setFrom(rootProject.file("config/detekt.yml"))
     buildUponDefaultConfig = true
