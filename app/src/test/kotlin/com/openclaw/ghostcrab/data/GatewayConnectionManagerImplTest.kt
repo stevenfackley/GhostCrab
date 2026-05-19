@@ -181,7 +181,13 @@ class GatewayConnectionManagerImplTest {
         // Final state must be Connected (to whichever URL won the mutex last)
         val finalState = manager.connectionState.value
         assertInstanceOf(GatewayConnection.Connected::class.java, finalState)
-        // The mutex serialises them: the second winner must have closed the first winner's client
-        verify(atLeast = 1) { sessionClient.close() }
+        // The mutex serialises them: the second winner must have closed the first
+        // winner's client. Which job wins the mutex first depends on dispatcher
+        // scheduling (AGP 9.2.x's stricter coroutines test dispatcher can reverse
+        // the ordering relative to AGP 9.1.x), so derive *which* client got closed
+        // from the final state instead of assuming job1 always wins first.
+        val finalUrl = (finalState as GatewayConnection.Connected).url
+        val firstWinnerClient = if (finalUrl == url) sessionClient2 else sessionClient
+        verify(atLeast = 1) { firstWinnerClient.close() }
     }
 }
