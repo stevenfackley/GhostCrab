@@ -9,7 +9,6 @@ import com.openclaw.ghostcrab.domain.exception.GatewayUnreachableException
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
-import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.http.Headers
 import io.ktor.http.HttpHeaders
@@ -40,10 +39,6 @@ private fun mockClient(vararg responses: Pair<HttpStatusCode, String>): OpenClaw
     val httpClient = HttpClient(engine) {
         install(ContentNegotiation) {
             json(Json { ignoreUnknownKeys = true; isLenient = true })
-        }
-        install(HttpTimeout) {
-            connectTimeoutMillis = 5_000
-            requestTimeoutMillis = 5_000
         }
     }
     return OpenClawApiClient.forTest(BASE, httpClient)
