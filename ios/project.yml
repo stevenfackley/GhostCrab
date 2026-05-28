@@ -1,0 +1,100 @@
+name: GhostCrab
+options:
+  bundleIdPrefix: com.qavren
+  deploymentTarget:
+    iOS: "18.0"
+  developmentLanguage: en
+  createIntermediateGroups: true
+  generateEmptyDirectories: true
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    DEVELOPMENT_TEAM: QJW4S8BDFX
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    CODE_SIGN_STYLE: Automatic
+    MARKETING_VERSION: "1.0.0"
+    CURRENT_PROJECT_VERSION: "1"
+    PRODUCT_BUNDLE_IDENTIFIER: com.qavren.ghostcrab
+
+targets:
+  GhostCrab:
+    type: application
+    platform: iOS
+    sources:
+      - path: GhostCrab
+        excludes:
+          - "**/.DS_Store"
+    info:
+      path: GhostCrab/Resources/Info.plist
+      properties:
+        CFBundleDisplayName: GhostCrab
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        NSCameraUsageDescription: "Scan QR codes to pair with an OpenClaw gateway."
+        NSLocalNetworkUsageDescription: "Discover OpenClaw gateways on your network."
+        NSBonjourServices:
+          - "_openclaw-gw._tcp"
+        ITSAppUsesNonExemptEncryption: false
+    entitlements:
+      path: GhostCrab/Resources/GhostCrab.entitlements
+      properties:
+        keychain-access-groups:
+          - "$(AppIdentifierPrefix)com.qavren.ghostcrab"
+    settings:
+      base:
+        TARGETED_DEVICE_FAMILY: "1,2"  # iPhone + iPad
+        SUPPORTS_MACCATALYST: NO
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+
+  GhostCrabTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [GhostCrabTests]
+    dependencies:
+      - target: GhostCrab
+    settings:
+      base:
+        BUNDLE_LOADER: "$(TEST_HOST)"
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/GhostCrab.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/GhostCrab"
+
+  GhostCrabUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [GhostCrabUITests]
+    dependencies:
+      - target: GhostCrab
+    settings:
+      base:
+        TEST_TARGET_NAME: GhostCrab
+
+schemes:
+  GhostCrab:
+    build:
+      targets:
+        GhostCrab: all
+        GhostCrabTests: [test]
+        GhostCrabUITests: [test]
+    test:
+      targets:
+        - GhostCrabTests
+        - GhostCrabUITests
+      gatherCoverageData: true
+    run:
+      config: Debug
+    archive:
+      config: Release
