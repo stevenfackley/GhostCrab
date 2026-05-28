@@ -1,4 +1,4 @@
-name: iOS Release
+name: iOS + Mac Catalyst Release
 
 on:
   workflow_dispatch:
@@ -7,6 +7,11 @@ on:
         description: "Override build number (defaults to GitHub run number)"
         required: false
         type: string
+      skip_macos:
+        description: "Skip Mac Catalyst archive + upload"
+        required: false
+        type: boolean
+        default: false
   push:
     tags:
       - "ios-v*"
@@ -18,12 +23,14 @@ jobs:
   testflight:
     name: Archive and upload to TestFlight
     runs-on: [self-hosted, macOS, ARM64]
-    timeout-minutes: 45
+    timeout-minutes: 90
     env:
       DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
       WORKING_DIR: ${{ github.workspace }}/ios
-      ARCHIVE_PATH: ${{ github.workspace }}/ios/build/GhostCrab.xcarchive
-      EXPORT_PATH: ${{ github.workspace }}/ios/build/export
+      IOS_ARCHIVE_PATH: ${{ github.workspace }}/ios/build/GhostCrab-iOS.xcarchive
+      MAC_ARCHIVE_PATH: ${{ github.workspace }}/ios/build/GhostCrab-macOS.xcarchive
+      IOS_EXPORT_PATH: ${{ github.workspace }}/ios/build/export-ios
+      MAC_EXPORT_PATH: ${{ github.workspace }}/ios/build/export-macos
       EXPORT_OPTIONS: ${{ github.workspace }}/ios/ExportOptions.plist
 
     steps:
@@ -63,7 +70,9 @@ jobs:
           printf '%s' "$ASC_KEY_P8" > "$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8"
           chmod 600 "$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8"
 
-      - name: Archive
+      # ── iOS ────────────────────────────────────────────────────────────────
+
+      - name: Archive (iOS)
         working-directory: ${{ env.WORKING_DIR }}
         run: |
           xcodebuild \
@@ -71,7 +80,7 @@ jobs:
             -scheme GhostCrab \
             -configuration Release \
             -destination "generic/platform=iOS" \
-            -archivePath "${ARCHIVE_PATH}" \
+            -archivePath "${IOS_ARCHIVE_PATH}" \
             CURRENT_PROJECT_VERSION="${{ steps.build_number.outputs.value }}" \
             -allowProvisioningUpdates \
             -authenticationKeyPath "$HOME/.appstoreconnect/private_keys/AuthKey_${{ secrets.ASC_KEY_ID }}.p8" \
@@ -79,35 +88,87 @@ jobs:
             -authenticationKeyIssuerID "${{ secrets.ASC_ISSUER_ID }}" \
             archive
 
-      - name: Export IPA
+      - name: Export IPA (iOS)
         working-directory: ${{ env.WORKING_DIR }}
         run: |
           xcodebuild \
             -exportArchive \
-            -archivePath "${ARCHIVE_PATH}" \
-            -exportPath "${EXPORT_PATH}" \
+            -archivePath "${IOS_ARCHIVE_PATH}" \
+            -exportPath "${IOS_EXPORT_PATH}" \
             -exportOptionsPlist "${EXPORT_OPTIONS}" \
             -allowProvisioningUpdates \
             -authenticationKeyPath "$HOME/.appstoreconnect/private_keys/AuthKey_${{ secrets.ASC_KEY_ID }}.p8" \
             -authenticationKeyID "${{ secrets.ASC_KEY_ID }}" \
             -authenticationKeyIssuerID "${{ secrets.ASC_ISSUER_ID }}"
 
-      - name: Upload to TestFlight
+      - name: Upload iOS build to TestFlight
         run: |
           xcrun altool --upload-app \
-            -f "${EXPORT_PATH}/GhostCrab.ipa" \
+            -f "${IOS_EXPORT_PATH}/GhostCrab.ipa" \
             -t ios \
             --apiKey "${{ secrets.ASC_KEY_ID }}" \
             --apiIssuer "${{ secrets.ASC_ISSUER_ID }}"
+
+      # ── Mac Catalyst ───────────────────────────────────────────────────────
+
+      - name: Archive (Mac Catalyst)
+        if: inputs.skip_macos != true
+        working-directory: ${{ env.WORKING_DIR }}
+        run: |
+          xcodebuild \
+            -project GhostCrab.xcodeproj \
+            -scheme GhostCrab \
+            -configuration Release \
+            -destination "generic/platform=macOS,variant=Mac Catalyst" \
+            -archivePath "${MAC_ARCHIVE_PATH}" \
+            CURRENT_PROJECT_VERSION="${{ steps.build_number.outputs.value }}" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$HOME/.appstoreconnect/private_keys/AuthKey_${{ secrets.ASC_KEY_ID }}.p8" \
+            -authenticationKeyID "${{ secrets.ASC_KEY_ID }}" \
+            -authenticationKeyIssuerID "${{ secrets.ASC_ISSUER_ID }}" \
+            archive
+
+      - name: Export PKG (Mac Catalyst)
+        if: inputs.skip_macos != true
+        working-directory: ${{ env.WORKING_DIR }}
+        run: |
+          xcodebuild \
+            -exportArchive \
+            -archivePath "${MAC_ARCHIVE_PATH}" \
+            -exportPath "${MAC_EXPORT_PATH}" \
+            -exportOptionsPlist "${EXPORT_OPTIONS}" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$HOME/.appstoreconnect/private_keys/AuthKey_${{ secrets.ASC_KEY_ID }}.p8" \
+            -authenticationKeyID "${{ secrets.ASC_KEY_ID }}" \
+            -authenticationKeyIssuerID "${{ secrets.ASC_ISSUER_ID }}"
+
+      - name: Upload Mac Catalyst build to TestFlight
+        if: inputs.skip_macos != true
+        run: |
+          # Mac Catalyst exports as .pkg, not .ipa. altool's -t flag accepts macos.
+          PKG_PATH=$(find "${MAC_EXPORT_PATH}" -maxdepth 1 -name '*.pkg' | head -n1)
+          if [ -z "$PKG_PATH" ]; then
+            echo "::error::No .pkg found in ${MAC_EXPORT_PATH}"
+            exit 1
+          fi
+          xcrun altool --upload-app \
+            -f "$PKG_PATH" \
+            -t macos \
+            --apiKey "${{ secrets.ASC_KEY_ID }}" \
+            --apiIssuer "${{ secrets.ASC_ISSUER_ID }}"
+
+      # ── Artifacts + cleanup ────────────────────────────────────────────────
 
       - name: Upload artifacts
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: ios-build-${{ steps.build_number.outputs.value }}
+          name: ghostcrab-build-${{ steps.build_number.outputs.value }}
           path: |
-            ${{ env.EXPORT_PATH }}/GhostCrab.ipa
-            ${{ env.ARCHIVE_PATH }}/dSYMs
+            ${{ env.IOS_EXPORT_PATH }}/GhostCrab.ipa
+            ${{ env.MAC_EXPORT_PATH }}/*.pkg
+            ${{ env.IOS_ARCHIVE_PATH }}/dSYMs
+            ${{ env.MAC_ARCHIVE_PATH }}/dSYMs
           if-no-files-found: ignore
           retention-days: 14
 

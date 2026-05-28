@@ -2,9 +2,22 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <!-- Shared with iOS: Keychain access -->
     <key>keychain-access-groups</key>
     <array>
         <string>$(AppIdentifierPrefix)com.qavren.ghostcrab</string>
     </array>
+
+    <!-- Mac Catalyst: App Sandbox is required for Mac App Store / TestFlight -->
+    <key>com.apple.security.app-sandbox</key>
+    <true/>
+
+    <!-- Outbound TCP/UDP — required for gateway HTTP requests and Bonjour discovery -->
+    <key>com.apple.security.network.client</key>
+    <true/>
+
+    <!-- Bonjour service browser also needs network.server on Catalyst for inbound mDNS responses -->
+    <key>com.apple.security.network.server</key>
+    <true/>
 </dict>
 </plist>

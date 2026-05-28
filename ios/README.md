@@ -8,10 +8,12 @@ See the full design at `docs/superpowers/specs/2026-05-28-ios-app-design.md`.
 
 | | Value |
 |---|---|
-| Bundle ID | `com.qavren.ghostcrab` |
+| Bundle ID | `com.qavren.ghostcrab` (shared between iOS and Mac Catalyst) |
 | Apple Team ID | `QJW4S8BDFX` |
 | Display name | `GhostCrab` |
 | Min iOS | 18.0 |
+| Min macOS (Catalyst) | 14.0 (Sonoma) |
+| Platforms | iPhone + iPad + Mac (Catalyst) |
 
 ## First-time setup on the Mac mini
 
@@ -45,8 +47,13 @@ xcodebuild -project ios/GhostCrab.xcodeproj -scheme GhostCrab \
 
 `.github/workflows/ios-release.yml` runs on `[self-hosted, macOS, ARM64]` (the Mac mini), triggered by:
 
-- `workflow_dispatch` — manual TestFlight upload
+- `workflow_dispatch` — manual TestFlight upload (`skip_macos` input available to skip the Mac Catalyst leg)
 - Push tag matching `ios-v*` — versioned releases (e.g. `git tag ios-v1.0.0 && git push --tags`)
+
+Each run archives + uploads **two** TestFlight builds under the same `com.qavren.ghostcrab` App Store Connect record:
+
+- iOS `.ipa` (`-t ios`) — appears in the iOS TestFlight app on iPhone/iPad
+- Mac Catalyst `.pkg` (`-t macos`) — appears in the macOS TestFlight app on the Mac mini
 
 Required GitHub repo secrets: `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_P8`.
 
