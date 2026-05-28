@@ -83,18 +83,82 @@ public final class AppContainer {
     // skeleton here makes screen-side dependency wiring obvious: each
     // screen calls `container.makeXyzVM()`, no other DI plumbing required.
 
-    // TODO[wave-4]: ViewModel factories land here once VMs exist.
-    // public func makeOnboardingVM() -> OnboardingViewModel { ... }
-    // public func makeConnectionPickerVM() -> ConnectionPickerViewModel { ... }
-    // public func makeManualEntryVM(prefillURL: URL? = nil) -> ManualEntryViewModel { ... }
-    // public func makeScanVM() -> ScanViewModel { ... }
-    // public func makeQrScanVM() -> QrScanViewModel { ... }
-    // public func makeDashboardVM() -> DashboardViewModel { ... }
-    // public func makeConfigEditorVM() -> ConfigEditorViewModel { ... }
-    // public func makeModelManagerVM() -> ModelManagerViewModel { ... }
-    // public func makeAIRecommendationVM() -> AIRecommendationViewModel { ... }
-    // public func makeInstalledSkillsVM() -> InstalledSkillsViewModel { ... }
-    // public func makeSettingsVM() -> SettingsViewModel { ... }
+    /// Onboarding walkthrough VM. Reads/writes step state from `OnboardingRepository`.
+    public func makeOnboardingVM() -> OnboardingViewModel {
+        OnboardingViewModel(repository: self.onboarding)
+    }
+
+    /// Connection picker VM. Observes saved profiles + drives connect-to-profile.
+    public func makeConnectionPickerVM() -> ConnectionPickerViewModel {
+        ConnectionPickerViewModel(
+            profileRepository: self.profiles,
+            connectionManager: self.gateway
+        )
+    }
+
+    /// Manual entry VM. The `prefillURL` flows through the screen so this factory
+    /// stays parameter-free; the screen calls `vm.setPrefillURL(_:)` on appear.
+    public func makeManualEntryVM() -> ManualEntryViewModel {
+        ManualEntryViewModel(
+            connectionManager: self.gateway,
+            profileRepository: self.profiles,
+            onboardingRepository: self.onboarding
+        )
+    }
+
+    /// LAN scan VM. Subscribes to `DiscoveryService.startDiscovery()` on appear.
+    public func makeScanVM() -> ScanViewModel {
+        ScanViewModel(discoveryService: self.discovery)
+    }
+
+    /// Builds a fresh `QrScanViewModel`. The screen wires `onNavigate` itself.
+    public func makeQrScanVM() -> QrScanViewModel {
+        QrScanViewModel()
+    }
+
+    /// Builds a fresh `AIRecommendationViewModel` wired to the gateway + config + models.
+    public func makeAIRecommendationVM() -> AIRecommendationViewModel {
+        AIRecommendationViewModel(
+            ai: ai,
+            gateway: gateway,
+            config: config,
+            models: models
+        )
+    }
+
+    /// Builds a fresh `SettingsViewModel` wired to the settings + onboarding repos.
+    public func makeSettingsVM() -> SettingsViewModel {
+        SettingsViewModel(
+            settings: settings,
+            onboarding: onboarding
+        )
+    }
+
+    /// Config Editor ViewModel — depends on the config repository and the
+    /// gateway connection manager. Auto-loads when the gateway transitions to
+    /// `.connected` and resets to ``ConfigEditorUiState/disconnected`` on drop.
+    public func makeConfigEditorVM() -> ConfigEditorViewModel {
+        ConfigEditorViewModel(config: config, gateway: gateway)
+    }
+
+    /// Installed Skills ViewModel — depends on the installed-skill repository.
+    /// Subscribes to ``InstalledSkillRepository/observeInstalled()`` on
+    /// `start()` for live list updates.
+    public func makeInstalledSkillsVM() -> InstalledSkillsViewModel {
+        InstalledSkillsViewModel(skills: skills)
+    }
+
+    /// Dashboard ViewModel — depends on the gateway connection manager (for
+    /// live status), the model repository (for the active-model card), and
+    /// the AI service (for the AI tile gate).
+    public func makeDashboardVM() -> DashboardViewModel {
+        DashboardViewModel(gateway: gateway, models: models, ai: ai)
+    }
+
+    /// Model Manager ViewModel — depends on the model repository.
+    public func makeModelManagerVM() -> ModelManagerViewModel {
+        ModelManagerViewModel(models: models)
+    }
 }
 
 // MARK: - Environment injection

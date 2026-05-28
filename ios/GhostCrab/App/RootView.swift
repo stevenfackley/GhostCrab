@@ -58,27 +58,27 @@ struct RootView: View {
     private func destination(for route: Route) -> some View {
         switch route {
         case .onboarding:
-            PendingScreen(title: "Onboarding", route: route)
+            OnboardingScreen(vm: container.makeOnboardingVM())
         case .connectionPicker:
-            PendingScreen(title: "Connection Picker", route: route)
+            ConnectionPickerScreen(vm: container.makeConnectionPickerVM())
         case .manualEntry(let prefillURL):
-            PendingScreen(title: "Manual Entry", route: route, subtitle: prefillURL?.absoluteString)
+            ManualEntryScreen(vm: container.makeManualEntryVM(), prefillURL: prefillURL)
         case .qrScan:
-            PendingScreen(title: "QR Scan", route: route)
+            QrScanScreen()
         case .scan:
-            PendingScreen(title: "LAN Scan", route: route)
+            ScanScreen(vm: container.makeScanVM())
         case .dashboard:
-            PendingScreen(title: "Dashboard", route: route)
+            DashboardScreen(vm: container.makeDashboardVM())
         case .configEditor:
-            PendingScreen(title: "Config Editor", route: route)
+            ConfigEditorScreen(viewModel: container.makeConfigEditorVM())
         case .modelManager:
-            PendingScreen(title: "Model Manager", route: route)
+            ModelManagerScreen(vm: container.makeModelManagerVM())
         case .aiRecommendation:
-            PendingScreen(title: "AI Recommendation", route: route)
+            AIRecommendationScreen()
         case .installedSkills:
-            PendingScreen(title: "Installed Skills", route: route)
+            InstalledSkillsScreen(viewModel: container.makeInstalledSkillsVM())
         case .settings:
-            PendingScreen(title: "Settings", route: route)
+            SettingsScreen()
         }
     }
 }
