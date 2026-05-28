@@ -281,6 +281,172 @@ public actor OpenClawAPIClient {
         }
     }
 
+    /// `GET /api/skills` — returns the currently installed skills on the gateway.
+    ///
+    /// Added in v1.1 for the iOS port. The Kotlin Android client reaches the
+    /// same data via the JSON-RPC WebSocket `skills.list` method; the REST
+    /// endpoint is the documented HTTP fallback exposed by gateway builds
+    /// `>= 2026-04-01`.
+    ///
+    /// - Returns: List of ``InstalledSkillDTO`` (may be empty).
+    /// - Throws: ``GatewayError/auth(url:statusCode:)`` if the endpoint
+    ///   requires authentication.
+    /// - Throws: ``GatewayError/api(url:statusCode:body:)`` on unexpected HTTP
+    ///   errors.
+    /// - Throws: ``GatewayError/unreachable(url:underlying:)`` if the host
+    ///   cannot be reached.
+    /// - Throws: ``GatewayError/timeout(url:underlying:)`` if the request
+    ///   times out.
+    public func getInstalledSkills() async throws -> [InstalledSkillDTO] {
+        let url = endpoint("/api/skills")
+        return try await safe(url: url) {
+            let (data, response) = try await self.send(.init(url: url))
+            try self.mapErrors(url: url, response: response)
+            guard self.contentTypeIsJSON(response) else { return [] }
+            // The gateway returns either a bare array or `{"skills":[...]}`
+            // depending on build. Tolerate both.
+            if let arr = try? self.decoder.decode([InstalledSkillDTO].self, from: data) {
+                return arr
+            }
+            if let envelope = try? self.decoder.decode(InstalledSkillsEnvelope.self, from: data) {
+                return envelope.skills
+            }
+            return []
+        }
+    }
+
+    /// `POST /api/skills/install` — install a skill from ClawHub.
+    ///
+    /// Added in v1.1 for the iOS port. Replaces the Kotlin JSON-RPC
+    /// `skills.install` call. The REST endpoint is synchronous: the gateway
+    /// performs the download + verify + apply pipeline and returns the
+    /// resulting ``InstalledSkillDTO``. No intermediate progress events are
+    /// available over REST — the Swift ``InstalledSkillRepositoryImpl`` emits
+    /// `.connecting` then a terminal `.succeeded` / `.failed`.
+    ///
+    /// - Parameters:
+    ///   - slug: e.g. `"wanng-ide/auto-skill-hunter"`.
+    ///   - version: Optional pinned version. `nil` → latest.
+    /// - Returns: The newly-installed ``InstalledSkillDTO`` reported by the
+    ///   gateway.
+    /// - Throws: ``GatewayError/auth(url:statusCode:)`` for 401/403.
+    /// - Throws: ``GatewayError/api(url:statusCode:body:)`` for 404 (slug not
+    ///   found), 409 (dependency conflict), 422 (verification failed), or any
+    ///   other unexpected status. Callers map the status code to a domain
+    ///   ``SkillInstallError``.
+    /// - Throws: ``GatewayError/unreachable(url:underlying:)`` /
+    ///   ``GatewayError/timeout(url:underlying:)`` on transport errors.
+    public func installSkill(slug: String, version: String?) async throws -> InstalledSkillDTO {
+        let url = endpoint("/api/skills/install")
+        return try await safe(url: url) {
+            var body: [String: Any] = [
+                "source": "clawhub",
+                "slug": slug,
+                "force": false
+            ]
+            if let version { body["version"] = version }
+
+            var req = URLRequest(url: url)
+            req.httpMethod = "POST"
+            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            req.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+            let (data, response) = try await self.send(req)
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            switch status {
+            case 200, 201:
+                return try self.decoder.decode(InstalledSkillDTO.self, from: data)
+            case 401, 403:
+                throw GatewayError.auth(url: url.absoluteString, statusCode: status)
+            default:
+                let bodyText = String(data: data, encoding: .utf8)
+                throw GatewayError.api(
+                    url: url.absoluteString,
+                    statusCode: status,
+                    body: bodyText
+                )
+            }
+        }
+    }
+
+    /// `POST /api/skills/uninstall` — remove a previously-installed skill.
+    ///
+    /// Added in v1.1 for the iOS port. Replaces the Kotlin JSON-RPC
+    /// `skills.uninstall` call.
+    ///
+    /// - Parameter slug: The skill slug to remove.
+    /// - Throws: ``GatewayError/auth(url:statusCode:)`` for 401/403.
+    /// - Throws: ``GatewayError/api(url:statusCode:body:)`` on unexpected
+    ///   HTTP status.
+    /// - Throws: ``GatewayError/unreachable(url:underlying:)`` /
+    ///   ``GatewayError/timeout(url:underlying:)`` on transport errors.
+    public func uninstallSkill(slug: String) async throws {
+        let url = endpoint("/api/skills/uninstall")
+        try await safe(url: url) {
+            var req = URLRequest(url: url)
+            req.httpMethod = "POST"
+            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            req.httpBody = try JSONSerialization.data(withJSONObject: ["slug": slug])
+
+            let (data, response) = try await self.send(req)
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            switch status {
+            case 200, 204:
+                return
+            case 401, 403:
+                throw GatewayError.auth(url: url.absoluteString, statusCode: status)
+            default:
+                let bodyText = String(data: data, encoding: .utf8)
+                throw GatewayError.api(
+                    url: url.absoluteString,
+                    statusCode: status,
+                    body: bodyText
+                )
+            }
+        }
+    }
+
+    /// `POST /api/auth/whoami` — returns the scopes carried by the active
+    /// bearer token.
+    ///
+    /// Added in v1.1 for the iOS port. Replaces the Kotlin JSON-RPC
+    /// `auth.whoami` call. Gateway builds without scope support return
+    /// HTTP 404 (or 405) — callers map that to
+    /// ``ScopeProbeResult/unknownOldGateway``.
+    ///
+    /// - Returns: The decoded ``WhoamiResponseDTO``.
+    /// - Throws: ``GatewayError/api(url:statusCode:body:)`` on unexpected
+    ///   HTTP status. 404/405 propagate so the caller can detect "old gateway".
+    /// - Throws: ``GatewayError/auth(url:statusCode:)`` for 401/403.
+    /// - Throws: ``GatewayError/unreachable(url:underlying:)`` /
+    ///   ``GatewayError/timeout(url:underlying:)`` on transport errors.
+    public func whoami() async throws -> WhoamiResponseDTO {
+        let url = endpoint("/api/auth/whoami")
+        return try await safe(url: url) {
+            var req = URLRequest(url: url)
+            req.httpMethod = "POST"
+            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            req.httpBody = Data("{}".utf8)
+
+            let (data, response) = try await self.send(req)
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            switch status {
+            case 200:
+                return (try? self.decoder.decode(WhoamiResponseDTO.self, from: data))
+                    ?? WhoamiResponseDTO(scopes: [])
+            case 401, 403:
+                throw GatewayError.auth(url: url.absoluteString, statusCode: status)
+            default:
+                let bodyText = String(data: data, encoding: .utf8)
+                throw GatewayError.api(
+                    url: url.absoluteString,
+                    statusCode: status,
+                    body: bodyText
+                )
+            }
+        }
+    }
+
     /// Releases the underlying URLSession. Call on disconnect.
     public func close() {
         session.invalidateAndCancel()
@@ -385,5 +551,66 @@ public actor OpenClawAPIClient {
         headerNames.removeAll { $0.caseInsensitiveCompare("Authorization") == .orderedSame }
         logger.debug("\(method, privacy: .public) \(url, privacy: .public) headers=\(headerNames.joined(separator: ","), privacy: .public)")
         #endif
+    }
+}
+
+// MARK: - v1.1 DTOs (skills + whoami)
+
+/// Wire type for a single installed-skill entry returned by
+/// `GET /api/skills` or `POST /api/skills/install`.
+///
+/// Added in v1.1 for the iOS port. The Android client deserializes the same
+/// shape from JSON-RPC `skills.list` / `skills.install` responses.
+public struct InstalledSkillDTO: Codable, Sendable, Equatable {
+    public let slug: String
+    public let installedVersion: String
+    public let source: String?
+    public let installedAt: Int64?
+
+    public init(
+        slug: String,
+        installedVersion: String,
+        source: String? = nil,
+        installedAt: Int64? = nil
+    ) {
+        self.slug = slug
+        self.installedVersion = installedVersion
+        self.source = source
+        self.installedAt = installedAt
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case slug
+        case installedVersion = "installed_version"
+        case source
+        case installedAt = "installed_at"
+    }
+}
+
+/// Envelope form returned by some gateway builds for `GET /api/skills`.
+public struct InstalledSkillsEnvelope: Codable, Sendable {
+    public let skills: [InstalledSkillDTO]
+    public init(skills: [InstalledSkillDTO]) { self.skills = skills }
+}
+
+/// Wire type for `POST /api/auth/whoami` — returns the scopes carried by the
+/// active bearer token.
+///
+/// Added in v1.1 for the iOS port. Replaces the Kotlin JSON-RPC `auth.whoami`
+/// response shape.
+public struct WhoamiResponseDTO: Codable, Sendable, Equatable {
+    public let scopes: [String]
+
+    public init(scopes: [String]) {
+        self.scopes = scopes
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case scopes
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.scopes = (try? c.decode([String].self, forKey: .scopes)) ?? []
     }
 }
