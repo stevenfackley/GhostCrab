@@ -12,7 +12,7 @@ permissions:
 jobs:
   unit-tests:
     name: Unit Tests
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, macOS, ARM64]
     permissions:
       contents: read
       actions: write
@@ -63,7 +63,7 @@ jobs:
 
   release-build:
     name: Release AAB (smoke build)
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, macOS, ARM64]
     permissions:
       contents: read
       actions: write
