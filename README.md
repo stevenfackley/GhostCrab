@@ -3,15 +3,28 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/thefixedpoint/GhostCrab/actions/workflows/ci.yml"><img src="https://github.com/thefixedpoint/GhostCrab/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/stevenfackley/GhostCrab/actions/workflows/ci.yml"><img src="https://github.com/stevenfackley/GhostCrab/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <img src="https://img.shields.io/badge/Android-8.0%2B-brightgreen" alt="Android 8.0+">
+  <img src="https://img.shields.io/badge/iOS-18%2B-007AFF" alt="iOS 18+">
+  <img src="https://img.shields.io/badge/Mac%20Catalyst-14%2B-1D1D1F" alt="Mac Catalyst 14+">
   <img src="https://img.shields.io/badge/Kotlin-2.0-7F52FF" alt="Kotlin 2.0">
-  <img src="https://img.shields.io/badge/version-0.1.0-blue" alt="v0.1.0">
+  <img src="https://img.shields.io/badge/Swift-6-FA7343" alt="Swift 6">
+  <img src="https://img.shields.io/badge/version-0.2.0-blue" alt="v0.2.0">
 </p>
 
-**GhostCrab** is the Android companion to [OpenClaw Gateway](https://openclaw.io) — the open-source AI model serving platform. Point it at any reachable gateway on your LAN or over the internet and get full remote control from your phone.
+**GhostCrab** is the native iOS, iPadOS, Mac Catalyst, and Android client for [OpenClaw Gateway](https://openclaw.io) — the open-source AI agent and LLM orchestration platform. Point it at any reachable gateway on your LAN or over the internet and get full remote control from your phone, tablet, or Mac.
 
-It is not a consumer AI chat app. It is a configuration and administration client for people who run their own gateway.
+It is not a consumer AI chat app. It is a configuration and administration client for people who run their own gateway and want first-class mobile + desktop access to their self-hosted AI infrastructure.
+
+## Platforms
+
+| Platform | Min OS | Code | Distribution |
+|---|---|---|---|
+| Android | 8.0 (API 26) | Kotlin + Jetpack Compose — `app/` | Play Store |
+| iOS / iPadOS | 18.0 | Swift 6 + SwiftUI — `ios/` | TestFlight → App Store |
+| macOS (Catalyst) | 14.0 Sonoma | shared with iOS via Catalyst | TestFlight (Mac) |
+
+Both apps share the same `Domain/Repository/` contract surface — frozen v1.0 interfaces, same screen-by-screen feature parity. See [`docs/superpowers/specs/2026-05-28-ios-app-design.md`](docs/superpowers/specs/2026-05-28-ios-app-design.md).
 
 ---
 
