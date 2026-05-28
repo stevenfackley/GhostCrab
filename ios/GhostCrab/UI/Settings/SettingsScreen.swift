@@ -137,10 +137,9 @@ public struct SettingsScreen: View {
     @ViewBuilder
     private var aboutSection: some View {
         Section {
-            aboutRow(label: "Version", value: appVersion)
-            aboutRow(label: "Build", value: appBuild, mono: true)
-            // TODO[build]: wire GIT_SHA from a generated `BuildInfo.swift` (matches Android `BuildConfig.GIT_SHA`).
-            aboutRow(label: "Git SHA", value: "dev", mono: true)
+            aboutRow(label: "Version", value: BuildInfo.marketingVersion)
+            aboutRow(label: "Build", value: BuildInfo.buildNumber, mono: true)
+            aboutRow(label: "Git SHA", value: BuildInfo.gitSHA, mono: true)
             aboutRow(label: "Bundle ID", value: "com.qavren.ghostcrab", mono: true)
             aboutRow(label: "Apple Team ID", value: "QJW4S8BDFX", mono: true)
             aboutRow(label: "Copyright", value: "\u{00A9} 2026 Steven Fackley")
@@ -212,13 +211,4 @@ public struct SettingsScreen: View {
         }
     }
 
-    // MARK: - Bundle info
-
-    private var appVersion: String {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.0"
-    }
-
-    private var appBuild: String {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0"
-    }
 }

@@ -26,6 +26,13 @@ targets:
       - path: GhostCrab
         excludes:
           - "**/.DS_Store"
+    preBuildScripts:
+      - script: ${SRCROOT}/Scripts/inject-build-info.sh
+        name: "Inject build info (Git SHA)"
+        inputFiles:
+          - $(SRCROOT)/GhostCrab/App/BuildInfo.swift
+        outputFiles:
+          - $(SRCROOT)/GhostCrab/App/BuildInfo.swift
     info:
       path: GhostCrab/Resources/Info.plist
       properties:
