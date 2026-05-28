@@ -59,7 +59,11 @@ class ConfigEditorViewModel(
             _state.value = ConfigEditorUiState.Loading
             try {
                 val config = configRepository.getConfig()
-                _state.value = ConfigEditorUiState.Ready(config = config)
+                _state.value = if (config.sections.isEmpty()) {
+                    ConfigEditorUiState.NoConfigApi
+                } else {
+                    ConfigEditorUiState.Ready(config = config)
+                }
             } catch (e: GatewayException) {
                 _state.value = ConfigEditorUiState.Error(e.message ?: "Unknown error")
             }

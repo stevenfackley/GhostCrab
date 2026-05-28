@@ -128,6 +128,31 @@ fun ConfigEditorScreen(
                     // Navigation handled by LaunchedEffect above; show nothing.
                 }
 
+                is ConfigEditorUiState.NoConfigApi -> {
+                    Column(
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .padding(Spacing.lg),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(Spacing.sm),
+                    ) {
+                        Text(
+                            text = "No editable configuration",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = BrandTokens.colorTextPrimary,
+                            textAlign = TextAlign.Center,
+                        )
+                        Text(
+                            text = "This gateway version doesn't expose a JSON config API at " +
+                                "/config (it serves an HTML admin UI instead). The connection is " +
+                                "healthy — use the gateway's own web UI to edit settings.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = BrandTokens.colorTextSecondary,
+                            textAlign = TextAlign.Center,
+                        )
+                    }
+                }
+
                 is ConfigEditorUiState.Error -> {
                     Column(
                         modifier = Modifier

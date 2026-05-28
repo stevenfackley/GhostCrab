@@ -24,6 +24,13 @@ sealed interface ConfigEditorUiState {
     data class Error(val message: String) : ConfigEditorUiState
 
     /**
+     * The gateway responded but exposed no editable config sections — typically the upstream
+     * `ghcr.io/openclaw/openclaw` image which serves an HTML admin UI at `/config` instead of JSON.
+     * The connection is healthy; the config API is just absent on this gateway version.
+     */
+    data object NoConfigApi : ConfigEditorUiState
+
+    /**
      * Config loaded and ready for display / editing.
      *
      * @param config The authoritative config as returned by the gateway.

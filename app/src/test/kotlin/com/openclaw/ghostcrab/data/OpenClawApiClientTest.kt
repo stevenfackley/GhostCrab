@@ -71,6 +71,13 @@ class OpenClawApiClientTest {
         assertEquals(500, ex.statusCode)
     }
 
+    // Upstream ghcr.io/openclaw/openclaw returns {"status": true} — boolean, not string.
+    // Lenient JSON config coerces this into the String DTO; this test guards that assumption.
+    @Test fun `health tolerates boolean status field from upstream gateway`() = runTest {
+        val client = mockClient(HttpStatusCode.OK to """{"status":true}""")
+        client.health()
+    }
+
     // ── status ────────────────────────────────────────────────────────────────
 
     @Test fun `status returns StatusResponse on 200`() = runTest {

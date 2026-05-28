@@ -107,6 +107,19 @@ class ConfigEditorViewModelTest {
         assertInstanceOf(ConfigEditorUiState.Disconnected::class.java, vm.state.value)
     }
 
+    // Upstream ghcr.io/openclaw/openclaw returns HTML at /config; the API client falls back
+    // to an empty section map. Surfacing this as Ready leaves the UI silently blank — instead
+    // transition to NoConfigApi so the screen can show an explanatory message.
+    @Test
+    fun `loadConfig with empty sections transitions to NoConfigApi`() = runTest(testDispatcher) {
+        val emptyConfig = OpenClawConfig(sections = emptyMap(), etag = null)
+        val repo = FakeConfigRepository(configToReturn = emptyConfig)
+        val (vm, _) = makeVm(initialConnection = connectedState, repo = repo)
+        advanceUntilIdle()
+
+        assertInstanceOf(ConfigEditorUiState.NoConfigApi::class.java, vm.state.value)
+    }
+
     @Test
     fun `editSection updates pendingChanges`() = runTest(testDispatcher) {
         val repo = FakeConfigRepository(configToReturn = sampleConfig)
