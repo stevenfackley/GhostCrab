@@ -1,0 +1,64 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+
+// Pull the canonical privacy policy markdown straight from docs/ so the site
+// can't drift from what ships to App Store Connect.
+// Note: Astro renders Markdown imports at build time — no runtime dependency.
+import { Content } from "../../../docs/PRIVACY_POLICY_IOS.md";
+
+const description =
+  "GhostCrab privacy policy. No analytics, no third-party SDKs, no cloud backend. Tokens stored in the iOS Keychain or Android Keystore on your device only.";
+
+// JSON-LD WebPage schema — Google likes explicit page-type signals on legal pages.
+const schema = {
+  "@context": "https://schema.org",
+  "@type": "WebPage",
+  name: "Privacy Policy — GhostCrab",
+  description,
+  url: "https://getghostcrab.com/privacy",
+  inLanguage: "en",
+  isPartOf: {
+    "@type": "WebSite",
+    name: "GhostCrab",
+    url: "https://getghostcrab.com",
+  },
+};
+---
+
+<BaseLayout title="Privacy Policy" description={description} schema={schema} ogType="article">
+  <article class="content prose">
+    <Content />
+    <hr />
+    <p class="text-secondary">
+      Source of truth for this policy lives at
+      <a href="https://github.com/stevenfackley/GhostCrab/blob/main/docs/PRIVACY_POLICY_IOS.md" rel="noopener">
+        <code>docs/PRIVACY_POLICY_IOS.md</code>
+      </a>
+      in the GhostCrab repository. The HTML you're reading is rendered from that file at build time.
+    </p>
+  </article>
+</BaseLayout>
+
+<style>
+  .prose {
+    padding-block: var(--space-xl);
+  }
+  .prose :global(h1) {
+    margin-top: 0;
+  }
+  .prose :global(h2),
+  .prose :global(h3) {
+    color: var(--color-cyan-primary);
+  }
+  .prose :global(table) {
+    font-size: 0.9rem;
+  }
+  .prose :global(hr) {
+    border: none;
+    border-top: 1px solid var(--color-outline);
+    margin: var(--space-xl) 0;
+  }
+  .prose :global(strong) {
+    color: var(--color-text-primary);
+  }
+</style>

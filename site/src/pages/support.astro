@@ -1,0 +1,123 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+
+const description =
+  "Get help with GhostCrab — bug reports, feature requests, and questions go through GitHub Issues. Direct support email: support@getghostcrab.com.";
+
+const schema = {
+  "@context": "https://schema.org",
+  "@type": "ContactPage",
+  name: "Support — GhostCrab",
+  description,
+  url: "https://getghostcrab.com/support",
+};
+---
+
+<BaseLayout title="Support" description={description} schema={schema}>
+  <section class="container support">
+    <p class="kicker">Support</p>
+    <h1>Need a hand?</h1>
+    <p>
+      GhostCrab is a small open-source project. The fastest way to get help — and the best way to
+      keep an answer permanently visible to the next person with the same problem — is through GitHub.
+    </p>
+
+    <div class="support-grid">
+      <a class="support-card glass" href="https://github.com/stevenfackley/GhostCrab/issues/new?labels=bug" rel="noopener">
+        <h2>Report a bug</h2>
+        <p class="text-secondary">
+          Crash, wrong behavior, broken UI? Open an issue with the steps and what device you saw it on.
+        </p>
+        <p class="cta-line text-cyan">Open a bug issue →</p>
+      </a>
+
+      <a class="support-card glass" href="https://github.com/stevenfackley/GhostCrab/issues/new?labels=feature-request" rel="noopener">
+        <h2>Request a feature</h2>
+        <p class="text-secondary">
+          Missing something the Android or iOS build should have? Tell us what you want and why.
+        </p>
+        <p class="cta-line text-cyan">Open a feature request →</p>
+      </a>
+
+      <a class="support-card glass" href="https://github.com/stevenfackley/GhostCrab/discussions" rel="noopener">
+        <h2>Ask a question</h2>
+        <p class="text-secondary">
+          Setup help, OpenClaw gateway questions, integration questions. Discussions are public and searchable.
+        </p>
+        <p class="cta-line text-cyan">Start a discussion →</p>
+      </a>
+
+      <a class="support-card glass" href="mailto:support@getghostcrab.com">
+        <h2>Email</h2>
+        <p class="text-secondary">
+          For TestFlight feedback or anything that genuinely doesn't fit a public issue.
+          Reply times vary — issues are faster.
+        </p>
+        <p class="cta-line text-cyan">support@getghostcrab.com →</p>
+      </a>
+    </div>
+
+    <hr />
+
+    <h2>Before you file</h2>
+    <ul class="checklist">
+      <li>Search <a href="https://github.com/stevenfackley/GhostCrab/issues?q=is%3Aissue" rel="noopener">existing issues</a> — your problem may be known.</li>
+      <li>Check the <a href="/privacy">privacy policy</a> for security/data questions.</li>
+      <li>For connection errors: capture the exact URL, HTTP status code, and exception class
+        the in-app error message shows. The Android and iOS apps both surface these verbatim — paste them in.</li>
+    </ul>
+  </section>
+</BaseLayout>
+
+<style>
+  .support {
+    padding-block: var(--space-xl);
+  }
+  .support-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: var(--space-md);
+    margin-block: var(--space-lg);
+  }
+  .support-card {
+    display: block;
+    padding: var(--space-lg);
+    color: inherit;
+    text-decoration: none;
+    transition: border-color 0.15s ease, transform 0.15s ease;
+  }
+  .support-card:hover {
+    text-decoration: none;
+    border-color: var(--color-cyan-primary);
+    transform: translateY(-1px);
+  }
+  .support-card h2 {
+    margin: 0 0 var(--space-sm) 0;
+    font-size: 1.15rem;
+    color: var(--color-text-primary);
+  }
+  .support-card p {
+    margin: 0;
+    font-size: 0.95rem;
+  }
+  .cta-line {
+    margin-top: var(--space-sm) !important;
+    font-size: 0.9rem !important;
+  }
+  hr {
+    border: none;
+    border-top: 1px solid var(--color-outline);
+    margin: var(--space-xl) 0;
+  }
+  .checklist {
+    margin: var(--space-md) 0;
+    padding-left: var(--space-lg);
+    line-height: 1.7;
+  }
+  .checklist li {
+    color: var(--color-text-secondary);
+  }
+  .checklist a {
+    color: var(--color-cyan-primary);
+  }
+</style>

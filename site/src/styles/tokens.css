@@ -1,0 +1,45 @@
+/*
+ * Brand tokens — exact ports of the Android BrandTokens.kt and the iOS
+ * DesignTokens.swift. Keep these in sync. NO hardcoded hex/spacing values
+ * elsewhere in the site.
+ */
+
+:root {
+  /* Colors */
+  --color-abyss: #0f1115;
+  --color-abyss-raised: #16191f;
+  --color-glass: rgba(255, 255, 255, 0.06);
+  --color-cyan-primary: #5be9ff;
+  --color-cyan-pulse: #7bd8ff;
+  --color-amber-warn: #e0a458;
+  --color-crimson-error: #ff4d6d;
+  --color-text-primary: #e8eaed;
+  --color-text-secondary: #8b949e;
+  --color-text-disabled: #484f58;
+  --color-outline: #30363d;
+
+  /* Spacing */
+  --space-xxs: 2px;
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+  --space-xxl: 48px;
+
+  /* Radii */
+  --radius-xs: 4px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+
+  /* Typography */
+  --font-body: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --font-display-italic: "Fraunces", Georgia, serif;
+
+  /* Layout */
+  --container-max: 1100px;
+  --content-max: 720px;
+}

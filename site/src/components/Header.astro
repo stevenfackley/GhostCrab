@@ -1,0 +1,97 @@
+---
+const links = [
+  { href: "/#features", label: "Features" },
+  { href: "/#platforms", label: "Platforms" },
+  { href: "/#openclaw", label: "What is OpenClaw" },
+  { href: "/#download", label: "Get the app" },
+];
+---
+
+<header class="site-header">
+  <div class="container header-inner">
+    <a class="brand" href="/" aria-label="GhostCrab home">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 32 32" width="22" height="22" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" fill="none">
+          <line x1="12" y1="13" x2="12" y2="6"></line>
+          <line x1="20" y1="13" x2="20" y2="6"></line>
+          <path d="M5 18 Q16 11 27 18"></path>
+          <path d="M5 18 L2.5 22"></path>
+          <path d="M27 18 L29.5 22"></path>
+          <path d="M9 22 L23 22" opacity="0.35"></path>
+          <circle cx="12" cy="5" r="1.6" fill="currentColor" stroke="none"></circle>
+          <circle cx="20" cy="5" r="1.6" fill="currentColor" stroke="none"></circle>
+        </svg>
+      </span>
+      <span class="brand-name">ghostcrab</span>
+    </a>
+
+    <nav aria-label="Primary">
+      <ul>
+        {links.map((l) => (
+          <li><a href={l.href}>{l.label}</a></li>
+        ))}
+      </ul>
+    </nav>
+  </div>
+</header>
+
+<style>
+  .site-header {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: color-mix(in srgb, var(--color-abyss) 90%, transparent);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--color-outline);
+  }
+  .header-inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-lg);
+    padding-block: var(--space-md);
+  }
+  .brand {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-sm);
+    color: var(--color-cyan-primary);
+    text-decoration: none;
+    font-weight: 600;
+  }
+  .brand:hover {
+    color: var(--color-cyan-pulse);
+    text-decoration: none;
+  }
+  .brand-name {
+    font-size: 1.05rem;
+    letter-spacing: -0.01em;
+  }
+  nav ul {
+    display: flex;
+    align-items: center;
+    gap: var(--space-lg);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  nav a {
+    color: var(--color-text-secondary);
+    font-size: 0.92rem;
+    text-decoration: none;
+  }
+  nav a:hover {
+    color: var(--color-text-primary);
+    text-decoration: none;
+  }
+  @media (max-width: 640px) {
+    nav ul {
+      gap: var(--space-md);
+      font-size: 0.85rem;
+    }
+    nav a {
+      font-size: 0.85rem;
+    }
+  }
+</style>

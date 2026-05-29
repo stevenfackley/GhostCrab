@@ -1,0 +1,84 @@
+---
+const year = new Date().getFullYear();
+---
+
+<footer class="site-footer">
+  <div class="container footer-inner">
+    <div class="footer-left">
+      <p class="kicker">GhostCrab</p>
+      <p class="text-secondary">
+        Native client for <a href="https://openclaw.io" rel="noopener">OpenClaw Gateway</a> —
+        manage self-hosted AI agents, Ollama, and LM Studio backends from your phone, tablet, or Mac.
+      </p>
+    </div>
+    <nav class="footer-nav" aria-label="Footer">
+      <div>
+        <p class="kicker">Product</p>
+        <ul>
+          <li><a href="/#features">Features</a></li>
+          <li><a href="/#platforms">Platforms</a></li>
+          <li><a href="/#download">Get the app</a></li>
+        </ul>
+      </div>
+      <div>
+        <p class="kicker">Project</p>
+        <ul>
+          <li><a href="https://github.com/stevenfackley/GhostCrab" rel="noopener">GitHub</a></li>
+          <li><a href="/support">Support</a></li>
+          <li><a href="/privacy">Privacy</a></li>
+        </ul>
+      </div>
+    </nav>
+  </div>
+  <div class="container copyright">
+    <small class="text-secondary">© {year} Steven Fackley. GhostCrab is Apache 2.0 licensed.</small>
+  </div>
+</footer>
+
+<style>
+  .site-footer {
+    margin-top: var(--space-xxl);
+    padding-block: var(--space-xl) var(--space-lg);
+    border-top: 1px solid var(--color-outline);
+    background: var(--color-abyss-raised);
+  }
+  .footer-inner {
+    display: grid;
+    grid-template-columns: 1.4fr 1fr;
+    gap: var(--space-xl);
+    align-items: start;
+  }
+  .footer-left p {
+    margin: 0;
+  }
+  .footer-nav {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-lg);
+  }
+  .footer-nav ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .footer-nav li {
+    margin-bottom: var(--space-xs);
+  }
+  .footer-nav a {
+    color: var(--color-text-secondary);
+    font-size: 0.92rem;
+  }
+  .footer-nav a:hover {
+    color: var(--color-text-primary);
+  }
+  .copyright {
+    margin-top: var(--space-xl);
+    padding-top: var(--space-md);
+    border-top: 1px solid var(--color-outline);
+  }
+  @media (max-width: 720px) {
+    .footer-inner {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>

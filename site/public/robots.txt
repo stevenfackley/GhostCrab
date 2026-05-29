@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://getghostcrab.com/sitemap-index.xml

@@ -1,0 +1,295 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+
+const description =
+  "GhostCrab is the native iOS, iPadOS, Mac Catalyst, and Android client for OpenClaw Gateway — manage self-hosted AI agents, Ollama, and LM Studio backends from your phone, tablet, or Mac. No analytics, no cloud, no third-party SDKs.";
+
+// JSON-LD SoftwareApplication schema for the home page.
+// Validated via https://search.google.com/test/rich-results
+const softwareSchema = {
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  name: "GhostCrab",
+  applicationCategory: "DeveloperApplication",
+  applicationSubCategory: "Self-hosted AI client",
+  operatingSystem: "iOS 18+, iPadOS 18+, macOS 14+ (Catalyst), Android 8.0+",
+  description,
+  url: "https://getghostcrab.com",
+  author: {
+    "@type": "Person",
+    name: "Steven Fackley",
+    url: "https://github.com/stevenfackley",
+  },
+  offers: {
+    "@type": "Offer",
+    price: "0",
+    priceCurrency: "USD",
+  },
+  softwareVersion: "0.2.0",
+  license: "https://www.apache.org/licenses/LICENSE-2.0",
+  codeRepository: "https://github.com/stevenfackley/GhostCrab",
+};
+
+const features = [
+  {
+    title: "Auto-discovery",
+    body: "Finds OpenClaw gateways on your LAN via mDNS (`_openclaw-gw._tcp`). No IP hunting required.",
+  },
+  {
+    title: "Manual connect",
+    body: "Type any URL + optional bearer token — works for LAN, Tailscale, or any Cloudflare-tunneled gateway.",
+  },
+  {
+    title: "QR pairing",
+    body: "Scan a QR or use a `ghostcrab://pair` deep link to bundle URL + token + display name in one step.",
+  },
+  {
+    title: "Live dashboard",
+    body: "Gateway status, active model, capabilities, hardware info — all surfaced in a glanceable view.",
+  },
+  {
+    title: "Config editor",
+    body: "Edit `openclaw.json` sections with diff-before-save preview and ETag-aware concurrency.",
+  },
+  {
+    title: "Model manager",
+    body: "List every model across Ollama, LM Studio, and OpenAI-compatible backends. Swap the active one in one tap.",
+  },
+  {
+    title: "AI recommendations",
+    body: "Ask the gateway's AI skill for configuration suggestions. Apply the suggested patch with a confirmation sheet.",
+  },
+  {
+    title: "Privacy-first",
+    body: "Bearer tokens stored in Keychain / EncryptedSharedPreferences. No analytics, no third-party SDKs, no cloud backend.",
+  },
+];
+
+const platforms = [
+  { name: "iPhone", min: "iOS 18.0", channel: "TestFlight" },
+  { name: "iPad", min: "iPadOS 18.0", channel: "TestFlight" },
+  { name: "Mac (Catalyst)", min: "macOS 14.0 Sonoma", channel: "TestFlight (Mac)" },
+  { name: "Android", min: "Android 8.0 (API 26)", channel: "Play Store" },
+];
+---
+
+<BaseLayout title="GhostCrab" description={description} schema={softwareSchema}>
+  <section class="hero container" aria-labelledby="hero-heading">
+    <p class="kicker">Self-hosted AI · native everywhere</p>
+    <h1 id="hero-heading">
+      Your OpenClaw Gateway,<br />
+      <span class="text-cyan">on every device you own.</span>
+    </h1>
+    <p class="lede">
+      GhostCrab is the native iOS, iPadOS, Mac Catalyst, and Android client for
+      <a href="https://openclaw.io" rel="noopener">OpenClaw Gateway</a> — the open-source AI agent
+      and LLM orchestration platform. Watch your agents think, manage your Ollama and LM Studio
+      backends, and edit gateway configuration safely. All from a phone, tablet, or Mac.
+    </p>
+    <div class="hero-ctas">
+      <a class="cta cta-primary" href="#download">Get the app</a>
+      <a class="cta cta-secondary" href="https://github.com/stevenfackley/GhostCrab" rel="noopener">
+        Star on GitHub
+      </a>
+    </div>
+    <p class="hero-tag text-secondary">
+      It's not a chat app. It's an admin client for people who run their own gateway.
+    </p>
+  </section>
+
+  <section id="features" class="container" aria-labelledby="features-heading">
+    <p class="kicker">Features</p>
+    <h2 id="features-heading">Everything OpenClaw exposes, native on your device</h2>
+    <div class="feature-grid">
+      {features.map((f) => (
+        <article class="feature glass">
+          <h3>{f.title}</h3>
+          <p set:html={f.body
+            .replace(/`([^`]+)`/g, '<code>$1</code>')} />
+        </article>
+      ))}
+    </div>
+  </section>
+
+  <section id="platforms" class="container" aria-labelledby="platforms-heading">
+    <p class="kicker">Platforms</p>
+    <h2 id="platforms-heading">Same app, four devices, one bundle ID per platform</h2>
+    <p class="text-secondary">
+      The iOS / iPadOS / Mac Catalyst build is a single TestFlight record under
+      <code>com.qavren.ghostcrab</code> — your Mac mini's TestFlight app pulls the same build the
+      iPhone does. Android lives under <code>com.openclaw.ghostcrab</code>.
+    </p>
+    <table>
+      <thead>
+        <tr><th>Device</th><th>Minimum OS</th><th>Distribution</th></tr>
+      </thead>
+      <tbody>
+        {platforms.map((p) => (
+          <tr>
+            <td>{p.name}</td>
+            <td class="mono">{p.min}</td>
+            <td>{p.channel}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </section>
+
+  <section id="openclaw" class="container" aria-labelledby="openclaw-heading">
+    <p class="kicker">What is OpenClaw</p>
+    <h2 id="openclaw-heading">OpenClaw in one paragraph</h2>
+    <p>
+      <a href="https://openclaw.io" rel="noopener">OpenClaw Gateway</a> is an open-source local-first
+      LLM and AI agent orchestration platform. It runs on your hardware, talks to local model
+      backends (<a href="https://ollama.com" rel="noopener">Ollama</a>,
+      <a href="https://lmstudio.ai" rel="noopener">LM Studio</a>, llama.cpp) and OpenAI-compatible
+      remotes, hosts AI skills, and exposes a single HTTP API. GhostCrab is what you use to
+      <em>operate</em> a running gateway — connection, configuration, model swapping,
+      skill management — without sitting at the gateway machine.
+    </p>
+    <p class="text-secondary">
+      Don't have a gateway yet? Start at
+      <a href="https://openclaw.io" rel="noopener">openclaw.io</a> — the onboarding walks you
+      through installation and first-run.
+    </p>
+  </section>
+
+  <section id="download" class="container download" aria-labelledby="download-heading">
+    <p class="kicker">Get the app</p>
+    <h2 id="download-heading">Download</h2>
+    <div class="download-grid">
+      <article class="download-card glass">
+        <h3>iOS · iPadOS · Mac</h3>
+        <p class="text-secondary">
+          TestFlight beta. Single bundle ID across iPhone, iPad, and Mac Catalyst.
+        </p>
+        <p class="mono download-link">
+          {/* TODO: replace with the real TestFlight invite URL once issued */}
+          TestFlight invite — coming with first build
+        </p>
+      </article>
+      <article class="download-card glass">
+        <h3>Android</h3>
+        <p class="text-secondary">
+          Production v0.2.0 on Google Play. Requires Android 8.0 (API 26) or newer.
+        </p>
+        <p class="mono download-link">
+          {/* TODO: replace with the real Play Store URL */}
+          Play Store listing — coming with v0.2.0 update
+        </p>
+      </article>
+    </div>
+    <p class="text-secondary download-fineprint">
+      Both builds are open-source under Apache 2.0. Source at
+      <a href="https://github.com/stevenfackley/GhostCrab" rel="noopener">github.com/stevenfackley/GhostCrab</a>.
+    </p>
+  </section>
+</BaseLayout>
+
+<style>
+  .hero {
+    padding-block: var(--space-xxl) var(--space-xl);
+    text-align: left;
+  }
+  .hero h1 {
+    margin-top: var(--space-sm);
+    font-size: clamp(2.25rem, 6vw, 3.75rem);
+    line-height: 1.05;
+  }
+  .lede {
+    max-width: 56ch;
+    font-size: clamp(1rem, 1.6vw, 1.15rem);
+    color: var(--color-text-primary);
+  }
+  .hero-ctas {
+    display: flex;
+    gap: var(--space-md);
+    margin-block: var(--space-lg) var(--space-md);
+    flex-wrap: wrap;
+  }
+  .cta {
+    display: inline-flex;
+    align-items: center;
+    padding: var(--space-sm) var(--space-lg);
+    border-radius: var(--radius-sm);
+    font-weight: 600;
+    text-decoration: none;
+    font-size: 0.95rem;
+    transition: transform 0.15s ease;
+  }
+  .cta:hover {
+    text-decoration: none;
+    transform: translateY(-1px);
+  }
+  .cta-primary {
+    background: var(--color-cyan-primary);
+    color: var(--color-abyss);
+  }
+  .cta-primary:hover {
+    background: var(--color-cyan-pulse);
+    color: var(--color-abyss);
+  }
+  .cta-secondary {
+    background: transparent;
+    color: var(--color-text-primary);
+    border: 1px solid var(--color-outline);
+  }
+  .cta-secondary:hover {
+    border-color: var(--color-cyan-primary);
+    color: var(--color-cyan-primary);
+  }
+  .hero-tag {
+    margin-top: var(--space-md);
+    font-size: 0.92rem;
+  }
+
+  .feature-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: var(--space-md);
+    margin-top: var(--space-lg);
+  }
+  .feature {
+    padding: var(--space-lg);
+  }
+  .feature h3 {
+    margin-top: 0;
+    color: var(--color-cyan-primary);
+    font-size: 1.05rem;
+  }
+  .feature p {
+    margin: 0;
+    color: var(--color-text-secondary);
+    font-size: 0.95rem;
+  }
+
+  .download {
+    padding-block: var(--space-xl) var(--space-lg);
+  }
+  .download-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: var(--space-md);
+    margin-top: var(--space-lg);
+  }
+  .download-card {
+    padding: var(--space-lg);
+  }
+  .download-card h3 {
+    margin-top: 0;
+    color: var(--color-cyan-primary);
+  }
+  .download-link {
+    margin: var(--space-md) 0 0 0;
+    padding: var(--space-sm) var(--space-md);
+    border-radius: var(--radius-xs);
+    background: var(--color-abyss-raised);
+    border: 1px dashed var(--color-outline);
+    font-size: 0.85rem;
+    color: var(--color-text-secondary);
+  }
+  .download-fineprint {
+    margin-top: var(--space-lg);
+    font-size: 0.92rem;
+  }
+</style>

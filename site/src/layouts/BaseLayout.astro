@@ -1,0 +1,87 @@
+---
+import "../styles/global.css";
+import Header from "../components/Header.astro";
+import Footer from "../components/Footer.astro";
+
+interface Props {
+  title: string;
+  description: string;
+  /** Canonical path, with leading slash. Defaults to current pathname. */
+  canonicalPath?: string;
+  /** Optional OG image path (under /). Defaults to /og-default.png. */
+  ogImage?: string;
+  /** Page type for OG. */
+  ogType?: "website" | "article";
+  /** Optional JSON-LD schema object (will be JSON.stringify'd). */
+  schema?: Record<string, unknown> | null;
+}
+
+const {
+  title,
+  description,
+  canonicalPath,
+  ogImage = "/og-default.png",
+  ogType = "website",
+  schema = null,
+} = Astro.props;
+
+const siteName = "GhostCrab";
+const siteURL = "https://getghostcrab.com";
+const pathname = canonicalPath ?? Astro.url.pathname;
+const canonical = new URL(pathname, siteURL).toString();
+const ogImageURL = new URL(ogImage, siteURL).toString();
+const fullTitle =
+  title === siteName ? `${title} — Native client for OpenClaw Gateway` : `${title} — ${siteName}`;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="generator" content={Astro.generator} />
+
+    <title>{fullTitle}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
+
+    {/* Open Graph */}
+    <meta property="og:type" content={ogType} />
+    <meta property="og:site_name" content={siteName} />
+    <meta property="og:title" content={fullTitle} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:image" content={ogImageURL} />
+
+    {/* Twitter */}
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={fullTitle} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={ogImageURL} />
+
+    {/* Theme + icons */}
+    <meta name="theme-color" content="#0F1115" />
+    <link rel="icon" type="image/x-icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+
+    {/* Fonts: Inter + JetBrains Mono via system fallback — switch to self-hosted later */}
+    <link rel="preconnect" href="https://rsms.me/" />
+    <link rel="stylesheet" href="https://rsms.me/inter/inter.css" />
+
+    {schema && (
+      <script
+        type="application/ld+json"
+        is:inline
+        set:html={JSON.stringify(schema)}
+      />
+    )}
+  </head>
+  <body>
+    <Header />
+    <main>
+      <slot />
+    </main>
+    <Footer />
+  </body>
+</html>
