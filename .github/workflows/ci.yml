@@ -17,7 +17,7 @@ jobs:
     uses: stevenfackley/gh-actions/.github/workflows/ci-gradle.yml@v1
     with:
       project-name: GhostCrab
-      runs-on: '["self-hosted","macOS","ARM64"]'
+      runs-on: '["ubuntu-latest"]'
       java-version: "17"
       test-task: testDebugUnitTest
       run-lint: true
