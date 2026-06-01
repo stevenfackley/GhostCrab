@@ -2,7 +2,5 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "getghostcrab",
   "compatibility_date": "2026-04-01",
-  "assets": {
-    "directory": "./site/dist"
-  }
+  "pages_build_output_dir": "./site/dist"
 }
