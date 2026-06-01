@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "getghostcrab",
+  "name": "ghostcrab",
   "compatibility_date": "2026-04-01",
   "pages_build_output_dir": "./site/dist"
 }
