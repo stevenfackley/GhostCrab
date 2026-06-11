@@ -19,7 +19,7 @@ fun signingCred(key: String): String? =
 
 android {
     namespace = "com.openclaw.ghostcrab"
-    compileSdk = 36
+    compileSdk = 37
 
     val gitSha: String = try {
         providers.exec { commandLine("git", "rev-parse", "--short", "HEAD") }
