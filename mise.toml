@@ -1,0 +1,9 @@
+[tasks]
+build = "./gradlew assembleDebug"
+test = "./gradlew testDebugUnitTest"
+lint = "./gradlew lint detekt"
+install = "./gradlew installDebug"
+"instrumented-test" = "./gradlew connectedDebugAndroidTest"
+
+[env]
+# non-secret config
