@@ -7,16 +7,15 @@
 #   KotlinInterceptor$KotlinVersionTooRecentError: Kotlin version 2.4.0 is too
 #   recent. CodeQL currently supports versions below 2.3.30
 #
-# Fix: analyze java-kotlin with build-mode "none" — CodeQL scans source without
-# invoking Gradle, so the unsupported-Kotlin autobuild error cannot occur.
-# Trade-off: Kotlin source is not extracted until CodeQL ships Kotlin 2.4.0
-# support (track github/codeql#21938). Flip java-kotlin back to build-mode
-# "autobuild" once it does.
-#
-# ACTIVATION: this workflow is ignored while CodeQL "default setup" is still
-# enabled. After merging, disable default setup so advanced setup takes over:
-#   gh api --method PATCH repos/stevenfackley/GhostCrab/code-scanning/default-setup -f state=not-configured
-name: "CodeQL"
+# 2026-07-06 update: build-mode "none" did not survive contact either — the
+# buildless extractor also rejects Kotlin 2.4, extracts zero Java/Kotlin code,
+# and `database finalize` fails with exit 32 ("CodeQL detected code written in
+# Java/Kotlin but could not process any of it"). java-kotlin has produced no
+# analysis results since mid-June, so it is removed from the matrix to keep the
+# remaining languages green. Re-add java-kotlin (build-mode autobuild) once
+# CodeQL ships Kotlin 2.4 support (track github/codeql#21938). Note: the
+# analyzer version comes from the runner toolcache (2.25.6 as of this change);
+# bumping the codeql-action major does not change it.name: "CodeQL"
 
 on:
   push:
@@ -40,8 +39,6 @@ jobs:
       matrix:
         include:
           - language: actions
-            build-mode: none
-          - language: java-kotlin
             build-mode: none
           - language: javascript-typescript
             build-mode: none
