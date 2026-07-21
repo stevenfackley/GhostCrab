@@ -2,5 +2,12 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "ghostcrab",
   "compatibility_date": "2026-04-01",
-  "pages_build_output_dir": "./site/dist"
+  // getghostcrab is a static Astro site served by Workers Static Assets.
+  // This was previously "pages_build_output_dir", which is a Cloudflare
+  // Pages-only field. This project is a Worker, not a Pages project, so
+  // that key was ignored and `wrangler deploy` aborted with "no main and
+  // no assets" - which is why the Workers Builds check failed on every PR.
+  "assets": {
+    "directory": "./site/dist"
+  }
 }
