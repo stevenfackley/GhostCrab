@@ -113,13 +113,13 @@ tasks.whenTaskAdded {
 
 // Force minimum safe versions for vulnerable transitive dependencies.
 // None of these are direct dependencies; all are pulled in by Ktor, MLKit, or build tooling.
-// Reviewed against Dependabot alerts 2026-05-06. Revisit when bumping major deps.
+// Reviewed against Dependabot alerts 2026-07-20. Revisit when bumping major deps.
 configurations.all {
     resolutionStrategy.eachDependency {
         when {
-            // 13 alerts (4.1.94–4.1.132): request smuggling, HTTP/2 DoS, SslHandler crash, etc.
+            // alerts through 4.1.134: request smuggling, HTTP/2 DoS, SslHandler crash, etc.
             requested.group == "io.netty" ->
-                useVersion("4.1.133.Final")
+                useVersion("4.1.135.Final")
             // 3 alerts (bcprov + bcpkix < 1.84): timing channel, LDAP injection, broken crypto
             requested.group == "org.bouncycastle" && requested.name == "bcprov-jdk18on" ->
                 useVersion("1.84")
