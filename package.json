@@ -1,0 +1,8 @@
+{
+  "name": "ghostcrab-root",
+  "private": true,
+  "description": "Build entrypoint for the getghostcrab Astro site. The Android app is built with Gradle and is unrelated to this file. Cloudflare Workers Builds runs `npm run build` from the repo root and publishes site/dist per wrangler.jsonc.",
+  "scripts": {
+    "build": "npm --prefix site ci && npm --prefix site run build"
+  }
+}
