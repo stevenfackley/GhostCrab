@@ -117,9 +117,10 @@ tasks.whenTaskAdded {
 configurations.all {
     resolutionStrategy.eachDependency {
         when {
-            // alerts through 4.1.134: request smuggling, HTTP/2 DoS, SslHandler crash, etc.
+            // alerts through 4.1.135: request smuggling, HTTP/2 DoS, SslHandler crash,
+            // netty-codec/-http/-http2 advisories fixed in 4.1.136 (2026-07 wave)
             requested.group == "io.netty" ->
-                useVersion("4.1.135.Final")
+                useVersion("4.1.136.Final")
             // 3 alerts (bcprov + bcpkix < 1.84): timing channel, LDAP injection, broken crypto
             requested.group == "org.bouncycastle" && requested.name == "bcprov-jdk18on" ->
                 useVersion("1.84")
