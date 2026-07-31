@@ -6,7 +6,7 @@ The real upstream gateway (`ghcr.io/openclaw/openclaw`) does **not** implement t
 JSON API GhostCrab was built against — `/api/models/*`, `/api/ai/recommend`, raw
 JSON-RPC over `/ws` with `skills.list` / `skills.uninstall` — those endpoints
 were speculative spec that never shipped. See
-[`IMPLEMENTATION_PLAN.md`](../../IMPLEMENTATION_PLAN.md) (phase 7 ledger).
+[`IMPLEMENTATION_PLAN.md`](../../docs/IMPLEMENTATION_PLAN.md) (phase 7 ledger).
 
 This mock implements the spec GhostCrab expects, so Models, Config editor, AI
 Recommend, and Skills-Install can be exercised end-to-end on a real device.
