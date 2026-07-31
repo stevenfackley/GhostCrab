@@ -118,7 +118,7 @@ Recommended update:
 Files:
 - [README.md](/C:/Users/steve/projects/GhostCrab/README.md:24)
 - [README.md](/C:/Users/steve/projects/GhostCrab/README.md:113)
-- [IMPLEMENTATION_PLAN.md](/C:/Users/steve/projects/GhostCrab/IMPLEMENTATION_PLAN.md:47)
+- [IMPLEMENTATION_PLAN.md](/C:/Users/steve/projects/GhostCrab/docs/IMPLEMENTATION_PLAN.md:47)
 
 README still says the model manager is in progress, while the implementation plan marks Phase 7 done.
 

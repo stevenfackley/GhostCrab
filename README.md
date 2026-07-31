@@ -146,7 +146,7 @@ See [`docs/PRIVACY_POLICY.md`](docs/PRIVACY_POLICY.md) for the full policy.
 
 ## Contributing
 
-Bug reports and pull requests are welcome. Please read `IMPLEMENTATION_PLAN.md` before starting significant work — it describes the phased build plan and frozen contracts.
+Bug reports and pull requests are welcome. Please read `docs/IMPLEMENTATION_PLAN.md` before starting significant work — it describes the phased build plan and frozen contracts.
 
 ---
 

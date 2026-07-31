@@ -82,9 +82,9 @@ All colors and fonts come from `ui/theme/BrandTokens.kt` — no hardcoded hex va
 
 ## Implementation Phases
 
-Progress tracked in `IMPLEMENTATION_PLAN.md`. Each phase is self-contained; read §0 + §1 + the target phase before starting. Always update the Progress Ledger at phase end.
+Progress tracked in `docs/IMPLEMENTATION_PLAN.md`. Each phase is self-contained; read §0 + §1 + the target phase before starting. Always update the Progress Ledger at phase end.
 
-Current status: **v0.1.0 shipped** — Phases 0–11 complete. New work is additive (bug fixes, tests, features beyond the original plan). Check `IMPLEMENTATION_PLAN.md` Progress Ledger for the authoritative state.
+Current status: **v0.1.0 shipped** — Phases 0–11 complete. New work is additive (bug fixes, tests, features beyond the original plan). Check `docs/IMPLEMENTATION_PLAN.md` Progress Ledger for the authoritative state.
 
 ## Docs
 
