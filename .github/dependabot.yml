@@ -19,3 +19,29 @@ updates:
   - package-ecosystem: github-actions
     directory: /
     schedule: { interval: weekly, day: monday }
+
+  # ── Added by the project-wide Dependabot sweep ──────────────────────────
+  # Ecosystems present in the repo that no existing entry covered.
+  - package-ecosystem: "npm"
+    directories:
+      - "/"
+      - "/scripts/mock-gateway"
+      - "/site"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "America/New_York"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "javascript"
+    commit-message:
+      prefix: "deps(npm)"
+      include: "scope"
+    groups:
+      javascript-minor-and-patch:
+        applies-to: version-updates
+        update-types:
+          - "minor"
+          - "patch"
