@@ -35,7 +35,7 @@ brew install xcodegen
   - Bundle ID: `com.qavren.ghostcrab`
   - SKU: `ghostcrab-ios`
   - User Access: Full Access
-- [ ] App Information → Privacy Policy URL filled in (use `https://steveackley.org/android/privacy` as the placeholder until `https://getghostcrab.com/privacy` is live)
+- [ ] App Information → Privacy Policy URL filled in: `https://getghostcrab.com/privacy` (live as of 2026-08-05)
 - [ ] App Information → Primary Category: `Utilities`, Secondary: `Developer Tools`
 - [ ] App Information → Content Rights: "Does not contain, show, or access third-party content"
 - [ ] App Information → Age Rating: walk through questionnaire, expect **4+**
@@ -43,7 +43,7 @@ brew install xcodegen
 - [ ] TestFlight tab → Test Information:
   - Beta App Description filled in
   - Beta App Feedback Email: `support@getghostcrab.com`
-  - Marketing URL: leave blank (or use `https://getghostcrab.com` once live)
+  - Marketing URL: `https://getghostcrab.com`
   - Privacy Policy URL: same as App Information
 - [ ] App Store Connect → Users and Access → Integrations → App Store Connect API:
   - Generate a key with **App Manager** role
@@ -58,8 +58,7 @@ brew install xcodegen
 
 ### On getghostcrab.com
 
-- [ ] Publish `docs/PRIVACY_POLICY_IOS.md` (rendered to HTML) at `https://getghostcrab.com/privacy`
-- [ ] Update App Store Connect → App Information → Privacy Policy URL to the new permanent URL
+- [x] `docs/PRIVACY_POLICY_IOS.md` published at `https://getghostcrab.com/privacy` (site live 2026-08-05; the in-app Settings link resolves to the same URL)
 
 ---
 
