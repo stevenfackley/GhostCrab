@@ -9,5 +9,12 @@
   // no assets" - which is why the Workers Builds check failed on every PR.
   "assets": {
     "directory": "./site/dist"
-  }
+  },
+  // Bind the production domain to the worker. Without this the worker only
+  // serves workers.dev and getghostcrab.com 530s: the zone's DNS record
+  // pointed at nothing that exists. custom_domain provisions the DNS
+  // record automatically on deploy.
+  "routes": [
+    { "pattern": "getghostcrab.com", "custom_domain": true }
+  ]
 }
