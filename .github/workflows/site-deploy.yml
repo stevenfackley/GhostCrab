@@ -1,0 +1,58 @@
+name: site-deploy
+
+# getghostcrab.com marketing site (site/ Astro -> Workers Static Assets).
+# Cloudflare's Git-integrated Workers Builds never produced a green deploy
+# (every run since 2026-07 failed, including the wrangler-config fix in
+# PR #68; build logs are only visible in the CF dashboard). This workflow
+# owns the deploy instead, so a broken build/deploy is a visible red check
+# here. Requires repo secret CLOUDFLARE_API_TOKEN ("Edit Cloudflare
+# Workers" token template). The dashboard Git integration should be
+# disconnected once this is green, so the two paths don't race.
+
+on:
+  pull_request:
+    paths:
+      - "site/**"
+      - "wrangler.jsonc"
+      - ".github/workflows/site-deploy.yml"
+  push:
+    branches: [main]
+    paths:
+      - "site/**"
+      - "wrangler.jsonc"
+      - ".github/workflows/site-deploy.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: site-deploy-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  site:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+
+      - name: Install
+        working-directory: site
+        run: npm ci
+
+      - name: Build
+        working-directory: site
+        run: npm run build
+
+      - name: Deploy to Cloudflare Workers
+        if: github.event_name != 'pull_request'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: "7c2523de841058b55de07942589f8bf5"
+        run: npx --yes wrangler@4 deploy
