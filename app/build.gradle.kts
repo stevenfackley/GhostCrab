@@ -113,14 +113,19 @@ tasks.whenTaskAdded {
 
 // Force minimum safe versions for vulnerable transitive dependencies.
 // None of these are direct dependencies; all are pulled in by Ktor, MLKit, or build tooling.
-// Reviewed against Dependabot alerts 2026-07-20. Revisit when bumping major deps.
+// Reviewed against Dependabot alerts 2026-08-21. Revisit when bumping major deps.
 configurations.all {
     resolutionStrategy.eachDependency {
         when {
             // alerts through 4.1.135: request smuggling, HTTP/2 DoS, SslHandler crash,
-            // netty-codec/-http/-http2 advisories fixed in 4.1.136 (2026-07 wave)
+            // netty-codec/-http/-http2 advisories fixed in 4.1.136 (2026-07 wave);
+            // GHSA-8c42-7qj2-3j46 (netty-codec-http <= 4.1.136.Final) fixed in 4.1.137.
+            // Reached only through AGP's Unified Test Platform harness
+            // (com.android.tools.utp:* -> io.grpc:grpc-netty). Host-side test tooling,
+            // never packaged into the APK. This pin is what sets the resolved version,
+            // so it must lead the advisory, not trail it.
             requested.group == "io.netty" ->
-                useVersion("4.1.136.Final")
+                useVersion("4.1.137.Final")
             // 3 alerts (bcprov + bcpkix < 1.84): timing channel, LDAP injection, broken crypto
             requested.group == "org.bouncycastle" && requested.name == "bcprov-jdk18on" ->
                 useVersion("1.84")
