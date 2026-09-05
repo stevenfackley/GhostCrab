@@ -7,6 +7,7 @@ import com.openclaw.ghostcrab.domain.model.SkillInstallProgress
 import com.openclaw.ghostcrab.domain.model.SkillSource
 import com.openclaw.ghostcrab.domain.repository.InstalledSkillRepository
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -14,6 +15,7 @@ import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -51,11 +53,12 @@ class InstalledSkillRepositoryImpl(
      * @return [Result] wrapping the refreshed list, or an exception on network failure.
      */
     override suspend fun refreshFromGateway(): Result<List<InstalledSkill>> = runCatching {
-        val ws = wsFactory()
-        val res = ws.request("skills.list", params = null).jsonObject
-        val list = res["skills"]?.jsonArray.orEmpty().map { it.jsonObject.toInstalledSkill() }
-        installedFlow.value = list
-        list
+        wsFactory().use { ws ->
+            val res = ws.request("skills.list", params = null).jsonObject
+            val list = res["skills"]?.jsonArray.orEmpty().map { it.jsonObject.toInstalledSkill() }
+            installedFlow.value = list
+            list
+        }
     }
 
     /**
@@ -111,6 +114,7 @@ class InstalledSkillRepositoryImpl(
             send(SkillInstallProgress.Failed(SkillInstallError.Unknown(e.message ?: "unknown")))
         } finally {
             notifJob.cancel()
+            withContext(NonCancellable) { ws.close() }
         }
     }
 
@@ -121,12 +125,21 @@ class InstalledSkillRepositoryImpl(
      * @return [Result.success] on success, or a failure wrapping the exception.
      */
     override suspend fun uninstall(slug: String): Result<Unit> = runCatching {
-        val ws = wsFactory()
-        ws.request("skills.uninstall", buildJsonObject { put("slug", JsonPrimitive(slug)) })
-        installedFlow.value = installedFlow.value.filter { it.slug != slug }
+        wsFactory().use { ws ->
+            ws.request("skills.uninstall", buildJsonObject { put("slug", JsonPrimitive(slug)) })
+            installedFlow.value = installedFlow.value.filter { it.slug != slug }
+        }
     }
 
     // ── helpers ───────────────────────────────────────────────────────────────
+
+    /** Runs [block] against a freshly opened session and always closes it, even on cancellation. */
+    private suspend inline fun <T> GatewayWsClient.use(block: (GatewayWsClient) -> T): T =
+        try {
+            block(this)
+        } finally {
+            withContext(NonCancellable) { close() }
+        }
 
     private fun JsonObject.toInstalledSkill(): InstalledSkill = InstalledSkill(
         slug = this["slug"]!!.jsonPrimitive.content,

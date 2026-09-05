@@ -104,4 +104,37 @@ class CleartextPublicIpInterceptorTest {
 
         assertDoesNotThrow { interceptor.intercept(chain) }
     }
+
+    // ── IPv6 ──────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `IPv6 loopback is not public`() {
+        assertFalse(CleartextPublicIpInterceptor.isPublicIpLiteral("[::1]"))
+    }
+
+    @Test
+    fun `IPv6 link-local fe80 is not public`() {
+        assertFalse(CleartextPublicIpInterceptor.isPublicIpLiteral("[fe80::1]"))
+    }
+
+    @Test
+    fun `IPv6 ULA fd00 is not public`() {
+        assertFalse(CleartextPublicIpInterceptor.isPublicIpLiteral("[fd12:3456:789a::1]"))
+    }
+
+    @Test
+    fun `IPv6 ULA fc00 is not public`() {
+        assertFalse(CleartextPublicIpInterceptor.isPublicIpLiteral("fc00::10"))
+    }
+
+    @Test
+    fun `IPv6 global unicast is public`() {
+        assertTrue(CleartextPublicIpInterceptor.isPublicIpLiteral("[2001:4860:4860::8888]"))
+    }
+
+    @Test
+    fun `unspecified addresses are not public`() {
+        assertFalse(CleartextPublicIpInterceptor.isPublicIpLiteral("0.0.0.0"))
+        assertFalse(CleartextPublicIpInterceptor.isPublicIpLiteral("[::]"))
+    }
 }

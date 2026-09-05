@@ -112,6 +112,20 @@ class OnboardingViewModelTest {
         // Must only contain URL-safe base64 chars (A-Z a-z 0-9 - _)
         assertTrue(token.all { it.isLetterOrDigit() || it == '-' || it == '_' })
     }
+
+    @Test
+    fun `suggestedToken is a 43-char base64url token and regenerate replaces it`() = runTest {
+        val vm = makeVm()
+        val first = vm.suggestedToken.value
+        assertEquals(43, first.length)
+        assertTrue(first.all { it.isLetterOrDigit() || it == '-' || it == '_' })
+
+        vm.regenerateToken()
+
+        val second = vm.suggestedToken.value
+        assertEquals(43, second.length)
+        assertTrue(first != second)
+    }
 }
 
 // ── Fake ─────────────────────────────────────────────────────────────────────

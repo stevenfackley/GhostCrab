@@ -40,8 +40,10 @@ Out of scope:
 
 ## Security Design Notes
 
-- Auth tokens are stored exclusively in `EncryptedSharedPreferences` (AES256-GCM)
-- `Authorization` headers are stripped from Ktor HTTP logs at the client layer
-- `PrivacySafeUncaughtExceptionHandler` scrubs tokens and IP addresses before any crash report is written
-- HTTP-mode connections display a persistent amber warning banner; the app does not silently downgrade security
-- Secret scanning is enabled on this repository via GitHub Advanced Security
+- Auth tokens are stored exclusively in `EncryptedSharedPreferences` (AES256-GCM); the master key lives in AndroidKeyStore and never leaves the device
+- The bearer token is attached only to requests whose host, port and scheme match the configured gateway origin — never to a redirect target or any other host
+- `Authorization` headers are stripped from Ktor HTTP logs, and that logging exists in debug builds only; release builds strip `Log.d` call sites entirely
+- `PrivacySafeUncaughtExceptionHandler` scrubs bearer tokens, URL credentials, `token=` / `api_key` fields and IPv4 addresses before any crash report is written
+- App data is excluded from Android cloud backup and device-to-device transfer (`allowBackup="false"` + `dataExtractionRules`)
+- HTTP-mode connections display a persistent amber warning banner; the app does not silently downgrade security. Cleartext HTTP to a public IP literal is blocked unless the user opts in under Settings → Security
+- Secret scanning and push protection are enabled on this repository via GitHub Advanced Security

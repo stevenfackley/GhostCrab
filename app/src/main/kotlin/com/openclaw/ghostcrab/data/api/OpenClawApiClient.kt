@@ -17,9 +17,7 @@ import io.ktor.client.call.body
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.HttpRequestTimeoutException
 import io.ktor.client.plugins.HttpTimeout
-import io.ktor.client.plugins.auth.Auth
-import io.ktor.client.plugins.auth.providers.BearerTokens
-import io.ktor.client.plugins.auth.providers.bearer
+import io.ktor.client.plugins.api.createClientPlugin
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.plugins.logging.LogLevel
 import io.ktor.client.plugins.logging.Logger
@@ -30,9 +28,13 @@ import io.ktor.client.request.patch
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
+import com.openclaw.ghostcrab.BuildConfig
 import io.ktor.http.ContentType
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.Url
 import io.ktor.http.contentType
+import io.ktor.http.isSecure
 import io.ktor.http.isSuccess
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.json.Json
@@ -60,7 +62,12 @@ import javax.net.ssl.SSLException
  */
 class OpenClawApiClient private constructor(
     val baseUrl: String,
-    private val httpClient: HttpClient,
+    /**
+     * Underlying Ktor client. Exposed so the WebSocket layer reuses the same cleartext
+     * interceptor, timeouts, sanitized logging and origin-scoped bearer instead of building a
+     * second, weaker client.
+     */
+    internal val httpClient: HttpClient,
 ) {
 
     // ── Public API ────────────────────────────────────────────────────────────
@@ -254,7 +261,7 @@ class OpenClawApiClient private constructor(
             baseUrl: String,
             allowCleartextPublicIPs: Boolean = false,
         ): OpenClawApiClient =
-            OpenClawApiClient(baseUrl, buildHttpClient(token = null, allowCleartextPublicIPs))
+            OpenClawApiClient(baseUrl, buildHttpClient(baseUrl, token = null, allowCleartextPublicIPs))
 
         /** Client with Bearer token authentication — use for live sessions. */
         fun authenticated(
@@ -262,10 +269,13 @@ class OpenClawApiClient private constructor(
             token: String,
             allowCleartextPublicIPs: Boolean = false,
         ): OpenClawApiClient =
-            OpenClawApiClient(baseUrl, buildHttpClient(token = token, allowCleartextPublicIPs))
+            OpenClawApiClient(baseUrl, buildHttpClient(baseUrl, token = token, allowCleartextPublicIPs))
 
-        private fun buildHttpClient(token: String?, allowCleartextPublicIPs: Boolean): HttpClient =
-            HttpClient(OkHttp) {
+        private fun buildHttpClient(
+            baseUrl: String,
+            token: String?,
+            allowCleartextPublicIPs: Boolean,
+        ): HttpClient = HttpClient(OkHttp) {
             engine {
                 addInterceptor(CleartextPublicIpInterceptor { allowCleartextPublicIPs })
             }
@@ -281,24 +291,53 @@ class OpenClawApiClient private constructor(
                 requestTimeoutMillis = 30_000
                 socketTimeoutMillis = 30_000
             }
-            install(Logging) {
-                level = LogLevel.HEADERS
-                logger = object : Logger {
-                    override fun log(message: String) {
-                        android.util.Log.d("OpenClawApiClient", message)
+            // Header-level request logging is a debug-only diagnostic. Release builds install
+            // no logger at all (and R8 strips Log.d call sites — see proguard-rules.pro).
+            if (BuildConfig.DEBUG) {
+                install(Logging) {
+                    level = LogLevel.HEADERS
+                    logger = object : Logger {
+                        override fun log(message: String) {
+                            android.util.Log.d("OpenClawApiClient", message)
+                        }
                     }
+                    // Strip Authorization header — tokens must never appear in logcat
+                    sanitizeHeader { header -> header == HttpHeaders.Authorization }
                 }
-                // Strip Authorization header — tokens must never appear in logcat
-                sanitizeHeader { header -> header == "Authorization" }
             }
             if (token != null) {
-                install(Auth) {
-                    bearer {
-                        loadTokens { BearerTokens(token, "") }
-                        sendWithoutRequest { true }
+                install(scopedBearerPlugin(origin = Url(baseUrl), token = token))
+            }
+        }
+
+        /**
+         * Attaches `Authorization: Bearer` only to requests bound for [origin].
+         *
+         * A plain request hook rather than Ktor's `Auth` plugin: that plugin also retries on a
+         * 401 challenge, which would hand the token to any host that answers a redirected
+         * request with `WWW-Authenticate: Bearer`. This hook has no retry path.
+         */
+        private fun scopedBearerPlugin(origin: Url, token: String) =
+            createClientPlugin("ScopedBearer") {
+                onRequest { request, _ ->
+                    if (isSameOrigin(origin, request.url.build())) {
+                        request.headers[HttpHeaders.Authorization] = "Bearer $token"
                     }
                 }
             }
+
+        /**
+         * `true` when [candidate] targets the same host and port as [origin] and does not
+         * downgrade a TLS origin to cleartext. `ws`/`wss` count as `http`/`https`.
+         *
+         * @param origin The gateway base URL the token was issued for.
+         * @param candidate The URL of an outgoing request.
+         */
+        internal fun isSameOrigin(origin: Url, candidate: Url): Boolean {
+            val sameHostAndPort =
+                candidate.host.equals(origin.host, ignoreCase = true) && candidate.port == origin.port
+            val noTlsDowngrade = !origin.protocol.isSecure() || candidate.protocol.isSecure()
+            return sameHostAndPort && noTlsDowngrade
         }
     }
 }

@@ -8,6 +8,7 @@ import com.openclaw.ghostcrab.domain.model.AuthRequirement
 import com.openclaw.ghostcrab.domain.model.GatewayConnection
 import com.openclaw.ghostcrab.domain.repository.GatewayConnectionManager
 import com.openclaw.ghostcrab.domain.repository.SettingsRepository
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -60,10 +61,13 @@ class GatewayConnectionManagerImpl(
 
             _connectionState.value = GatewayConnection.Connecting(url)
 
+            // Held outside the try so every failure path can release the half-built client;
+            // it only becomes activeClient once status() has succeeded.
+            var client: OpenClawApiClient? = null
             try {
                 val allowCleartext = settingsRepository.allowCleartextPublicIPs.firstOrNull() ?: false
                 val authReq = probeAuth(url)
-                val client = if (token != null) {
+                client = if (token != null) {
                     clientFactory.authenticated(url, token, allowCleartext)
                 } else {
                     clientFactory.unauthenticated(url, allowCleartext)
@@ -83,12 +87,34 @@ class GatewayConnectionManagerImpl(
                     tokenOrNull = token,
                 )
             } catch (e: GatewayException) {
-                activeClient?.close()
-                activeClient = null
-                _connectionState.value = GatewayConnection.Error(url, e)
+                failConnect(url, e, client)
                 throw e
+            } catch (e: CancellationException) {
+                // Caller went away mid-handshake: release the half-built client and return to
+                // the terminal state instead of leaving the UI on Connecting forever.
+                releaseClients(client)
+                _connectionState.value = GatewayConnection.Disconnected
+                throw e
+            } catch (@Suppress("TooGenericExceptionCaught") e: Exception) {
+                // Anything the client layer did not classify (e.g. a URL the engine rejects)
+                // must still land in Error, never a stuck Connecting.
+                val wrapped = GatewayUnreachableException(url, e)
+                failConnect(url, wrapped, client)
+                throw wrapped
             }
         }
+    }
+
+    /** Closes [pending] (a client whose handshake failed) and whatever is currently active. */
+    private fun releaseClients(pending: OpenClawApiClient?) {
+        pending?.close()
+        activeClient?.close()
+        activeClient = null
+    }
+
+    private fun failConnect(url: String, cause: GatewayException, pending: OpenClawApiClient?) {
+        releaseClients(pending)
+        _connectionState.value = GatewayConnection.Error(url, cause)
     }
 
     override suspend fun disconnect() {

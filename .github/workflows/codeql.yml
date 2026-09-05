@@ -15,7 +15,8 @@
 # remaining languages green. Re-add java-kotlin (build-mode autobuild) once
 # CodeQL ships Kotlin 2.4 support (track github/codeql#21938). Note: the
 # analyzer version comes from the runner toolcache (2.25.6 as of this change);
-# bumping the codeql-action major does not change it.name: "CodeQL"
+# bumping the codeql-action major does not change it.
+name: "CodeQL"
 
 on:
   push:

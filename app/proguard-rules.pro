@@ -27,3 +27,13 @@
 # ── Domain sealed hierarchies (preserve subtype names for error messages) ────
 -keep class com.openclaw.ghostcrab.domain.exception.** { *; }
 -keep class com.openclaw.ghostcrab.domain.model.** { *; }
+
+# ── Release hygiene ──────────────────────────────────────────────────────────
+# Strip Log.v/Log.d call sites entirely. Ktor header logging and WS frame
+# diagnostics use Log.d; nothing at these levels may reach a release logcat.
+-assumenosideeffects class android.util.Log {
+    public static int v(...);
+    public static int d(...);
+}
+# Keep line numbers for crash traces but replace real source paths.
+-renamesourcefileattribute SourceFile

@@ -12,7 +12,7 @@ import java.io.IOException
  * through (DNS-resolved addresses aren't checked here to avoid double-resolution latency).
  *
  * Private ranges allowed by default: RFC-1918 (10/8, 172.16/12, 192.168/16),
- * link-local (169.254/16), and loopback (127/8).
+ * link-local (169.254/16, fe80::/10), loopback (127/8, ::1) and IPv6 ULA (fc00::/7).
  */
 internal class CleartextPublicIpInterceptor(
     private val isAllowed: () -> Boolean,
@@ -42,10 +42,17 @@ internal class CleartextPublicIpInterceptor(
                 host
             }
             val addr = parseIpLiteral(rawIp)
-            return addr != null &&
-                !addr.isLoopbackAddress &&
-                !addr.isSiteLocalAddress &&
-                !addr.isLinkLocalAddress
+            return addr != null && !isPrivate(addr)
+        }
+
+        /**
+         * Loopback, RFC-1918 / IPv6 site-local, link-local, the unspecified address, and IPv6
+         * ULA (fc00::/7 — the modern private range that `isSiteLocalAddress` does not cover).
+         */
+        private fun isPrivate(addr: java.net.InetAddress): Boolean = when {
+            addr.isLoopbackAddress || addr.isSiteLocalAddress || addr.isLinkLocalAddress -> true
+            addr.isAnyLocalAddress -> true
+            else -> addr is java.net.Inet6Address && (addr.address[0].toInt() and 0xFE) == 0xFC
         }
 
         // For IPv4 literals: parse the 4 octets directly into a byte array — no DNS possible.
