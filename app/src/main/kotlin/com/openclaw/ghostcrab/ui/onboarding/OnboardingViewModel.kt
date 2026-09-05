@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.openclaw.ghostcrab.domain.model.OnboardingStep
 import com.openclaw.ghostcrab.domain.repository.OnboardingRepository
+import com.openclaw.ghostcrab.domain.util.generateToken
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -26,6 +27,15 @@ public class OnboardingViewModel(
     /** Current onboarding step. Emits [OnboardingStep.Completed] when done. */
     public val step: StateFlow<OnboardingStep> = _step.asStateFlow()
 
+    private val _suggestedToken = MutableStateFlow(generateToken())
+
+    /**
+     * Cryptographically random token suggested on the Start Gateway step. Held here rather
+     * than in `rememberSaveable` so it survives rotation without being written to the
+     * saved-instance Bundle, which the system persists to disk and exposes via `dumpsys`.
+     */
+    public val suggestedToken: StateFlow<String> = _suggestedToken.asStateFlow()
+
     init {
         viewModelScope.launch {
             val saved = repository.getSavedStep()
@@ -41,6 +51,11 @@ public class OnboardingViewModel(
     /** Returns to the previous step and persists the change. No-op at [OnboardingStep.Welcome]. */
     public fun back() {
         viewModelScope.launch { advance(forward = false) }
+    }
+
+    /** Replaces [suggestedToken] with a fresh random value. */
+    public fun regenerateToken() {
+        _suggestedToken.value = generateToken()
     }
 
     /** Skips directly to completion, marking onboarding done. */

@@ -21,7 +21,7 @@ class PrivacySafeUncaughtExceptionHandlerTest {
         val result = PrivacySafeUncaughtExceptionHandler.sanitize(input)
         assertFalse(result.contains("password123"))
         assertTrue(result.contains("[REDACTED]@"))
-        assertTrue(result.contains("192.168.1.50:18789"))
+        assertTrue(result.contains("[IP]:18789"))
     }
 
     @Test
@@ -29,5 +29,25 @@ class PrivacySafeUncaughtExceptionHandlerTest {
         val input = "NullPointerException at MainActivity.onCreate(MainActivity.kt:42)"
         val result = PrivacySafeUncaughtExceptionHandler.sanitize(input)
         assertEquals(input, result)
+    }
+
+    @Test
+    fun `sanitize redacts IPv4 literals`() {
+        val input = "GatewayUnreachableException: Gateway unreachable at http://10.0.0.7:18789/health"
+        val result = PrivacySafeUncaughtExceptionHandler.sanitize(input)
+        assertFalse(result.contains("10.0.0.7"))
+        assertTrue(result.contains("http://[IP]:18789/health"))
+    }
+
+    @Test
+    fun `sanitize redacts token query params and JSON fields`() {
+        val input = """url=http://gw?token=abc123 body={"auth":{"token": "s3cr3t"},"api_key":"k-9"} access_token=zzz"""
+        val result = PrivacySafeUncaughtExceptionHandler.sanitize(input)
+        assertFalse(result.contains("abc123"))
+        assertFalse(result.contains("s3cr3t"))
+        assertFalse(result.contains("k-9"))
+        assertFalse(result.contains("zzz"))
+        assertTrue(result.contains("token=[REDACTED]"))
+        assertTrue(result.contains("\"token\": \"[REDACTED]"))
     }
 }

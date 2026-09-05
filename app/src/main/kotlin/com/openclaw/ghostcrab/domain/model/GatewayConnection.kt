@@ -41,7 +41,13 @@ sealed interface GatewayConnection {
         val capabilities: List<String>,
         val hardwareInfo: String? = null,
         val tokenOrNull: String? = null,
-    ) : GatewayConnection
+    ) : GatewayConnection {
+        /** Redacts [tokenOrNull] so logging or dumping the connection state cannot leak a bearer. */
+        override fun toString(): String =
+            "Connected(url=$url, displayName=$displayName, version=$version, " +
+                "authRequirement=$authRequirement, isHttps=$isHttps, capabilities=$capabilities, " +
+                "hardwareInfo=$hardwareInfo, tokenOrNull=${tokenOrNull?.let { "[REDACTED]" }})"
+    }
 
     /**
      * Connection failed or was lost.

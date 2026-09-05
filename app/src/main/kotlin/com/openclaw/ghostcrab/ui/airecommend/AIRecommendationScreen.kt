@@ -16,8 +16,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.net.Uri
+import android.widget.Toast
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AutoAwesome
@@ -429,9 +431,15 @@ private fun InstallButton(onInstall: () -> Unit) {
 private fun OpenBrowserButton() {
     val context = LocalContext.current
     val clawhubUrl = stringResource(R.string.ai_skill_unavailable_clawhub_url)
+    val noBrowserMessage = stringResource(R.string.ai_skill_open_browser_unavailable, clawhubUrl)
     OutlinedButton(
         onClick = {
-            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(clawhubUrl)))
+            try {
+                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(clawhubUrl)))
+            } catch (_: ActivityNotFoundException) {
+                // Locked-down profiles can have no browser; say so instead of crashing.
+                Toast.makeText(context, noBrowserMessage, Toast.LENGTH_LONG).show()
+            }
         },
         modifier = Modifier.fillMaxWidth(),
     ) {

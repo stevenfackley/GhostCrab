@@ -7,6 +7,7 @@ import com.openclaw.ghostcrab.domain.repository.GatewayConnectionManager
 import com.openclaw.ghostcrab.domain.repository.OnboardingRepository
 import com.openclaw.ghostcrab.ui.connection.DEFAULT_GATEWAY_PORT
 import com.openclaw.ghostcrab.ui.connection.ManualEntryEvent
+import com.openclaw.ghostcrab.ui.connection.ManualEntryFormState
 import com.openclaw.ghostcrab.ui.connection.ManualEntryUiState
 import com.openclaw.ghostcrab.ui.connection.ManualEntryViewModel
 import io.mockk.coEvery
@@ -195,5 +196,24 @@ class ManualEntryViewModelTest {
 
         assertInstanceOf(ManualEntryUiState.Error::class.java, vm.uiState.value)
         assertEquals("refused", (vm.uiState.value as ManualEntryUiState.Error).message)
+    }
+
+    @Test
+    fun `host with at-sign question-mark hash or backslash is rejected`() {
+        for (bad in listOf("user@192.168.1.5", "gw?x=1", "gw#frag", "gw" + 92.toChar() + "evil")) {
+            vm.onHostChange(bad)
+            vm.connect()
+            assertTrue(vm.form.value.hostError != null, "expected hostError for '$bad'")
+            assertEquals(ManualEntryUiState.Idle, vm.uiState.value)
+        }
+    }
+
+    @Test
+    fun `form state toString redacts the token`() {
+        val state = ManualEntryFormState(host = "gw", token = "hunter2-token")
+        val rendered = state.toString()
+        assertTrue(!rendered.contains("hunter2-token"), rendered)
+        assertTrue(rendered.contains("token=[REDACTED]"), rendered)
+        assertTrue(ManualEntryFormState().toString().contains("token=,"))
     }
 }

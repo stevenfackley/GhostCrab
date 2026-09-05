@@ -31,6 +31,12 @@ data class ManualEntryFormState(
 ) {
     val scheme: String get() = if (useHttps) "https" else "http"
     val assembledUrl: String get() = "$scheme://${host.trim()}:${port.trim()}"
+
+    /** Redacts [token] so form state can be logged or dumped without leaking a bearer. */
+    override fun toString(): String =
+        "ManualEntryFormState(useHttps=$useHttps, host=$host, port=$port, " +
+            "token=${if (token.isEmpty()) "" else "[REDACTED]"}, tokenVisible=$tokenVisible, " +
+            "hostError=$hostError, portError=$portError)"
 }
 
 sealed interface ManualEntryUiState {
@@ -143,6 +149,8 @@ class ManualEntryViewModel(
         if (trimmed.contains('/')) return "Host must not contain '/'"
         if (trimmed.contains(':')) return "Port goes in the Port field, not the Host field"
         if (trimmed.any { it.isWhitespace() }) return "Host must not contain whitespace"
+        // '@' would smuggle userinfo into the assembled URL; '?' and '#' would truncate the host.
+        if (trimmed.any { it in "@?#\\" }) return "Host must not contain '@', '?', '#' or '\\'"
         return null
     }
 

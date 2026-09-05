@@ -190,4 +190,39 @@ class GatewayConnectionManagerImplTest {
         val firstWinnerClient = if (finalUrl == url) sessionClient2 else sessionClient
         verify(atLeast = 1) { firstWinnerClient.close() }
     }
+
+    // ── Hardening ─────────────────────────────────────────────────────────────
+
+    @Test
+    fun `connect wraps unclassified exception and lands in Error, never stuck Connecting`() = runTest {
+        // probeAuth succeeds; the session client's status() then throws something the
+        // client layer never maps to a GatewayException.
+        coEvery { probeClient.health() } returns HealthResponse("ok")
+        coEvery { probeClient.status() } returns statusOk
+        every { factory.unauthenticated(url, any()) } returnsMany listOf(probeClient, sessionClient)
+        coEvery { sessionClient.status() } throws IllegalStateException("engine rejected URL")
+
+        val exception = runCatching { manager.connect(url, null) }.exceptionOrNull()
+
+        assertInstanceOf(GatewayUnreachableException::class.java, exception)
+        assertInstanceOf(IllegalStateException::class.java, exception!!.cause)
+        val state = manager.connectionState.value as GatewayConnection.Error
+        assertEquals(url, state.url)
+        verify { sessionClient.close() }
+    }
+
+    @Test
+    fun `Connected toString never contains the bearer token`() = runTest {
+        coEvery { probeClient.health() } returns HealthResponse("ok")
+        coEvery { probeClient.status() } throws GatewayAuthException(url, 401)
+        coEvery { sessionClient.status() } returns statusOk
+        val secret = "super-secret-bearer-value"
+
+        manager.connect(url, secret)
+
+        val rendered = manager.connectionState.value.toString()
+        assertTrue(rendered.startsWith("Connected("), rendered)
+        assertTrue(!rendered.contains(secret), rendered)
+        assertTrue(rendered.contains("tokenOrNull=[REDACTED]"), rendered)
+    }
 }

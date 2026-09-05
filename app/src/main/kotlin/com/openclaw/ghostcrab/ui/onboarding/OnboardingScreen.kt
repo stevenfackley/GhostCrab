@@ -86,7 +86,12 @@ public fun OnboardingScreen(
             onSkip = { viewModel.skip() },
             title = stringResource(R.string.onboarding_start_title),
         ) {
-            StartGatewayStep(onNext = { viewModel.next() })
+            val token by viewModel.suggestedToken.collectAsState()
+            StartGatewayStep(
+                token = token,
+                onRegenerateToken = { viewModel.regenerateToken() },
+                onNext = { viewModel.next() },
+            )
         }
 
         OnboardingStep.VerifyRunning -> OnboardingScaffold(
