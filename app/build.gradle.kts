@@ -126,11 +126,18 @@ configurations.all {
             // so it must lead the advisory, not trail it.
             requested.group == "io.netty" ->
                 useVersion("4.1.137.Final")
-            // 3 alerts (bcprov + bcpkix < 1.84): timing channel, LDAP injection, broken crypto
-            requested.group == "org.bouncycastle" && requested.name == "bcprov-jdk18on" ->
-                useVersion("1.84")
-            requested.group == "org.bouncycastle" && requested.name == "bcpkix-jdk18on" ->
-                useVersion("1.84")
+            // bcprov/bcpkix/bcutil < 1.85: CVE-2026-8763 Name Constraints bypass via a
+            // trailing dot in rfc822Name/URI (critical, alert 66) and GHSA-qp49-qgx5-5m26,
+            // a lazy ASN.1 sequence resetting the nesting-depth guard (high, alert 67).
+            // Earlier waves were timing channel, LDAP injection, broken crypto.
+            // Never an APK dependency: AGP drags Bouncy Castle in for host-side APK v1
+            // signing via com.android.tools.build:apkzlib / :builder and
+            // com.android.tools:sdk-common, all of which request 1.79.
+            // Pin the whole -jdk18on family together -- bcpkix 1.85 needs bcutil 1.85.
+            // This pin is what sets the resolved version, so it must lead the advisory,
+            // not trail it: the stale 1.84 pin is what kept alerts 66/67 open.
+            requested.group == "org.bouncycastle" && requested.name.endsWith("-jdk18on") ->
+                useVersion("1.85")
             // jose4j < 0.9.6: DoS via compressed JWE
             requested.group == "org.bitbucket.b_c" && requested.name == "jose4j" ->
                 useVersion("0.9.6")
