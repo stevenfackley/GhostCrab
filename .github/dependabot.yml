@@ -38,6 +38,13 @@ updates:
     commit-message:
       prefix: "deps(npm)"
       include: "scope"
+    ignore:
+      # typescript 7 is blocked upstream: @astrojs/check 0.9.10 (latest)
+      # peers typescript "^5.0.0 || ^6.0.0", so npm ci fails ERESOLVE in
+      # /site. Only /site depends on typescript. Tracked in #89; drop this
+      # once @astrojs/check accepts 7.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
     groups:
       javascript-minor-and-patch:
         applies-to: version-updates
