@@ -17,7 +17,7 @@ The iOS / Mac Catalyst app (`ios/`) has not shipped a build yet. These changes c
 - **Clear all saved gateways** in Settings, behind a destructive confirmation. It removes saved profiles, corrupt-list backups and Keychain tokens.
 - **ATS warning** under the Manual Entry host field when iOS will block plain HTTP to that host.
 - **IPv6 literals** in Manual Entry, bare or bracketed. A zone id is dropped from the URL.
-- **CI lane**: `.github/workflows/ios-pr.yml` runs on every PR that touches `ios/`, on the self-hosted Mac Mini. It runs the unit suite (Swift Testing) and an XCUITest launch smoke test on the iOS simulator, 214 tests in all, and compiles the Mac Catalyst build.
+- **CI lane**: `.github/workflows/ios-pr.yml` runs on every PR that touches `ios/`, on the self-hosted Mac Mini. It runs the unit suite (Swift Testing) and an XCUITest launch smoke test on the iOS simulator, 223 tests in all, and compiles the Mac Catalyst build.
 
 #### Changed
 
