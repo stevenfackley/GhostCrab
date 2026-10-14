@@ -2,11 +2,20 @@ import Testing
 import Foundation
 @testable import GhostCrab
 
+/// `UserDefaults` is not `Sendable`, so a test cannot keep using an instance
+/// it handed to the `ProfileStore` actor. Each test therefore gets a fresh
+/// suite: the store is built with its own instance, and the test reads and
+/// seeds the same suite through a second one.
 @Suite("ProfileStore corrupt-data handling")
 struct ProfileStoreTests {
 
-    private func makeDefaults() throws -> UserDefaults {
-        try #require(UserDefaults(suiteName: "ProfileStoreTests.\(UUID().uuidString)"))
+    private func makeSuite() throws -> (name: String, defaults: UserDefaults) {
+        let name = "ProfileStoreTests.\(UUID().uuidString)"
+        return (name, try #require(UserDefaults(suiteName: name)))
+    }
+
+    private func makeStore(suite: String, tokens: InMemoryTokenStore = InMemoryTokenStore()) throws -> ProfileStore {
+        ProfileStore(defaults: try #require(UserDefaults(suiteName: suite)), keychain: tokens)
     }
 
     private func makeProfile() -> ConnectionProfile {
@@ -20,10 +29,10 @@ struct ProfileStoreTests {
     }
 
     @Test func corruptBlobIsQuarantinedAndFirstWriteThrows() async throws {
-        let defaults = try makeDefaults()
+        let (suite, defaults) = try makeSuite()
         let garbage = Data("not json".utf8)
         defaults.set(garbage, forKey: ProfileStore.profilesKey)
-        let store = ProfileStore(defaults: defaults, keychain: InMemoryTokenStore())
+        let store = try makeStore(suite: suite)
         let profile = makeProfile()
 
         await #expect(throws: ProfileStoreError.self) {
@@ -43,9 +52,9 @@ struct ProfileStoreTests {
     }
 
     @Test func corruptBlobMakesDeleteThrowToo() async throws {
-        let defaults = try makeDefaults()
+        let (suite, defaults) = try makeSuite()
         defaults.set(Data("not json".utf8), forKey: ProfileStore.profilesKey)
-        let store = ProfileStore(defaults: defaults, keychain: InMemoryTokenStore())
+        let store = try makeStore(suite: suite)
 
         await #expect(throws: ProfileStoreError.self) {
             try await store.delete(id: UUID().uuidString)
@@ -55,9 +64,9 @@ struct ProfileStoreTests {
     }
 
     @Test func corruptBlobErrorNamesTheBackupKey() async throws {
-        let defaults = try makeDefaults()
+        let (suite, defaults) = try makeSuite()
         defaults.set(Data("not json".utf8), forKey: ProfileStore.profilesKey)
-        let store = ProfileStore(defaults: defaults, keychain: InMemoryTokenStore())
+        let store = try makeStore(suite: suite)
 
         do {
             try await store.save(makeProfile(), token: nil)
@@ -73,10 +82,10 @@ struct ProfileStoreTests {
     }
 
     @Test func corruptBlobReadsAsEmptyWithoutMutatingStorage() async throws {
-        let defaults = try makeDefaults()
+        let (suite, defaults) = try makeSuite()
         let garbage = Data("not json".utf8)
         defaults.set(garbage, forKey: ProfileStore.profilesKey)
-        let store = ProfileStore(defaults: defaults, keychain: InMemoryTokenStore())
+        let store = try makeStore(suite: suite)
 
         #expect(await store.getAll().isEmpty)
         #expect(defaults.data(forKey: ProfileStore.profilesKey) == garbage)
@@ -84,8 +93,8 @@ struct ProfileStoreTests {
     }
 
     @Test func roundTripsProfilesAndTokens() async throws {
-        let tokens = InMemoryTokenStore()
-        let store = ProfileStore(defaults: try makeDefaults(), keychain: tokens)
+        let (suite, _) = try makeSuite()
+        let store = try makeStore(suite: suite)
         let profile = makeProfile()
 
         try await store.save(profile, token: "tok_123")
@@ -95,11 +104,10 @@ struct ProfileStoreTests {
     }
 
     @Test func clearAllWipesProfilesBackupsAndTokens() async throws {
-        let defaults = try makeDefaults()
+        let (suite, defaults) = try makeSuite()
         let tokens = InMemoryTokenStore()
-        let store = ProfileStore(defaults: defaults, keychain: tokens)
-        let profile = makeProfile()
-        try await store.save(profile, token: "tok_123")
+        let store = try makeStore(suite: suite, tokens: tokens)
+        try await store.save(makeProfile(), token: "tok_123")
         // Leave a quarantined backup behind, as an earlier corrupt write would.
         defaults.set(Data("not json".utf8), forKey: ProfileStore.corruptBackupKeyPrefix + "1")
 
@@ -112,9 +120,9 @@ struct ProfileStoreTests {
     }
 
     @Test func clearAllRecoversFromAnUnreadableList() async throws {
-        let defaults = try makeDefaults()
+        let (suite, defaults) = try makeSuite()
         defaults.set(Data("not json".utf8), forKey: ProfileStore.profilesKey)
-        let store = ProfileStore(defaults: defaults, keychain: InMemoryTokenStore())
+        let store = try makeStore(suite: suite)
 
         try await store.clearAll()
 
