@@ -103,10 +103,16 @@ public final class ConfigEditorViewModel {
                 } else {
                     self.state = .ready(config: config)
                 }
-            } catch let e as GatewayError {
-                self.state = .error(message: e.errorDescription ?? "Unknown error")
             } catch {
-                self.state = .error(message: error.localizedDescription)
+                // Cancelled by stop() (the screen went away): whatever the
+                // repository threw is about the abandoned request, not the
+                // gateway, so publish no error.
+                guard !Task.isCancelled else { return }
+                if let e = error as? GatewayError {
+                    self.state = .error(message: e.errorDescription ?? "Unknown error")
+                } else {
+                    self.state = .error(message: error.localizedDescription)
+                }
             }
         }
     }

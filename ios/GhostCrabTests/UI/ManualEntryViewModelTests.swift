@@ -385,4 +385,143 @@ struct ManualEntryViewModelTests {
         #expect(gateway.connectURLs == ["http://192.168.1.20:18789"])
         #expect(vm.navigateToDashboard)
     }
+
+    @Test func leavingAfterTheGatewayAcceptedDisconnects() async {
+        let gateway = FakeGatewayConnectionManager()
+        let profiles = FakeConnectionProfileRepository()
+        let vm = makeVM(handoff: PairingHandoff(), gateway: gateway, profiles: profiles)
+        vm.setHost("192.168.1.20")
+
+        vm.connect()
+        let task = vm.connectTask
+        // The fake's connect ignores cancellation and succeeds, so the cancel
+        // lands after the gateway accepted the session.
+        vm.cancelConnect()
+        await task?.value
+
+        #expect(gateway.connectURLs == ["http://192.168.1.20:18789"])
+        #expect(gateway.disconnectCount == 1)
+        guard case .disconnected = gateway.currentState else {
+            Issue.record("expected .disconnected, got \(gateway.currentState)")
+            return
+        }
+        #expect(profiles.savedProfiles.isEmpty)
+        #expect(vm.lastError == nil)
+        #expect(!vm.navigateToDashboard)
+    }
+
+    // MARK: - Route prefill and pairing re-delivery
+
+    @Test func routePrefillAppliesOnlyOnce() throws {
+        let url = try #require(URL(string: "http://192.168.1.20:18789"))
+        let vm = makeVM(handoff: PairingHandoff())
+
+        vm.applyRoutePrefill(url)
+        vm.setToken("tok_typed")
+        // Back from a pushed screen: a second appear.
+        vm.applyRoutePrefill(url)
+
+        #expect(vm.host == "192.168.1.20")
+        #expect(vm.token == "tok_typed")
+    }
+
+    @Test func aRedeliveryBeforeTheFirstAppearKeepsItsToken() throws {
+        let handoff = PairingHandoff()
+        let url = try #require(URL(string: "http://192.168.1.20:18789"))
+        let vm = makeVM(handoff: handoff)
+        handoff.stash(token: "tok_new", for: url)
+
+        // SwiftUI delivered onChange(of: pairingRedelivery) before onAppear.
+        vm.pairingRedelivered(url, routeURL: url)
+        vm.applyRoutePrefill(url)
+
+        #expect(vm.token == "tok_new")
+    }
+
+    @Test func aRedeliveryForAnotherGatewayIsIgnored() throws {
+        let handoff = PairingHandoff()
+        let routeURL = try #require(URL(string: "http://192.168.1.20:18789"))
+        let otherURL = try #require(URL(string: "http://192.168.1.99:18789"))
+        let vm = makeVM(handoff: handoff)
+        vm.applyRoutePrefill(routeURL)
+        vm.setToken("tok_typed")
+        handoff.stash(token: "tok_other", for: otherURL)
+
+        vm.pairingRedelivered(otherURL, routeURL: routeURL)
+
+        #expect(vm.host == "192.168.1.20")
+        #expect(vm.token == "tok_typed")
+    }
+
+    // MARK: - A hand edit of the address drops the pairing link's name and token
+
+    @Test func editingTheHostByHandDropsTheLinksNameAndToken() async {
+        let gateway = FakeGatewayConnectionManager()
+        let profiles = FakeConnectionProfileRepository()
+        let vm = makeVM(handoff: PairingHandoff(), gateway: gateway, profiles: profiles)
+        vm.pastedLink = PairingLinkFixture.link(
+            json: #"{"v":1,"url":"http://192.168.1.20:18789","token":"tok_A","name":"Gateway A"}"#
+        )
+        vm.applyPastedLink()
+        #expect(vm.pairedName == "Gateway A")
+
+        vm.setHost("192.168.1.99")
+
+        #expect(vm.pairedName == nil)
+        #expect(vm.token == "")
+        vm.connect()
+        await vm.connectTask?.value
+        #expect(gateway.connectTokens == [nil])
+        #expect(profiles.savedProfiles.map(\.displayName) == ["Fake Gateway"])
+    }
+
+    @Test func editingThePortOrSchemeByHandDropsTheLinksNameAndToken() {
+        let link = PairingLinkFixture.link(
+            json: #"{"v":1,"url":"http://192.168.1.20:18789","token":"tok_A","name":"Gateway A"}"#
+        )
+        let vm = makeVM(handoff: PairingHandoff())
+
+        vm.pastedLink = link
+        vm.applyPastedLink()
+        vm.setPort("18790")
+        #expect(vm.pairedName == nil)
+        #expect(vm.token == "")
+
+        vm.pastedLink = link
+        vm.applyPastedLink()
+        #expect(vm.token == "tok_A")
+        vm.setUseHttps(true)
+        #expect(vm.pairedName == nil)
+        #expect(vm.token == "")
+    }
+
+    @Test func aTypedTokenSurvivesAHostEdit() {
+        let vm = makeVM(handoff: PairingHandoff())
+        vm.pastedLink = PairingLinkFixture.link(
+            json: #"{"v":1,"url":"http://192.168.1.20:18789","token":"tok_A","name":"Gateway A"}"#
+        )
+        vm.applyPastedLink()
+        vm.setToken("tok_typed")
+
+        vm.setHost("192.168.1.99")
+
+        #expect(vm.token == "tok_typed")
+        #expect(vm.pairedName == nil)
+    }
+
+    @Test func settingTheSameAddressKeepsThePairing() {
+        let vm = makeVM(handoff: PairingHandoff())
+        vm.pastedLink = PairingLinkFixture.link(
+            json: #"{"v":1,"url":"http://192.168.1.20:18789","token":"tok_A","name":"Gateway A"}"#
+        )
+        vm.applyPastedLink()
+
+        // A binding can write back the value it already shows.
+        vm.setHost("192.168.1.20")
+        vm.setPort("18789")
+        vm.setUseHttps(false)
+
+        #expect(vm.token == "tok_A")
+        #expect(vm.pairedName == "Gateway A")
+    }
 }

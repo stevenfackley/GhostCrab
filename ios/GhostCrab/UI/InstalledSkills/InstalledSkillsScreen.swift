@@ -299,6 +299,7 @@ public struct InstalledSkillsScreen: View {
         case .network(let cause): return "Network error: \(cause)"
         case .protocol(let code, let message): return "Protocol error \(code): \(message)"
         case .verificationFailed(let expected, let actual): return "Verification failed: expected \(expected), got \(actual)"
+        case .cleartextBlocked(let message): return message
         case .unknown(let cause): return "Unknown error: \(cause)"
         }
     }

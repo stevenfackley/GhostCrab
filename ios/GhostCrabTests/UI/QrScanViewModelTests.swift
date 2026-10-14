@@ -1,5 +1,8 @@
 import Testing
 import Foundation
+#if canImport(AVFoundation)
+import AVFoundation
+#endif
 @testable import GhostCrab
 
 /// Collects the URLs a ``QrScanViewModel`` navigates with.
@@ -148,6 +151,24 @@ struct QrScanViewModelTests {
         vm.scannerDidFail(.unsupported)
         #expect(vm.error == "Live QR scanning is unavailable on this device. Use Manual Entry instead.")
     }
+
+    @Test func restrictedCameraDoesNotSendTheUserToSettings() {
+        let (vm, _) = makeVM()
+
+        vm.scannerDidFail(.cameraRestricted)
+
+        #expect(vm.error == "The camera is restricted on this device (Screen Time or device management), so GhostCrab can't turn it on. Use Manual Entry instead.")
+        #expect(vm.error?.contains("Settings >") == false)
+    }
+
+    #if os(iOS) && !targetEnvironment(macCatalyst)
+    @Test func cameraStatusSeparatesARefusalFromADevicePolicy() {
+        #expect(QrScannerFailure.cameraBlocked(status: .denied) == .cameraAccessDenied)
+        #expect(QrScannerFailure.cameraBlocked(status: .restricted) == .cameraRestricted)
+        // Access granted but VisionKit still reports the camera restricted: a policy.
+        #expect(QrScannerFailure.cameraBlocked(status: .authorized) == .cameraRestricted)
+    }
+    #endif
 
     @Test func unexpectedScannerErrorNamesItsType() {
         let (vm, _) = makeVM()

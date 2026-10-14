@@ -48,4 +48,33 @@ struct ConfigEditorViewModelTests {
         if case .noConfigApi = vm.state { showsNoConfigApi = true } else { showsNoConfigApi = false }
         #expect(showsNoConfigApi)
     }
+
+    @Test func cancelledLoadPublishesNoError() async {
+        let vm = ConfigEditorViewModel(config: HangingConfigRepository(), gateway: FakeGatewayConnectionManager())
+
+        vm.loadConfig()
+        let load = vm.loadTask
+        // The screen went away mid-load.
+        vm.stop()
+        await load?.value
+
+        let showsError: Bool
+        if case .error = vm.state { showsError = true } else { showsError = false }
+        #expect(!showsError)
+    }
+}
+
+/// `getConfig()` waits until its task is cancelled, then fails the way a
+/// cancelled request reached the VM before: as an unreachable gateway.
+private struct HangingConfigRepository: ConfigRepository {
+    func getConfig() async throws -> OpenClawConfig {
+        do {
+            try await Task.sleep(for: .seconds(60))
+        } catch {
+            throw GatewayError.unreachable(url: "http://192.168.1.20:18789/config")
+        }
+        return OpenClawConfig(sections: [:])
+    }
+
+    func updateConfig(section: String, value: AnyCodable) async throws {}
 }

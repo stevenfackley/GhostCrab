@@ -630,6 +630,11 @@ public actor OpenClawAPIClient {
             throw e
         } catch let e as URLError {
             switch e.code {
+            case .cancelled where Task.isCancelled:
+                // URLSession reports a cancelled Swift task as URLError.cancelled.
+                // The caller went away (Back while connecting): that is a
+                // cancellation, not an unreachable gateway.
+                throw CancellationError()
             case .timedOut:
                 throw GatewayError.timeout(url: url.absoluteString, underlying: e)
             case .serverCertificateHasBadDate,

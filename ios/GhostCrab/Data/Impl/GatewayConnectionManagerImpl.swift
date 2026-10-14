@@ -160,6 +160,11 @@ public actor GatewayConnectionManagerImpl: GatewayConnectionManager {
     }
 
     /// Connects to a gateway. See ``GatewayConnectionManager/connect(url:token:)``.
+    ///
+    /// If the calling task is cancelled before the handshake finishes, the
+    /// state ends at ``GatewayConnection/disconnected`` (never `.error`) and
+    /// `CancellationError` is thrown. A cancellation that lands after the
+    /// handshake succeeded leaves `.connected`; the caller disconnects.
     public func connect(url: String, token: String?) async throws {
         // Silently drop any prior session — same semantics as Kotlin.
         if let prior = activeClient {
@@ -170,6 +175,9 @@ public actor GatewayConnectionManagerImpl: GatewayConnectionManager {
         let baseURL = try parseURL(url)
         publish(.connecting(url: url))
 
+        // Held outside the `do` so every failure path can close the half-built
+        // client; it becomes `activeClient` only once status() has succeeded.
+        var pending: OpenClawAPIClient?
         do {
             let allowCleartext = await firstAllowCleartext()
             let authReq = try await probeAuth(url: url)
@@ -186,6 +194,7 @@ public actor GatewayConnectionManagerImpl: GatewayConnectionManager {
                     allowCleartextPublicIPs: allowCleartext
                 )
             }
+            pending = client
             let statusResponse = try await client.status()
             let isHttps = url.lowercased().hasPrefix("https://")
 
@@ -200,24 +209,36 @@ public actor GatewayConnectionManagerImpl: GatewayConnectionManager {
                 hardwareInfo: statusResponse.hardware,
                 tokenOrNull: token
             ))
-        } catch let e as GatewayError {
-            if let pending = activeClient {
-                await pending.close()
-                activeClient = nil
-            }
-            publish(.error(url: url, cause: e))
-            throw e
         } catch {
+            await release(pending)
+            // The caller went away mid-handshake (Back on Manual Entry while
+            // connecting). Like Android's CancellationException branch: land
+            // in .disconnected with no error published, and rethrow the
+            // cancellation. `Task.isCancelled` also covers a request that
+            // failed some other way after the caller had already left.
+            if error is CancellationError || Task.isCancelled {
+                publish(.disconnected)
+                throw CancellationError()
+            }
             // Anything not already a GatewayError gets normalized to
             // .unreachable so callers see a typed error — same posture as
             // Kotlin's `safeRequest` catch-all.
-            let mapped = GatewayError.unreachable(url: url, underlying: error as? (any Error & Sendable))
-            if let pending = activeClient {
-                await pending.close()
-                activeClient = nil
-            }
+            let mapped = (error as? GatewayError)
+                ?? GatewayError.unreachable(url: url, underlying: error as? (any Error & Sendable))
             publish(.error(url: url, cause: mapped))
             throw mapped
+        }
+    }
+
+    /// Closes `pending` (a client whose handshake did not finish) and the
+    /// active client, if any.
+    private func release(_ pending: OpenClawAPIClient?) async {
+        if let pending {
+            await pending.close()
+        }
+        if let active = activeClient {
+            await active.close()
+            activeClient = nil
         }
     }
 

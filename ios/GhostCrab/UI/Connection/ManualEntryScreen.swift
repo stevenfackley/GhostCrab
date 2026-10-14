@@ -16,12 +16,9 @@ public struct ManualEntryScreen: View {
 
     @State public var vm: ManualEntryViewModel
 
-    /// Optional URL passed in by the navigation Route; applied to the form on first appearance.
+    /// Optional URL passed in by the navigation Route; applied to the form on
+    /// first appearance (``ManualEntryViewModel/applyRoutePrefill(_:)``).
     public let prefillURL: URL?
-
-    /// Whether ``prefillURL`` was applied. Applied once, so a later appear
-    /// never resets what the user typed (a prefill drops the token).
-    @State private var prefillApplied = false
 
     public init(vm: ManualEntryViewModel, prefillURL: URL? = nil) {
         self._vm = State(initialValue: vm)
@@ -75,7 +72,7 @@ public struct ManualEntryScreen: View {
                 }
 
                 Section("Connection") {
-                    Toggle(isOn: $vm.useHttps) {
+                    Toggle(isOn: Binding(get: { vm.useHttps }, set: { vm.setUseHttps($0) })) {
                         VStack(alignment: .leading, spacing: DesignTokens.Spacing.xxs) {
                             Text("Use HTTPS")
                                 .font(AppFont.body(15))
@@ -137,9 +134,9 @@ public struct ManualEntryScreen: View {
                     HStack {
                         Group {
                             if vm.tokenVisible {
-                                TextField("Bearer Token (optional)", text: $vm.token)
+                                TextField("Bearer Token (optional)", text: tokenBinding)
                             } else {
-                                SecureField("Bearer Token (optional)", text: $vm.token)
+                                SecureField("Bearer Token (optional)", text: tokenBinding)
                             }
                         }
                         #if os(iOS)
@@ -212,16 +209,16 @@ public struct ManualEntryScreen: View {
         .toolbarColorScheme(.dark, for: .navigationBar)
         #endif
         .onAppear {
-            guard !prefillApplied else { return }
-            prefillApplied = true
-            if let prefill = prefillURL { vm.setPrefillURL(prefill) }
+            // Once per screen: a later appear, or one after a re-delivery
+            // already filled the form, changes nothing.
+            vm.applyRoutePrefill(prefillURL)
         }
         .onChange(of: navigate.pairingRedelivery) { _, redelivery in
             // A pairing link for this gateway arrived again while this screen
             // was on top, perhaps re-issued with a new token: the newer link
             // wins and its stash fills the form.
-            guard let redelivery, let prefill = prefillURL, redelivery.url == prefill else { return }
-            vm.setPrefillURL(prefill)
+            guard let redelivery else { return }
+            vm.pairingRedelivered(redelivery.url, routeURL: prefillURL)
         }
         .onDisappear {
             vm.cancelConnect()
@@ -236,5 +233,10 @@ public struct ManualEntryScreen: View {
 
     private var connectDisabled: Bool {
         vm.isConnecting || vm.hostError != nil || vm.portError != nil
+    }
+
+    /// Typing marks the token as the user's own (``ManualEntryViewModel/setToken(_:)``).
+    private var tokenBinding: Binding<String> {
+        Binding(get: { vm.token }, set: { vm.setToken($0) })
     }
 }

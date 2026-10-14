@@ -220,8 +220,8 @@ private struct ViewfinderOverlay: View {
 /// Falls back to a black background + status text if the device cannot host a
 /// data scanner (older hardware, missing VisionKit, etc.). Camera access is
 /// requested before capture starts, so the first scan shows the system prompt;
-/// a refusal or a device restriction surfaces as
-/// ``QrScannerFailure/cameraAccessDenied`` instead of "unavailable".
+/// a refusal surfaces as ``QrScannerFailure/cameraAccessDenied`` and a device
+/// restriction as ``QrScannerFailure/cameraRestricted``, instead of "unavailable".
 private struct QRScannerRepresentable: UIViewControllerRepresentable {
 
     /// ``QrScanViewModel/scanGeneration``; a change restarts capture.
@@ -266,10 +266,16 @@ private struct QRScannerRepresentable: UIViewControllerRepresentable {
         Task { @MainActor [weak coordinator] in
             let granted = await AVCaptureDevice.requestAccess(for: .video)
             guard let coordinator else { return }
+            guard granted else {
+                // Refused by the user, or restricted by a device policy (no
+                // prompt is shown then): different fixes, different copy.
+                coordinator.report(.cameraBlocked(status: AVCaptureDevice.authorizationStatus(for: .video)))
+                return
+            }
             // With access granted, `isAvailable` is `false` only when a device
             // policy (Screen Time, MDM) restricts the camera.
-            guard granted, DataScannerViewController.isAvailable else {
-                coordinator.report(.cameraAccessDenied)
+            guard DataScannerViewController.isAvailable else {
+                coordinator.report(.cameraRestricted)
                 return
             }
             coordinator.startScanning()
@@ -363,11 +369,33 @@ private extension QrScannerFailure {
     init(scannerError error: any Error) {
         switch error as? DataScannerViewController.ScanningUnavailable {
         case .cameraRestricted?:
-            self = .cameraAccessDenied
+            // VisionKit uses one case for a refusal and a device policy.
+            self = .cameraBlocked(status: AVCaptureDevice.authorizationStatus(for: .video))
         case .unsupported?:
             self = .unsupported
         default:
             self = .startFailed(errorType: String(describing: type(of: error)))
+        }
+    }
+}
+
+extension QrScannerFailure {
+    /// Camera use is not available to the scanner. `.denied` is the user's
+    /// choice, which Settings can undo. `.restricted` is a device policy
+    /// (Screen Time, MDM) the user may not be able to lift, and so is no
+    /// camera despite `.authorized`, which is how VisionKit reports such a
+    /// policy. Internal so tests can pin the mapping.
+    ///
+    /// - Parameter status: `AVCaptureDevice.authorizationStatus(for: .video)`.
+    /// - Returns: The failure whose copy names the right fix.
+    static func cameraBlocked(status: AVAuthorizationStatus) -> QrScannerFailure {
+        switch status {
+        case .restricted, .authorized:
+            return .cameraRestricted
+        case .denied, .notDetermined:
+            return .cameraAccessDenied
+        @unknown default:
+            return .cameraAccessDenied
         }
     }
 }

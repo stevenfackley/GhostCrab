@@ -41,8 +41,18 @@ public final class ManualEntryViewModel {
 
     /// Profile name suggested by a pairing link (trimmed, non-blank), or `nil`.
     /// Saved as the profile's display name instead of the gateway's own name.
-    /// Mirrors Android's `pairedName`.
+    /// Mirrors Android's `pairedName`. Dropped when the scheme, host or port
+    /// is edited by hand: the name belongs to the paired gateway only.
     public private(set) var pairedName: String?
+
+    /// `true` while ``token`` is the one a pairing link brought in, not one the
+    /// user typed. A hand edit of the scheme, host or port drops it.
+    @ObservationIgnored private var tokenFromPairing = false
+
+    /// Whether the navigation route's URL was applied (``applyRoutePrefill(_:)``
+    /// or ``pairingRedelivered(_:routeURL:)``). Applied once, so a later appear
+    /// never wipes what the user typed or a token just taken from the hand-off.
+    @ObservationIgnored private var routePrefillApplied = false
 
     /// Text of the "Pairing link" field: a `ghostcrab://pair` link or a gateway
     /// URL. Only ``applyPastedLink()`` reads it, never each keystroke. Can hold a
@@ -97,19 +107,80 @@ public final class ManualEntryViewModel {
 
     // MARK: - Field setters
 
+    /// Host typed by hand. A change drops a pairing link's name and token
+    /// (see ``addressEditedByHand()``).
     public func setHost(_ value: String) {
+        if value != host { addressEditedByHand() }
         self.host = value
         self.hostError = nil
     }
 
+    /// Port typed by hand: digits only, at most five. A change drops a pairing
+    /// link's name and token (see ``addressEditedByHand()``).
     public func setPort(_ value: String) {
         let digits = value.filter { $0.isASCII && $0.isNumber }
-        self.port = String(digits.prefix(5))
+        let next = String(digits.prefix(5))
+        if next != port { addressEditedByHand() }
+        self.port = next
         self.portError = nil
+    }
+
+    /// HTTPS toggled by hand. A change drops a pairing link's name and token
+    /// (see ``addressEditedByHand()``).
+    public func setUseHttps(_ value: Bool) {
+        if value != useHttps { addressEditedByHand() }
+        self.useHttps = value
+    }
+
+    /// Token typed by hand. It is the user's own from then on, so a later
+    /// address edit keeps it.
+    public func setToken(_ value: String) {
+        guard value != token else { return }
+        self.token = value
+        self.tokenFromPairing = false
     }
 
     public func toggleTokenVisibility() {
         self.tokenVisible.toggle()
+    }
+
+    /// The form now names a different gateway than the pairing link did, so
+    /// the link's suggested name no longer applies, and neither does its token
+    /// unless the user typed over it. Without this, gateway B would be saved
+    /// under A's name, and could be sent A's token.
+    private func addressEditedByHand() {
+        pairedName = nil
+        if tokenFromPairing {
+            token = ""
+            tokenFromPairing = false
+        }
+    }
+
+    // MARK: - Route prefill
+
+    /// Applies the navigation route's URL on first appearance. Later calls do
+    /// nothing, including a first appear that comes after
+    /// ``pairingRedelivered(_:routeURL:)`` already filled the form, so it never
+    /// wipes what the user typed or a token just taken from the hand-off.
+    ///
+    /// - Parameter url: The route's prefill URL, or `nil` for an empty form.
+    public func applyRoutePrefill(_ url: URL?) {
+        guard !routePrefillApplied else { return }
+        routePrefillApplied = true
+        if let url { setPrefillURL(url) }
+    }
+
+    /// A pairing link for the gateway this screen was opened for arrived again
+    /// (perhaps re-issued with a new token): the newer link wins and its stash
+    /// fills the form. A link for any other gateway is ignored here.
+    ///
+    /// - Parameters:
+    ///   - url: Gateway URL of the re-delivered link. Never a token.
+    ///   - routeURL: The route's prefill URL.
+    public func pairingRedelivered(_ url: URL, routeURL: URL?) {
+        guard let routeURL, url == routeURL else { return }
+        routePrefillApplied = true
+        setPrefillURL(routeURL)
     }
 
     /// Parses a URL and populates scheme/host/port (from a QR scan, a deep
@@ -137,10 +208,12 @@ public final class ManualEntryViewModel {
         self.portError = nil
         // Never carry a token (or a suggested name) to a different host.
         self.token = ""
+        self.tokenFromPairing = false
         self.pairedName = nil
         if let paired = pairingHandoff.takePairing(for: url) {
             if let pairedToken = paired.token {
                 self.token = pairedToken
+                self.tokenFromPairing = true
             }
             let name = paired.displayName?.trimmingCharacters(in: .whitespacesAndNewlines)
             self.pairedName = (name?.isEmpty ?? true) ? nil : name
@@ -230,8 +303,10 @@ public final class ManualEntryViewModel {
         connectTask = Task {
             // A cancelled task leaves `connectTask` alone: `cancelConnect()` already cleared it.
             defer { if !Task.isCancelled { self.connectTask = nil } }
+            var gatewayAccepted = false
             do {
                 try await self.connectionManager.connect(url: url, token: tokenValue)
+                gatewayAccepted = true
                 // Left the screen while connecting: save nothing, navigate nowhere.
                 try Task.checkCancellation()
 
@@ -257,12 +332,21 @@ public final class ManualEntryViewModel {
                 )
                 try await self.profileRepository.saveProfile(profile, token: tokenValue)
                 await self.onboardingRepository.markCompleted()
-                guard !Task.isCancelled else { return }
+                try Task.checkCancellation()
 
                 self.isConnecting = false
                 self.navigateToDashboard = true
             } catch {
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled else {
+                    // Left the screen after the gateway accepted the connect:
+                    // no dashboard will show this session, so don't leave it
+                    // live behind the picker. (A cancel before that point
+                    // already left the manager disconnected.)
+                    if gatewayAccepted {
+                        await self.connectionManager.disconnect()
+                    }
+                    return
+                }
                 self.isConnecting = false
                 self.lastError = (error as? LocalizedError)?.errorDescription
                     ?? "Connect failed: \(String(describing: error))"
@@ -273,7 +357,9 @@ public final class ManualEntryViewModel {
     /// Abandons an in-flight connect. Call from the screen's `.onDisappear`
     /// (Back while connecting), like Android cancelling the attempt with the
     /// ViewModel's scope: no error is shown, no navigation follows, and the
-    /// profile is not saved unless its save had already started.
+    /// profile is not saved unless its save had already started. The manager
+    /// ends disconnected either way: a handshake still running stops there,
+    /// and a session the gateway had already accepted is disconnected.
     /// No-op when nothing is in flight.
     public func cancelConnect() {
         guard let task = connectTask else { return }

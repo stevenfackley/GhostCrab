@@ -201,8 +201,9 @@ extension GatewayError {
     ///   as `.api(statusCode: 200, body: "Response deserialization failed …")`,
     ///   which lands here as `.protocol(rpcCode: 200, message: <that body>)`.
     /// - timeout / unreachable / tls → `.network(cause:)`
-    /// - cleartextBlocked / configValidation → `.protocol(rpcCode: 0, message:)`
-    ///   (not retryable; the message carries the fix)
+    /// - configValidation → `.protocol(rpcCode: 0, message:)` (not retryable)
+    /// - cleartextBlocked → `.cleartextBlocked(message:)` (not retryable; the
+    ///   message carries the fix and is shown as is)
     /// - everything else → `.unknown(cause:)`
     ///
     /// Internal (not private) so tests can pin the mapping.
@@ -231,7 +232,7 @@ extension GatewayError {
         case let .configValidation(field, reason):
             return .protocol(rpcCode: 0, message: "\(field): \(reason)")
         case .cleartextBlocked:
-            return .protocol(rpcCode: 0, message: errorDescription ?? "Cleartext HTTP blocked by app policy")
+            return .cleartextBlocked(message: errorDescription ?? "Cleartext HTTP blocked by app policy")
         case .profileNeedsReauth:
             return .unauthorized(missingScope: "operator.admin")
         case let .aiServiceUnavailable(url):

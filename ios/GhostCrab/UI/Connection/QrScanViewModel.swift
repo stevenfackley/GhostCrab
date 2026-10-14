@@ -7,8 +7,11 @@ import Observation
 /// and a refused camera prompt to this, so ``QrScanViewModel`` stays
 /// VisionKit-free and testable.
 public enum QrScannerFailure: Error, Sendable, Equatable {
-    /// Camera access was refused, or a device policy restricts the camera.
+    /// The user refused camera access. They can turn it back on in Settings.
     case cameraAccessDenied
+    /// A device policy (Screen Time, MDM) blocks the camera. The GhostCrab
+    /// camera switch in Settings cannot lift it.
+    case cameraRestricted
     /// This device cannot run the data scanner.
     case unsupported
     /// `startScanning()` threw something else. Carries only the error's type
@@ -111,6 +114,8 @@ public final class QrScanViewModel {
         switch failure {
         case .cameraAccessDenied:
             error = "Camera access is off for GhostCrab. Allow it in Settings > Privacy & Security > Camera, or use Manual Entry."
+        case .cameraRestricted:
+            error = "The camera is restricted on this device (Screen Time or device management), so GhostCrab can't turn it on. Use Manual Entry instead."
         case .unsupported:
             error = "Live QR scanning is unavailable on this device. Use Manual Entry instead."
         case .startFailed(let errorType):

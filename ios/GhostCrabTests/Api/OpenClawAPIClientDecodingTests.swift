@@ -142,7 +142,8 @@ struct OpenClawAPIClientDecodingTests {
     @Test func cleartextBlockedInstallIsNotRetryable() {
         let error = GatewayError.cleartextBlocked(url: "http://8.8.8.8:18789/api/skills/install", host: "8.8.8.8")
         let mapped = error.toSkillInstallError()
-        #expect(mapped == .protocol(rpcCode: 0, message: error.errorDescription ?? ""))
+        // Its own case, shown as is: no "Protocol error 0:" prefix in the skill UI.
+        #expect(mapped == .cleartextBlocked(message: error.errorDescription ?? ""))
         #expect(!mapped.isRetryable)
     }
 }
