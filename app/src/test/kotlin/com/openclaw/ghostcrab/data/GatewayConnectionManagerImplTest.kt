@@ -18,8 +18,11 @@ import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertInstanceOf
@@ -27,6 +30,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
+import kotlin.coroutines.CoroutineContext
 
 class GatewayConnectionManagerImplTest {
 
@@ -245,5 +249,28 @@ class GatewayConnectionManagerImplTest {
     @Test
     fun `requireClient before connect throws GatewayNotConnectedException`() {
         assertThrows<GatewayNotConnectedException> { manager.requireClient() }
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `connect runs on the injected IO dispatcher`() = runTest {
+        val io = CountingDispatcher(StandardTestDispatcher(testScheduler))
+        val mgr = GatewayConnectionManagerImpl(factory, ioDispatcher = io)
+        coEvery { probeClient.health() } returns HealthResponse("ok")
+        coEvery { probeClient.status() } returns statusOk
+
+        mgr.connect(url)
+
+        assertTrue(io.dispatches > 0)
+    }
+}
+
+private class CountingDispatcher(private val delegate: CoroutineDispatcher) : CoroutineDispatcher() {
+    var dispatches = 0
+        private set
+
+    override fun dispatch(context: CoroutineContext, block: Runnable) {
+        dispatches++
+        delegate.dispatch(context, block)
     }
 }

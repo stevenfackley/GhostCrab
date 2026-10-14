@@ -25,14 +25,21 @@ import com.openclaw.ghostcrab.data.impl.InstalledSkillRepositoryImpl
 import com.openclaw.ghostcrab.data.impl.ScopeProbeImpl
 import com.openclaw.ghostcrab.data.ws.GatewayWsClient
 import org.koin.android.ext.koin.androidContext
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
+import org.koin.core.qualifier.named
 import org.koin.core.scope.Scope
 import org.koin.dsl.module
 
+/** Koin qualifier for the blocking-IO dispatcher. Inject it; never hard-code `Dispatchers.IO` in data classes. */
+val IoDispatcher = named("io")
+
 val dataModule = module {
-    single { ConnectionProfileStore(androidContext()) }
+    single<CoroutineDispatcher>(IoDispatcher) { Dispatchers.IO }
+    single { ConnectionProfileStore(androidContext(), ioDispatcher = get(IoDispatcher)) }
     single<ConnectionProfileRepository> { ConnectionProfileRepositoryImpl(get()) }
     // Register the concrete type first so dependent impls can get<GatewayConnectionManagerImpl>()
-    single { GatewayConnectionManagerImpl(settingsRepository = get()) }
+    single { GatewayConnectionManagerImpl(settingsRepository = get(), ioDispatcher = get(IoDispatcher)) }
     single<GatewayConnectionManager> { get<GatewayConnectionManagerImpl>() }
     single<GatewayHealthChecker> { get<GatewayConnectionManagerImpl>() }
     single<ConfigRepository> { ConfigRepositoryImpl(get<GatewayConnectionManagerImpl>()) }

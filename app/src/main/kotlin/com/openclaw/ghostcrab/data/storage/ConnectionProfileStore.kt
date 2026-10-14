@@ -11,6 +11,7 @@ import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import com.openclaw.ghostcrab.domain.exception.ProfileNeedsReauthException
 import com.openclaw.ghostcrab.domain.exception.ProfileStoreCorruptedException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -56,6 +57,7 @@ internal fun decodeProfilesForWrite(json: String?): List<StoredProfile> = when (
  */
 class ConnectionProfileStore(
     private val context: Context,
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     // Keystore init is 20–200ms and docs warn against multiple instances on the same file.
     // Injectable for testing — production uses the default lambda.
     private val encryptedPrefsFactory: (Context) -> SharedPreferences = { ctx ->
@@ -100,7 +102,7 @@ class ConnectionProfileStore(
      *
      * @throws ProfileNeedsReauthException if the Keystore / encrypted prefs cannot be opened.
      */
-    suspend fun saveToken(profileId: String, token: String?) = withContext(Dispatchers.IO) {
+    suspend fun saveToken(profileId: String, token: String?) = withContext(ioDispatcher) {
         try {
             val editor = encryptedPrefs.edit()
             if (token == null) editor.remove(tokenKey(profileId)) else editor.putString(tokenKey(profileId), token)
@@ -116,7 +118,7 @@ class ConnectionProfileStore(
      * @throws ProfileNeedsReauthException if decryption fails (e.g. factory reset). The
      *   corrupted entry is cleared before throwing.
      */
-    suspend fun getToken(profileId: String): String? = withContext(Dispatchers.IO) {
+    suspend fun getToken(profileId: String): String? = withContext(ioDispatcher) {
         try {
             encryptedPrefs.getString(tokenKey(profileId), null)
         } catch (e: Exception) {

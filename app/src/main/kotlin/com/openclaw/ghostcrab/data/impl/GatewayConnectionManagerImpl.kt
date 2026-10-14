@@ -11,6 +11,7 @@ import com.openclaw.ghostcrab.domain.repository.GatewayConnectionManager
 import com.openclaw.ghostcrab.domain.repository.GatewayHealthChecker
 import com.openclaw.ghostcrab.domain.repository.SettingsRepository
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -27,10 +28,12 @@ import kotlinx.coroutines.withContext
  * and released on [disconnect].
  *
  * @param clientFactory Creates [OpenClawApiClient] instances. Injectable for testing.
+ * @param ioDispatcher Dispatcher for blocking client work; injected via the Koin IoDispatcher qualifier.
  */
 class GatewayConnectionManagerImpl(
     private val clientFactory: OpenClawApiClientFactory = DefaultClientFactory,
     private val settingsRepository: SettingsRepository = AlwaysBlockCleartextSettingsRepository,
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : GatewayConnectionManager, GatewayHealthChecker {
 
     private val _connectionState = MutableStateFlow<GatewayConnection>(GatewayConnection.Disconnected)
@@ -40,7 +43,7 @@ class GatewayConnectionManagerImpl(
     @Volatile private var activeClient: OpenClawApiClient? = null
     private val mutex = Mutex()
 
-    override suspend fun probeAuth(url: String): AuthRequirement = withContext(Dispatchers.IO) {
+    override suspend fun probeAuth(url: String): AuthRequirement = withContext(ioDispatcher) {
         val allowCleartext = settingsRepository.allowCleartextPublicIPs.firstOrNull() ?: false
         val probe = clientFactory.unauthenticated(url, allowCleartext)
         try {
@@ -56,7 +59,7 @@ class GatewayConnectionManagerImpl(
         }
     }
 
-    override suspend fun connect(url: String, token: String?) = withContext(Dispatchers.IO) {
+    override suspend fun connect(url: String, token: String?) = withContext(ioDispatcher) {
         mutex.withLock {
             // Disconnect any existing session silently
             activeClient?.close()
