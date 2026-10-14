@@ -277,28 +277,36 @@ class OpenClawApiClient private constructor(
         internal fun forTest(baseUrl: String, httpClient: HttpClient): OpenClawApiClient =
             OpenClawApiClient(baseUrl, httpClient)
 
-        /** Client with no authentication — use for [health] and [probeAuth] probes. */
+        /**
+         * Client with no authentication — use for [health] and [probeAuth] probes.
+         *
+         * @param allowCleartextPublicIPs Read on every request, so a Settings change applies immediately.
+         */
         fun unauthenticated(
             baseUrl: String,
-            allowCleartextPublicIPs: Boolean = false,
+            allowCleartextPublicIPs: () -> Boolean = { false },
         ): OpenClawApiClient =
             OpenClawApiClient(baseUrl, buildHttpClient(baseUrl, token = null, allowCleartextPublicIPs))
 
-        /** Client with Bearer token authentication — use for live sessions. */
+        /**
+         * Client with Bearer token authentication — use for live sessions.
+         *
+         * @param allowCleartextPublicIPs Read on every request, so a Settings change applies immediately.
+         */
         fun authenticated(
             baseUrl: String,
             token: String,
-            allowCleartextPublicIPs: Boolean = false,
+            allowCleartextPublicIPs: () -> Boolean = { false },
         ): OpenClawApiClient =
             OpenClawApiClient(baseUrl, buildHttpClient(baseUrl, token = token, allowCleartextPublicIPs))
 
         private fun buildHttpClient(
             baseUrl: String,
             token: String?,
-            allowCleartextPublicIPs: Boolean,
+            allowCleartextPublicIPs: () -> Boolean,
         ): HttpClient = HttpClient(OkHttp) {
             engine {
-                addInterceptor(CleartextPublicIpInterceptor { allowCleartextPublicIPs })
+                addInterceptor(CleartextPublicIpInterceptor(allowCleartextPublicIPs))
             }
             install(io.ktor.client.plugins.websocket.WebSockets)
             install(ContentNegotiation) {

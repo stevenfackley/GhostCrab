@@ -13,18 +13,24 @@ import com.openclaw.ghostcrab.domain.exception.GatewayTimeoutException
 import com.openclaw.ghostcrab.domain.exception.GatewayUnreachableException
 import com.openclaw.ghostcrab.domain.model.AuthRequirement
 import com.openclaw.ghostcrab.domain.model.GatewayConnection
+import com.openclaw.ghostcrab.domain.repository.SettingsRepository
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.slot
 import io.mockk.verify
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertInstanceOf
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
@@ -262,6 +268,28 @@ class GatewayConnectionManagerImplTest {
         mgr.connect(url)
 
         assertTrue(io.dispatches > 0)
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `turning the cleartext opt-in off applies to the live session`() = runTest {
+        val setting = MutableStateFlow(true)
+        val settings = object : SettingsRepository {
+            override val allowCleartextPublicIPs: Flow<Boolean> = setting
+            override suspend fun setAllowCleartextPublicIPs(enabled: Boolean) { setting.value = enabled }
+        }
+        val policy = slot<() -> Boolean>()
+        every { factory.authenticated(any(), any(), capture(policy)) } returns sessionClient
+        coEvery { probeClient.health() } returns HealthResponse("ok")
+        coEvery { probeClient.status() } throws GatewayAuthException(url, 401)
+        coEvery { sessionClient.status() } returns statusOk
+        val mgr = GatewayConnectionManagerImpl(factory, settings, UnconfinedTestDispatcher(testScheduler))
+
+        mgr.connect(url, token)
+        assertTrue(policy.captured())
+
+        setting.value = false
+        assertFalse(policy.captured())
     }
 }
 

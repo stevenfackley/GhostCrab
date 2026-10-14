@@ -12,14 +12,18 @@ import com.openclaw.ghostcrab.domain.repository.GatewayHealthChecker
 import com.openclaw.ghostcrab.domain.repository.SettingsRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Production implementation of [GatewayConnectionManager].
@@ -43,9 +47,24 @@ class GatewayConnectionManagerImpl(
     @Volatile private var activeClient: OpenClawApiClient? = null
     private val mutex = Mutex()
 
+    /** Live copy of the user's cleartext opt-in; every request's interceptor reads it. */
+    private val allowCleartext = AtomicBoolean(false)
+
+    init {
+        // App-lifetime singleton: keep the opt-in current so a Settings change applies to the live session.
+        CoroutineScope(SupervisorJob() + ioDispatcher).launch {
+            settingsRepository.allowCleartextPublicIPs.collect { allowCleartext.set(it) }
+        }
+    }
+
+    /** Reads the current opt-in before building clients, so the first request never races the collector. */
+    private suspend fun primeCleartextSetting() {
+        allowCleartext.set(settingsRepository.allowCleartextPublicIPs.firstOrNull() ?: false)
+    }
+
     override suspend fun probeAuth(url: String): AuthRequirement = withContext(ioDispatcher) {
-        val allowCleartext = settingsRepository.allowCleartextPublicIPs.firstOrNull() ?: false
-        val probe = clientFactory.unauthenticated(url, allowCleartext)
+        primeCleartextSetting()
+        val probe = clientFactory.unauthenticated(url, allowCleartext::get)
         try {
             probe.health() // throws GatewayUnreachableException if down
             try {
@@ -71,12 +90,11 @@ class GatewayConnectionManagerImpl(
             // it only becomes activeClient once status() has succeeded.
             var client: OpenClawApiClient? = null
             try {
-                val allowCleartext = settingsRepository.allowCleartextPublicIPs.firstOrNull() ?: false
                 val authReq = probeAuth(url)
                 client = if (token != null) {
-                    clientFactory.authenticated(url, token, allowCleartext)
+                    clientFactory.authenticated(url, token, allowCleartext::get)
                 } else {
-                    clientFactory.unauthenticated(url, allowCleartext)
+                    clientFactory.unauthenticated(url, allowCleartext::get)
                 }
                 val statusResponse = client.status()
                 val isHttps = url.startsWith("https://", ignoreCase = true)
@@ -157,13 +175,17 @@ private object AlwaysBlockCleartextSettingsRepository : com.openclaw.ghostcrab.d
 // ── Factory interface for testability ────────────────────────────────────────
 
 interface OpenClawApiClientFactory {
-    fun unauthenticated(baseUrl: String, allowCleartextPublicIPs: Boolean = false): OpenClawApiClient
-    fun authenticated(baseUrl: String, token: String, allowCleartextPublicIPs: Boolean = false): OpenClawApiClient
+    fun unauthenticated(baseUrl: String, allowCleartextPublicIPs: () -> Boolean = { false }): OpenClawApiClient
+    fun authenticated(
+        baseUrl: String,
+        token: String,
+        allowCleartextPublicIPs: () -> Boolean = { false },
+    ): OpenClawApiClient
 }
 
 object DefaultClientFactory : OpenClawApiClientFactory {
-    override fun unauthenticated(baseUrl: String, allowCleartextPublicIPs: Boolean) =
+    override fun unauthenticated(baseUrl: String, allowCleartextPublicIPs: () -> Boolean) =
         OpenClawApiClient.unauthenticated(baseUrl, allowCleartextPublicIPs)
-    override fun authenticated(baseUrl: String, token: String, allowCleartextPublicIPs: Boolean) =
+    override fun authenticated(baseUrl: String, token: String, allowCleartextPublicIPs: () -> Boolean) =
         OpenClawApiClient.authenticated(baseUrl, token, allowCleartextPublicIPs)
 }
