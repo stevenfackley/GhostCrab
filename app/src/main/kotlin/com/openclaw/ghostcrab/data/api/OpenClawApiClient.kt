@@ -5,6 +5,8 @@ import com.openclaw.ghostcrab.data.api.dto.AIRecommendationResponseDto
 import com.openclaw.ghostcrab.data.api.dto.HealthResponse
 import com.openclaw.ghostcrab.data.api.dto.ModelDto
 import com.openclaw.ghostcrab.data.api.dto.StatusResponse
+import com.openclaw.ghostcrab.data.ws.GatewayWsClient
+import com.openclaw.ghostcrab.data.ws.KtorWsSession
 import com.openclaw.ghostcrab.domain.exception.CleartextBlockedException
 import com.openclaw.ghostcrab.domain.exception.ConfigValidationException
 import com.openclaw.ghostcrab.domain.exception.GatewayApiException
@@ -25,6 +27,7 @@ import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.plugins.logging.LogLevel
 import io.ktor.client.plugins.logging.Logger
 import io.ktor.client.plugins.logging.Logging
+import io.ktor.client.plugins.websocket.webSocketSession
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.patch
@@ -66,12 +69,8 @@ import javax.net.ssl.SSLException
  */
 class OpenClawApiClient private constructor(
     val baseUrl: String,
-    /**
-     * Underlying Ktor client. Exposed so the WebSocket layer reuses the same cleartext
-     * interceptor, timeouts, sanitized logging and origin-scoped bearer instead of building a
-     * second, weaker client.
-     */
-    internal val httpClient: HttpClient,
+    /** Underlying Ktor client: cleartext interceptor, timeouts, sanitized logging, origin-scoped bearer. */
+    private val httpClient: HttpClient,
 ) {
 
     // ── Public API ────────────────────────────────────────────────────────────
@@ -248,6 +247,22 @@ class OpenClawApiClient private constructor(
                 }
             }
         }
+
+    /**
+     * Opens the gateway's JSON-RPC WebSocket (`<baseUrl>/ws`) on this client, so the upgrade request
+     * carries the same origin-scoped bearer, cleartext policy, timeouts and sanitized logging as
+     * every HTTP call — no hand-added `Authorization` header.
+     *
+     * @return A connected [GatewayWsClient]; the caller must [GatewayWsClient.close] it.
+     * @throws GatewayUnreachableException if the host cannot be reached.
+     * @throws GatewayTimeoutException if the upgrade times out.
+     * @throws CleartextBlockedException if app policy blocks cleartext to a public IP.
+     * @throws GatewayProtocolException if the server refuses the upgrade.
+     */
+    suspend fun openWebSocket(): GatewayWsClient = safeRequest(baseUrl) {
+        val wsUrl = baseUrl.replaceFirst(Regex("^http"), "ws").trimEnd('/') + "/ws"
+        GatewayWsClient.create(KtorWsSession(httpClient.webSocketSession(wsUrl)), wsUrl)
+    }
 
     /** Releases underlying HTTP connections. Call on disconnect. */
     fun close() {

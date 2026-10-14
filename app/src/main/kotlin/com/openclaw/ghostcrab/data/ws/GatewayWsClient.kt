@@ -3,7 +3,6 @@ package com.openclaw.ghostcrab.data.ws
 import com.openclaw.ghostcrab.domain.exception.GatewayException
 import com.openclaw.ghostcrab.domain.exception.GatewayTimeoutException
 import com.openclaw.ghostcrab.domain.exception.GatewayUnreachableException
-import io.ktor.client.plugins.websocket.webSocketSession
 import io.ktor.websocket.close
 import io.ktor.websocket.readText
 import kotlinx.coroutines.CancellationException
@@ -185,27 +184,4 @@ class KtorWsSession internal constructor(
     override suspend fun close() {
         delegate.close()
     }
-}
-
-/**
- * Opens a WS connection to [baseUrl]/ws and returns a [GatewayWsClient] backed by it.
- *
- * `http://` → `ws://`, `https://` → `wss://` via `^http` regex replacement.
- *
- * @param httpClient Ktor [HttpClient] with the WebSockets plugin installed.
- * @param baseUrl Base URL of the gateway (e.g. `http://192.168.1.1:8080`).
- * @param tokenProvider Supplier for the current bearer token (may return null).
- * @return A connected [GatewayWsClient].
- */
-suspend fun openGatewayWs(
-    httpClient: io.ktor.client.HttpClient,
-    baseUrl: String,
-    tokenProvider: () -> String?,
-): GatewayWsClient {
-    val wsUrl = baseUrl.replaceFirst(Regex("^http"), "ws").trimEnd('/') + "/ws"
-    val session = httpClient.webSocketSession(wsUrl) {
-        val token = tokenProvider()
-        if (token != null) headers.append("Authorization", "Bearer $token")
-    }
-    return GatewayWsClient.create(KtorWsSession(session), endpoint = wsUrl)
 }

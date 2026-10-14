@@ -5,6 +5,7 @@ import com.openclaw.ghostcrab.data.api.OpenClawApiClient
 import com.openclaw.ghostcrab.data.api.dto.AIContextDto
 import com.openclaw.ghostcrab.data.api.dto.AIRecommendationRequestDto
 import com.openclaw.ghostcrab.domain.exception.CleartextBlockedException
+import com.openclaw.ghostcrab.domain.exception.GatewayException
 import com.openclaw.ghostcrab.domain.exception.GatewayProtocolException
 import com.openclaw.ghostcrab.domain.exception.GatewayTimeoutException
 import com.openclaw.ghostcrab.domain.exception.GatewayTlsException
@@ -13,6 +14,7 @@ import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.client.plugins.websocket.WebSockets
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
@@ -77,5 +79,13 @@ class OpenClawApiClientErrorMappingTest {
         val client = jsonResponseClient(HttpStatusCode.Accepted, """{"recommendation":"ok","suggested_changes":[]}""")
         val dto = client.getAIRecommendation(AIRecommendationRequestDto("q", AIContextDto(null, null, null)))
         assertEquals("ok", dto.recommendation)
+    }
+
+    @Test fun `openWebSocket failures surface as GatewayException`() = runTest {
+        val client = OpenClawApiClient.forTest(
+            ERR_BASE,
+            HttpClient(MockEngine { throw ConnectException("refused") }) { install(WebSockets) },
+        )
+        assertThrows<GatewayException> { client.openWebSocket() }
     }
 }

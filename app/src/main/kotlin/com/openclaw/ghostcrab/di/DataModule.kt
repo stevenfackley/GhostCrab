@@ -23,10 +23,9 @@ import com.openclaw.ghostcrab.domain.repository.ScopeProbe
 import com.openclaw.ghostcrab.domain.repository.SettingsRepository
 import com.openclaw.ghostcrab.data.impl.InstalledSkillRepositoryImpl
 import com.openclaw.ghostcrab.data.impl.ScopeProbeImpl
-import com.openclaw.ghostcrab.data.ws.openGatewayWs
-import com.openclaw.ghostcrab.domain.exception.GatewayNotConnectedException
-import com.openclaw.ghostcrab.domain.model.GatewayConnection
+import com.openclaw.ghostcrab.data.ws.GatewayWsClient
 import org.koin.android.ext.koin.androidContext
+import org.koin.core.scope.Scope
 import org.koin.dsl.module
 
 val dataModule = module {
@@ -44,37 +43,16 @@ val dataModule = module {
     single<SettingsRepository> { SettingsRepositoryImpl(androidContext()) }
 
     if (com.openclaw.ghostcrab.BuildConfig.SKILLS_INSTALL_ENABLED) {
-        single<InstalledSkillRepository> {
-            InstalledSkillRepositoryImpl(
-                wsFactory = {
-                    val mgr = get<GatewayConnectionManagerImpl>()
-                    val profile = (mgr.connectionState.value as? GatewayConnection.Connected)
-                        ?: throw GatewayNotConnectedException()
-                    // Reuse the session client: same cleartext interceptor, timeouts, sanitized
-                    // logging and origin-scoped bearer as every HTTP call.
-                    openGatewayWs(
-                        httpClient = mgr.requireClient().httpClient,
-                        baseUrl = profile.url,
-                        tokenProvider = { profile.tokenOrNull },
-                    )
-                }
-            )
-        }
-        single<ScopeProbe> {
-            ScopeProbeImpl(
-                wsFactory = {
-                    val mgr = get<GatewayConnectionManagerImpl>()
-                    val profile = (mgr.connectionState.value as? GatewayConnection.Connected)
-                        ?: throw GatewayNotConnectedException()
-                    // Reuse the session client: same cleartext interceptor, timeouts, sanitized
-                    // logging and origin-scoped bearer as every HTTP call.
-                    openGatewayWs(
-                        httpClient = mgr.requireClient().httpClient,
-                        baseUrl = profile.url,
-                        tokenProvider = { profile.tokenOrNull },
-                    )
-                }
-            )
-        }
+        single<InstalledSkillRepository> { InstalledSkillRepositoryImpl(wsFactory = liveWsFactory()) }
+        single<ScopeProbe> { ScopeProbeImpl(wsFactory = liveWsFactory()) }
     }
+}
+
+/**
+ * Opens a fresh JSON-RPC WebSocket on the live session client. Shared by every WS-backed
+ * repository; throws `GatewayNotConnectedException` while disconnected.
+ */
+private fun Scope.liveWsFactory(): suspend () -> GatewayWsClient {
+    val manager = get<GatewayConnectionManagerImpl>()
+    return { manager.requireClient().openWebSocket() }
 }
