@@ -57,6 +57,13 @@ targets:
         NSLocalNetworkUsageDescription: "Discover OpenClaw gateways on your network."
         NSBonjourServices:
           - "_openclaw-gw._tcp"
+        # ghostcrab://pair?p=… deep links (OS camera, Safari, other apps).
+        # RootView.onOpenURL pre-fills Manual Entry only; nothing auto-connects.
+        CFBundleURLTypes:
+          - CFBundleURLName: com.qavren.ghostcrab.pairing
+            CFBundleTypeRole: Viewer
+            CFBundleURLSchemes:
+              - ghostcrab
         ITSAppUsesNonExemptEncryption: false
         LSApplicationCategoryType: "public.app-category.developer-tools"  # macOS App Store category
     entitlements:

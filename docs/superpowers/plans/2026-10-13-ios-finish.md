@@ -1601,7 +1601,7 @@ In `ios/GhostCrab/App/RootView.swift`, add a state property under `@State privat
     @State private var deepLinkError: String?
 ```
 
-Replace `body`:
+Replace `body`. Keep the `.environment(\.navigate, …)` modifier that sits on the `NavigationStack`: dropping it strips the navigator from every pushed screen, and the launch smoke test (start screen only) would stay green.
 
 ```swift
     var body: some View {
@@ -1609,6 +1609,7 @@ Replace `body`:
             startGate
                 .navigationDestination(for: Route.self) { destination(for: $0) }
         }
+        .environment(\.navigate, NavigateAction { route in path.append(route) })
         .task { await resolveStartRoute() }
         .onOpenURL { handleOpenURL($0) }
         .alert(
