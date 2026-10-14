@@ -15,7 +15,7 @@ struct CleartextGuardIsolationTests {
         let allowed = OpenClawAPIClient.makeForTesting(baseURL: base, allowCleartextPublicIPs: true, protocolClasses: [MockURLProtocol.self])
 
         #expect(try await allowed.health().status == "ok")
-        await #expect(throws: GatewayError.self) {
+        try await expectCleartextBlocked(url: "http://8.8.4.4:18789/health", host: "8.8.4.4") {
             _ = try await blocked.health()
         }
     }
@@ -25,10 +25,35 @@ struct CleartextGuardIsolationTests {
         MockURLProtocol.register(base) { _ in .init(status: 200, json: #"{"status":"ok"}"#) }
         let client = OpenClawAPIClient.makeForTesting(baseURL: base, allowCleartextPublicIPs: false, protocolClasses: [MockURLProtocol.self])
 
-        await #expect(throws: GatewayError.self) {
+        try await expectCleartextBlocked(url: "http://9.9.9.9:18789/health", host: "9.9.9.9") {
             _ = try await client.health()
         }
         #expect(MockURLProtocol.requests(to: base).isEmpty)
+    }
+
+    @Test func blockedErrorNamesTheIOSSettingsToggleAndIsNotRetryable() {
+        let error = GatewayError.cleartextBlocked(url: "http://8.8.8.8:18789/health", host: "8.8.8.8")
+
+        #expect(!error.isRetryable)
+        #expect(error.errorDescription == "Cleartext HTTP to public IP 8.8.8.8 blocked by app policy. "
+            + "Use HTTPS or enable Settings → Security → Allow HTTP to public IPs. "
+            + "URL: http://8.8.8.8:18789/health")
+    }
+
+    /// A guard refusal must surface as `.cleartextBlocked` (with the fix in
+    /// its message), not as a generic `.unreachable`.
+    private func expectCleartextBlocked(
+        url expectedURL: String,
+        host expectedHost: String,
+        _ body: () async throws -> Void
+    ) async throws {
+        do {
+            try await body()
+            Issue.record("expected GatewayError.cleartextBlocked")
+        } catch GatewayError.cleartextBlocked(let url, let host) {
+            #expect(url == expectedURL)
+            #expect(host == expectedHost)
+        }
     }
 
     @Test func privateIPIsAllowedWithTheFlagOff() async throws {

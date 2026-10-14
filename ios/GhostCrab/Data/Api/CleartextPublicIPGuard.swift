@@ -22,6 +22,15 @@ import Foundation
 /// bound to one client (its OkHttp engine), not to the process.
 public final class CleartextPublicIPGuard: URLProtocol, @unchecked Sendable {
 
+    // MARK: - Error
+
+    /// `NSError` domain of the failure ``startLoading()`` reports.
+    /// `OpenClawAPIClient` maps it to `GatewayError.cleartextBlocked(url:host:)`.
+    static let errorDomain = "com.qavren.ghostcrab.CleartextPublicIPGuard"
+
+    /// `userInfo` key holding the blocked host (`String`) in that error.
+    static let hostUserInfoKey = "com.qavren.ghostcrab.blockedHost"
+
     // MARK: - Per-request opt-in
 
     /// `URLProtocol` property key carrying the sending client's opt-in (`Bool`).
@@ -64,12 +73,11 @@ public final class CleartextPublicIPGuard: URLProtocol, @unchecked Sendable {
     public override func startLoading() {
         let host = request.url?.host ?? "<unknown>"
         let error = NSError(
-            domain: "com.qavren.ghostcrab.CleartextPublicIPGuard",
+            domain: Self.errorDomain,
             code: NSURLErrorAppTransportSecurityRequiresSecureConnection,
             userInfo: [
-                NSLocalizedDescriptionKey:
-                    "Cleartext HTTP to public IP \(host) is blocked. " +
-                    "Enable it in Settings → Security or use HTTPS."
+                NSLocalizedDescriptionKey: GatewayError.cleartextPolicyMessage(host: host),
+                Self.hostUserInfoKey: host
             ]
         )
         client?.urlProtocol(self, didFailWithError: error)

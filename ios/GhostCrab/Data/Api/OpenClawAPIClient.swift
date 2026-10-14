@@ -608,7 +608,9 @@ public actor OpenClawAPIClient {
     }
 
     /// Wraps a request closure with the same error-translation policy as
-    /// Kotlin's `safeRequest` (`OpenClawApiClient.kt:308-340`).
+    /// Kotlin's `safeRequest` (`OpenClawApiClient.kt:308-340`). A request
+    /// ``CleartextPublicIPGuard`` refused becomes
+    /// ``GatewayError/cleartextBlocked(url:host:)``, never `.unreachable`.
     private func safe<T>(
         url: URL,
         _ block: () async throws -> T
@@ -650,6 +652,13 @@ public actor OpenClawAPIClient {
             )
         } catch is CancellationError {
             throw CancellationError()
+        } catch let e as NSError where e.domain == CleartextPublicIPGuard.errorDomain {
+            // Refused by our own policy before leaving the device: say so, and
+            // say how to lift it, instead of blaming the network.
+            let host = (e.userInfo[CleartextPublicIPGuard.hostUserInfoKey] as? String)
+                ?? url.host
+                ?? "<unknown>"
+            throw GatewayError.cleartextBlocked(url: url.absoluteString, host: host)
         } catch {
             throw GatewayError.unreachable(url: url.absoluteString, underlying: error)
         }

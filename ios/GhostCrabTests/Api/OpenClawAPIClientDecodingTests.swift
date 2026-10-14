@@ -87,4 +87,35 @@ struct OpenClawAPIClientDecodingTests {
         #expect(models.map(\.id) == ["m1"])
         #expect(models.first?.isActive == true)
     }
+
+    // MARK: - Skill install
+
+    /// Pins the convention: REST has no RPC code, so a 200 whose body is not
+    /// an installed skill reaches the install stream as
+    /// `.protocol(rpcCode: 200, …)`, the HTTP status standing in for the code.
+    @Test func skillInstall200WithGarbageBodyIsAProtocolErrorWithCode200() async {
+        let (client, _) = makeClient { _ in .init(status: 200, json: "[1,2,3]") }
+        do {
+            _ = try await client.installSkill(slug: "wanng-ide/auto-skill-hunter", version: nil)
+            Issue.record("expected GatewayError.api for a 200 that is not an installed skill")
+        } catch let error as GatewayError {
+            let mapped = error.toSkillInstallError()
+            guard case .protocol(let rpcCode, let message) = mapped else {
+                Issue.record("expected SkillInstallError.protocol, got \(mapped)")
+                return
+            }
+            #expect(rpcCode == 200)
+            #expect(message.hasPrefix("Response deserialization failed (DecodingError.typeMismatch)"))
+            #expect(!mapped.isRetryable)
+        } catch {
+            Issue.record("unexpected error: \(error)")
+        }
+    }
+
+    @Test func cleartextBlockedInstallIsNotRetryable() {
+        let error = GatewayError.cleartextBlocked(url: "http://8.8.8.8:18789/api/skills/install", host: "8.8.8.8")
+        let mapped = error.toSkillInstallError()
+        #expect(mapped == .protocol(rpcCode: 0, message: error.errorDescription ?? ""))
+        #expect(!mapped.isRetryable)
+    }
 }
