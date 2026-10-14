@@ -38,7 +38,7 @@ class ConfigRepositoryImpl(
      *
      * @return [OpenClawConfig] with all sections and the latest ETag.
      * @throws com.openclaw.ghostcrab.domain.exception.GatewayException on any gateway failure.
-     * @throws IllegalStateException if no active connection exists.
+     * @throws com.openclaw.ghostcrab.domain.exception.GatewayNotConnectedException if no session is active.
      */
     override suspend fun getConfig(): OpenClawConfig = mutex.withLock {
         val client = connectionManager.requireClient()
@@ -56,7 +56,7 @@ class ConfigRepositoryImpl(
      * @param value JSON merge-patch value.
      * @throws com.openclaw.ghostcrab.domain.exception.GatewayApiException on HTTP error, including 412.
      * @throws com.openclaw.ghostcrab.domain.exception.ConfigValidationException on server-side validation failure.
-     * @throws IllegalStateException if no active connection exists.
+     * @throws com.openclaw.ghostcrab.domain.exception.GatewayNotConnectedException if no session is active.
      */
     override suspend fun updateConfig(section: String, value: JsonElement): Unit = mutex.withLock {
         val client = connectionManager.requireClient()

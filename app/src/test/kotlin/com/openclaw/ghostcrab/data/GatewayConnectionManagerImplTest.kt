@@ -7,6 +7,7 @@ import com.openclaw.ghostcrab.data.api.dto.StatusResponse
 import com.openclaw.ghostcrab.data.impl.GatewayConnectionManagerImpl
 import com.openclaw.ghostcrab.data.impl.OpenClawApiClientFactory
 import com.openclaw.ghostcrab.domain.exception.GatewayAuthException
+import com.openclaw.ghostcrab.domain.exception.GatewayNotConnectedException
 import com.openclaw.ghostcrab.domain.exception.GatewayProtocolException
 import com.openclaw.ghostcrab.domain.exception.GatewayTimeoutException
 import com.openclaw.ghostcrab.domain.exception.GatewayUnreachableException
@@ -25,6 +26,7 @@ import org.junit.jupiter.api.Assertions.assertInstanceOf
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertThrows
 
 class GatewayConnectionManagerImplTest {
 
@@ -238,5 +240,10 @@ class GatewayConnectionManagerImplTest {
         manager.check()
 
         coVerify { sessionClient.health() }
+    }
+
+    @Test
+    fun `requireClient before connect throws GatewayNotConnectedException`() {
+        assertThrows<GatewayNotConnectedException> { manager.requireClient() }
     }
 }

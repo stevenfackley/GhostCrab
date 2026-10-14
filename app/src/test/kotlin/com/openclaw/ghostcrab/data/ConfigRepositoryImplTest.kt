@@ -1,5 +1,6 @@
 package com.openclaw.ghostcrab.data
 
+import com.openclaw.ghostcrab.domain.exception.GatewayNotConnectedException
 import com.openclaw.ghostcrab.data.api.OpenClawApiClient
 import com.openclaw.ghostcrab.data.impl.ConfigRepositoryImpl
 import com.openclaw.ghostcrab.data.impl.GatewayConnectionManagerImpl
@@ -69,10 +70,10 @@ class ConfigRepositoryImplTest {
     }
 
     @Test
-    fun `getConfig when not connected throws IllegalStateException`() = runTest {
-        every { mockManager.requireClient() } throws IllegalStateException("No active gateway connection")
+    fun `getConfig when not connected throws GatewayNotConnectedException`() = runTest {
+        every { mockManager.requireClient() } throws GatewayNotConnectedException()
 
-        assertThrows<IllegalStateException> {
+        assertThrows<GatewayNotConnectedException> {
             repo.getConfig()
         }
     }

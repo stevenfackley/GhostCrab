@@ -49,7 +49,7 @@ class AIRecommendationServiceImpl(
      * @throws AIServiceUnavailableException if the gateway returns 404 (skill not installed).
      * @throws AIQuotaExceededException if the gateway returns 429 (rate limit).
      * @throws com.openclaw.ghostcrab.domain.exception.GatewayException on other network errors.
-     * @throws IllegalStateException if no active connection exists.
+     * @throws com.openclaw.ghostcrab.domain.exception.GatewayNotConnectedException if no session is active.
      */
     override suspend fun getRecommendation(
         query: String,

@@ -24,6 +24,7 @@ import com.openclaw.ghostcrab.domain.repository.SettingsRepository
 import com.openclaw.ghostcrab.data.impl.InstalledSkillRepositoryImpl
 import com.openclaw.ghostcrab.data.impl.ScopeProbeImpl
 import com.openclaw.ghostcrab.data.ws.openGatewayWs
+import com.openclaw.ghostcrab.domain.exception.GatewayNotConnectedException
 import com.openclaw.ghostcrab.domain.model.GatewayConnection
 import org.koin.android.ext.koin.androidContext
 import org.koin.dsl.module
@@ -48,7 +49,7 @@ val dataModule = module {
                 wsFactory = {
                     val mgr = get<GatewayConnectionManagerImpl>()
                     val profile = (mgr.connectionState.value as? GatewayConnection.Connected)
-                        ?: error("Cannot install skills while disconnected")
+                        ?: throw GatewayNotConnectedException()
                     // Reuse the session client: same cleartext interceptor, timeouts, sanitized
                     // logging and origin-scoped bearer as every HTTP call.
                     openGatewayWs(
@@ -64,7 +65,7 @@ val dataModule = module {
                 wsFactory = {
                     val mgr = get<GatewayConnectionManagerImpl>()
                     val profile = (mgr.connectionState.value as? GatewayConnection.Connected)
-                        ?: error("Cannot probe scopes while disconnected")
+                        ?: throw GatewayNotConnectedException()
                     // Reuse the session client: same cleartext interceptor, timeouts, sanitized
                     // logging and origin-scoped bearer as every HTTP call.
                     openGatewayWs(

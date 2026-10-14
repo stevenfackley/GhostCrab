@@ -8,7 +8,7 @@ import com.openclaw.ghostcrab.domain.repository.ModelRepository
  * Ktor-backed [ModelRepository] that talks to the connected gateway.
  *
  * Requires an active connection — [GatewayConnectionManagerImpl.requireClient] throws
- * [IllegalStateException] if called while disconnected, which propagates to callers.
+ * [com.openclaw.ghostcrab.domain.exception.GatewayNotConnectedException] while disconnected.
  *
  * @param connectionManager Concrete manager used to obtain the active [OpenClawApiClient].
  */
@@ -21,7 +21,7 @@ public class ModelRepositoryImpl(
      *
      * @return List of [ModelInfo] mapped 1:1 from the gateway DTOs.
      * @throws com.openclaw.ghostcrab.domain.exception.GatewayException on network/API errors.
-     * @throws IllegalStateException if no gateway connection is active.
+     * @throws com.openclaw.ghostcrab.domain.exception.GatewayNotConnectedException if no session is active.
      */
     override suspend fun getModels(): List<ModelInfo> =
         connectionManager.requireClient().getModels().map { it.toModelInfo() }
@@ -31,7 +31,7 @@ public class ModelRepositoryImpl(
      *
      * @param modelId The `id` of the model to activate.
      * @throws com.openclaw.ghostcrab.domain.exception.GatewayException on network/API errors.
-     * @throws IllegalStateException if no gateway connection is active.
+     * @throws com.openclaw.ghostcrab.domain.exception.GatewayNotConnectedException if no session is active.
      */
     override suspend fun setActiveModel(modelId: String): Unit =
         connectionManager.requireClient().setActiveModel(modelId)

@@ -3,6 +3,7 @@ package com.openclaw.ghostcrab.data.impl
 import com.openclaw.ghostcrab.data.api.OpenClawApiClient
 import com.openclaw.ghostcrab.domain.exception.GatewayAuthException
 import com.openclaw.ghostcrab.domain.exception.GatewayException
+import com.openclaw.ghostcrab.domain.exception.GatewayNotConnectedException
 import com.openclaw.ghostcrab.domain.exception.GatewayProtocolException
 import com.openclaw.ghostcrab.domain.model.AuthRequirement
 import com.openclaw.ghostcrab.domain.model.GatewayConnection
@@ -35,7 +36,8 @@ class GatewayConnectionManagerImpl(
     private val _connectionState = MutableStateFlow<GatewayConnection>(GatewayConnection.Disconnected)
     override val connectionState: StateFlow<GatewayConnection> = _connectionState.asStateFlow()
 
-    private var activeClient: OpenClawApiClient? = null
+    // Written under [mutex] on the IO dispatcher, read lock-free by repositories on any thread.
+    @Volatile private var activeClient: OpenClawApiClient? = null
     private val mutex = Mutex()
 
     override suspend fun probeAuth(url: String): AuthRequirement = withContext(Dispatchers.IO) {
@@ -133,9 +135,13 @@ class GatewayConnectionManagerImpl(
         requireClient().health()
     }
 
-    /** Returns the active client, or null if not connected. Internal use for repositories. */
-    fun requireClient(): OpenClawApiClient =
-        activeClient ?: error("No active gateway connection")
+    /**
+     * The live session client, for repository implementations.
+     *
+     * @return The client of the current session.
+     * @throws GatewayNotConnectedException if no session is active.
+     */
+    fun requireClient(): OpenClawApiClient = activeClient ?: throw GatewayNotConnectedException()
 }
 
 // ── Fail-safe default settings (no cleartext to public IPs) ──────────────────

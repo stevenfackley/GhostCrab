@@ -166,3 +166,12 @@ class GatewayProtocolException(
 ) : GatewayException("Unexpected gateway response at $url: $detail", cause) {
     override val isRetryable: Boolean = false
 }
+
+/**
+ * An operation needed the active gateway session but none exists (never connected, or the
+ * connection dropped mid-flight). Not retryable as-is: the user must reconnect first.
+ */
+class GatewayNotConnectedException :
+    GatewayException("No active gateway connection. Reconnect and try again.") {
+    override val isRetryable: Boolean = false
+}

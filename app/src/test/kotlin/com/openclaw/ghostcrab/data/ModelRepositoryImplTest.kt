@@ -1,5 +1,6 @@
 package com.openclaw.ghostcrab.data
 
+import com.openclaw.ghostcrab.domain.exception.GatewayNotConnectedException
 import com.openclaw.ghostcrab.data.api.OpenClawApiClient
 import com.openclaw.ghostcrab.data.api.dto.ModelDto
 import com.openclaw.ghostcrab.data.impl.GatewayConnectionManagerImpl
@@ -72,9 +73,9 @@ class ModelRepositoryImplTest {
         assertTrue(repo.getModels().isEmpty())
     }
 
-    @Test fun `getModels throws IllegalStateException when not connected`() = runTest {
-        every { manager.requireClient() } throws IllegalStateException("No active gateway connection")
-        assertThrows<IllegalStateException> { repo.getModels() }
+    @Test fun `getModels throws GatewayNotConnectedException when not connected`() = runTest {
+        every { manager.requireClient() } throws GatewayNotConnectedException()
+        assertThrows<GatewayNotConnectedException> { repo.getModels() }
     }
 
     @Test fun `getModels propagates GatewayApiException`() = runTest {
@@ -89,9 +90,9 @@ class ModelRepositoryImplTest {
         coVerify { client.setActiveModel("gpt-4o") }
     }
 
-    @Test fun `setActiveModel throws IllegalStateException when not connected`() = runTest {
-        every { manager.requireClient() } throws IllegalStateException("No active gateway connection")
-        assertThrows<IllegalStateException> { repo.setActiveModel("gpt-4o") }
+    @Test fun `setActiveModel throws GatewayNotConnectedException when not connected`() = runTest {
+        every { manager.requireClient() } throws GatewayNotConnectedException()
+        assertThrows<GatewayNotConnectedException> { repo.setActiveModel("gpt-4o") }
     }
 
     @Test fun `setActiveModel propagates GatewayApiException`() = runTest {

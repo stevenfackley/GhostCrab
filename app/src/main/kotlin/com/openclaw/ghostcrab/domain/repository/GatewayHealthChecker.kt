@@ -11,8 +11,8 @@ interface GatewayHealthChecker {
     /**
      * Performs one `GET /health` on the active session.
      *
-     * @throws com.openclaw.ghostcrab.domain.exception.GatewayException on any failure. Until the
-     *   not-connected leaf exists, a missing session surfaces as `IllegalStateException`.
+     * @throws com.openclaw.ghostcrab.domain.exception.GatewayException on any failure, including
+     *   [com.openclaw.ghostcrab.domain.exception.GatewayNotConnectedException] when no session is active.
      */
     suspend fun check()
 }

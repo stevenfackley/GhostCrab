@@ -1,5 +1,6 @@
 package com.openclaw.ghostcrab.data
 
+import com.openclaw.ghostcrab.domain.exception.GatewayNotConnectedException
 import com.openclaw.ghostcrab.data.api.OpenClawApiClient
 import com.openclaw.ghostcrab.data.api.dto.AIRecommendationRequestDto
 import com.openclaw.ghostcrab.data.api.dto.AIRecommendationResponseDto
@@ -132,9 +133,9 @@ class AIRecommendationServiceImplTest {
         assertEquals(500, ex.statusCode)
     }
 
-    @Test fun `getRecommendation throws IllegalStateException when not connected`() = runTest {
-        every { manager.requireClient() } throws IllegalStateException("No active gateway connection")
-        assertThrows<IllegalStateException> { service.getRecommendation("q", context) }
+    @Test fun `getRecommendation throws GatewayNotConnectedException when not connected`() = runTest {
+        every { manager.requireClient() } throws GatewayNotConnectedException()
+        assertThrows<GatewayNotConnectedException> { service.getRecommendation("q", context) }
     }
 
     @Test fun `getRecommendation never sends secrets in the config context`() = runTest {
