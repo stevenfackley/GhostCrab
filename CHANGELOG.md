@@ -21,7 +21,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - The AI recommendations entry point and route are hidden unless `AI_PRO_ENABLED` is set.
 - AI suggestions are no longer pre-selected and are applied as one merge-patch per config section.
-- The dashboard polls `/health` on the live session client, and cleartext opt-in changes apply to the active session immediately.
+- The dashboard polls `/health` on the live session client.
 - WebSocket requests time out after 30 s and fail at once when the socket closes; sockets open through the session client.
 - Cleartext blocks and protocol errors are reported as such instead of "unreachable"; a disconnect race raises `GatewayNotConnectedException` instead of crashing.
 - The config editor refreshes its ETag after each write; a failed reload after a successful write is a success with a warning.
@@ -32,6 +32,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Cancelled coroutines no longer show up as errors (`suspendRunCatching` rethrows `CancellationException`), and a profile-save failure after a successful connect no longer crashes the app.
 - Saving or reloading one config section (including after a 412) no longer drops pending edits in other sections.
 - Undecodable saved profiles are never overwritten; settings read errors fail closed.
+- A reconnect drops the config ETag, so a stale ETag is never sent to a different gateway.
+- Clear-all also wipes undecodable profiles and their corruption backup.
 - QR scanning releases the camera and navigates once per scan.
 - Malformed gateway skill JSON produces typed errors instead of an NPE; a skill install that cannot open a session reports a network failure.
 - Editing a tokenless profile, or reconnecting a known gateway, no longer fails on the token read; `hasToken` stays in sync after an edit.

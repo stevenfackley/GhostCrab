@@ -50,6 +50,10 @@ interface ConnectionProfileRepository {
 
     /**
      * Removes every saved profile and token, including data that can no longer be decoded.
+     *
+     * Additive (v1.1): see ADR-0005.
+     *
+     * @throws java.io.IOException if the underlying DataStore cannot be written.
      */
     suspend fun clearAll()
 }

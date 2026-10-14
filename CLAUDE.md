@@ -51,7 +51,7 @@ Package root: `app/src/main/kotlin/com/openclaw/ghostcrab/`
 | `ui/navigation/` | `NavGraph` composable only; routes are string literals in the `composable("...")` calls (no `Routes` class). The `ai_recommendation` route exists only when `BuildConfig.AI_PRO_ENABLED` |
 | `ui/ErrorMessages.kt` | `toUserMessage()` — the single renderer of errors for users |
 | `ui/connection/PairingHandoff.kt` | In-memory one-shot handoff (2 min expiry) of a decoded `ghostcrab://pair` bundle to ManualEntry; the token never enters a route or saved state |
-| `ui/{connection,dashboard,config,models,model,ai,airecommend,installedskills,onboarding,settings}/` | Per-feature Compose screens + ViewModels |
+| `ui/{connection,dashboard,config,model,airecommend,installedskills,onboarding,settings}/` | Per-feature Compose screens + ViewModels |
 | `app/lint.xml` | Lint suppressions with rationale (icon duplicates, font cert data, deliberate cleartext base-config) |
 | `ios/`, `site/` | Sibling apps in this repo: the iOS/Catalyst client (Swift) and the getghostcrab.com Astro site. Not part of the Android module |
 
@@ -97,7 +97,7 @@ Current status: **v0.2.0** (2026-10-14, hardening + refactor release) — Phases
 ## Docs
 
 Always `find docs/ -name "*.md"` before cross-cutting changes. Key files:
-- `docs/adr/0001-0004*.md` — architecture decisions (frozen; new ADRs for new decisions)
+- `docs/adr/0001-0005*.md` — architecture decisions (frozen; new ADRs for new decisions)
 - `docs/RELEASE_SIGNING.md` — signing config (env vars: `KEYSTORE_PATH`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD`)
 - `docs/TUNNEL_SETUP.md` — Cloudflare tunnel + QR connect flow
 - `docs/PRIVACY_POLICY.md` / `docs/DATA_SAFETY.md` / `docs/PLAY_STORE_LISTING.md` — Play Store artifacts

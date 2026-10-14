@@ -4,7 +4,7 @@ package com.openclaw.ghostcrab.domain.repository
  * Liveness probe against the gateway of the **current** session. Uses the live session client, so
  * it honours the same cleartext policy, timeouts and origin-scoped auth as every other call.
  *
- * Additive interface (v1.1) — no frozen v1.0 contract changes.
+ * Additive (v1.1): new interface, no frozen v1.0 contract changes (ADR-0005).
  */
 interface GatewayHealthChecker {
 
