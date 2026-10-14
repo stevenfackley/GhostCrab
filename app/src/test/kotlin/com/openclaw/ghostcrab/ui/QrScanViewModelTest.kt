@@ -51,7 +51,16 @@ class QrScanViewModelTest {
         vm.events.test {
             vm.onQrDecoded("https://abc-xyz.trycloudflare.com")
             val event = awaitItem() as QrScanEvent.NavigateToManualEntry
-            assertEquals("https://abc-xyz.trycloudflare.com", event.url)
+            assertEquals("https://abc-xyz.trycloudflare.com:443", event.url)
+        }
+    }
+
+    @Test
+    fun `onQrDecoded emits only the normalized base url, dropping path query and fragment`() = runTest {
+        val vm = QrScanViewModel()
+        vm.events.test {
+            vm.onQrDecoded("http://192.168.1.50:18789/pair?token=abc#frag")
+            assertEquals("http://192.168.1.50:18789", (awaitItem() as QrScanEvent.NavigateToManualEntry).url)
         }
     }
 

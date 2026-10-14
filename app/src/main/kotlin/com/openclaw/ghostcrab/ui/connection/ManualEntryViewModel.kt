@@ -166,7 +166,9 @@ private fun validateHost(host: String): String? {
 }
 
 private fun isIpv6Literal(host: String): Boolean =
-    host.count { it == ':' } >= 2 && host.all { it.isLetterOrDigit() || it == ':' || it == '.' }
+    host.count { it == ':' } >= 2 && host.all { it == ':' || it == '.' || isHexDigit(it) }
+
+private fun isHexDigit(c: Char): Boolean = c in '0'..'9' || c in 'a'..'f' || c in 'A'..'F'
 
 @Suppress("ReturnCount")
 private fun validatePort(port: String): String? {

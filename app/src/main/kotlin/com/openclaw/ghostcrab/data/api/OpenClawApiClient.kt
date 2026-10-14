@@ -122,7 +122,7 @@ class OpenClawApiClient private constructor(
         val response = httpClient.get("$baseUrl/config")
         response.mapErrors(baseUrl)
         if (response.isJson()) {
-            val etag = response.headers["ETag"]
+            val etag = response.headers[HttpHeaders.ETag]
             val body: JsonObject = response.body()
             body to etag
         } else {

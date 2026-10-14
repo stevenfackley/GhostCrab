@@ -1,7 +1,6 @@
 package com.openclaw.ghostcrab.domain.model.config
 
 import com.openclaw.ghostcrab.domain.util.DEFAULT_GATEWAY_PORT
-
 import kotlinx.serialization.Serializable
 
 /**

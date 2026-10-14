@@ -70,9 +70,9 @@ class QrScanViewModel : ViewModel() {
      */
     fun onQrDecoded(raw: String) {
         if (_uiState.value == QrScanUiState.Decoded) return
-        val url = raw.trim()
-        val valid = GatewayUrl.parse(url) != null
-        if (!valid) {
+        // Navigate with the normalized base URL only: path/query/fragment must not reach the saved-state Bundle.
+        val url = GatewayUrl.parse(raw.trim())?.toString()
+        if (url == null) {
             _uiState.value = QrScanUiState.InvalidQr("QR code doesn't contain a valid gateway URL")
             return
         }

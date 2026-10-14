@@ -5,6 +5,7 @@ import com.openclaw.ghostcrab.domain.util.DEFAULT_GATEWAY_PORT
 import com.openclaw.ghostcrab.domain.util.GatewayUrl
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 
 class GatewayUrlTest {
@@ -25,6 +26,22 @@ class GatewayUrlTest {
     @Test fun `ipv6 literals are bracketed and zone ids stripped`() {
         assertEquals("http://[fe80::1]:18789", GatewayUrl.of("fe80::1%wlan0", 18789).toString())
         assertEquals(GatewayUrl("http", "fe80::1", 18789), GatewayUrl.parse("http://[fe80::1]:18789"))
+    }
+
+    @Test fun `out-of-range ports are rejected, not defaulted`() {
+        assertNull(GatewayUrl.parse("http://h:0"))
+        assertNull(GatewayUrl.parse("http://h:65536"))
+    }
+
+    @Test fun `zone ids are stripped when parsing`() {
+        assertEquals("fe80::1", GatewayUrl.parse("http://[fe80::1%wlan0]:18789")?.host)
+        assertEquals("fe80::1", GatewayUrl.parse("http://[fe80::1%25wlan0]:18789")?.host)
+    }
+
+    @Test fun `constructor rejects invalid values`() {
+        assertThrows(IllegalArgumentException::class.java) { GatewayUrl("http", "[::1]", 0) }
+        assertThrows(IllegalArgumentException::class.java) { GatewayUrl("ftp", "h", 1) }
+        assertThrows(IllegalArgumentException::class.java) { GatewayUrl("http", " ", 1) }
     }
 
     @Test fun `discovered IPv6 gateway produces a valid URL`() {

@@ -19,8 +19,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import com.openclaw.ghostcrab.domain.util.redactSecrets
 import androidx.compose.ui.text.TextStyle
+import com.openclaw.ghostcrab.domain.util.redactSecrets
 import com.openclaw.ghostcrab.ui.theme.BrandTokens
 import com.openclaw.ghostcrab.ui.theme.MonoFontFamily
 import com.openclaw.ghostcrab.ui.theme.Spacing

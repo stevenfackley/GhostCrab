@@ -1,6 +1,7 @@
 package com.openclaw.ghostcrab.domain.util
 
 import java.net.URI
+import java.net.URISyntaxException
 
 /** Default OpenClaw gateway port. */
 const val DEFAULT_GATEWAY_PORT: Int = 18789
@@ -18,6 +19,12 @@ private const val MAX_PORT = 65535
  */
 data class GatewayUrl(val scheme: String, val host: String, val port: Int) {
 
+    init {
+        require(scheme == "http" || scheme == "https") { "scheme must be http or https" }
+        require(host.isNotBlank()) { "host must not be blank" }
+        require(port in 1..MAX_PORT) { "port must be in 1..$MAX_PORT" }
+    }
+
     /** Canonical form, bracketing IPv6 literals: `http://[fe80::1]:18789`. */
     override fun toString(): String {
         val hostPart = if (host.contains(':')) "[$host]" else host
@@ -30,15 +37,26 @@ data class GatewayUrl(val scheme: String, val host: String, val port: Int) {
          * (tunnels and reverse proxies).
          *
          * @param raw User-, QR- or deep-link-supplied URL text.
-         * @return The parsed URL, or `null` if [raw] is not an `http(s)` URL with a host and no userinfo.
+         * @return The parsed URL (IPv6 zone ids stripped), or `null` if [raw] is not an `http(s)` URL with a
+         *   host, no userinfo and a port in 1–65535.
          */
         fun parse(raw: String): GatewayUrl? {
-            val uri = runCatching { URI(raw.trim()) }.getOrNull() ?: return null
+            val uri = try {
+                URI(raw.trim())
+            } catch (_: URISyntaxException) {
+                return null
+            }
             val scheme = uri.scheme?.lowercase()?.takeIf { it == "http" || it == "https" }
-            val host = uri.host?.removePrefix("[")?.removeSuffix("]")?.takeIf { it.isNotEmpty() }
-            return if (scheme != null && host != null && uri.userInfo == null) {
-                val defaultPort = if (scheme == "https") HTTPS_DEFAULT_PORT else DEFAULT_GATEWAY_PORT
-                GatewayUrl(scheme, host, uri.port.takeIf { it in 1..MAX_PORT } ?: defaultPort)
+            val host = uri.host?.takeIf { uri.userInfo == null }
+                ?.removePrefix("[")?.removeSuffix("]")?.substringBefore('%')
+                ?.takeIf { it.isNotEmpty() }
+            val port = if (uri.port == -1) {
+                if (scheme == "https") HTTPS_DEFAULT_PORT else DEFAULT_GATEWAY_PORT
+            } else {
+                uri.port
+            }
+            return if (scheme != null && host != null && port in 1..MAX_PORT) {
+                GatewayUrl(scheme, host, port)
             } else {
                 null
             }
