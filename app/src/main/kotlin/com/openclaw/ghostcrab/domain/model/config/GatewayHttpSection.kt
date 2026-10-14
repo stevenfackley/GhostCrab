@@ -1,5 +1,7 @@
 package com.openclaw.ghostcrab.domain.model.config
 
+import com.openclaw.ghostcrab.domain.util.DEFAULT_GATEWAY_PORT
+
 import kotlinx.serialization.Serializable
 
 /**
@@ -11,5 +13,5 @@ import kotlinx.serialization.Serializable
 @Serializable
 data class GatewayHttpSection(
     val host: String = "0.0.0.0",
-    val port: Int = 18789,
+    val port: Int = DEFAULT_GATEWAY_PORT,
 )

@@ -1,5 +1,7 @@
 package com.openclaw.ghostcrab.domain.model
 
+import com.openclaw.ghostcrab.domain.util.GatewayUrl
+
 /**
  * A gateway discovered via mDNS (NsdManager).
  *
@@ -19,6 +21,6 @@ data class DiscoveredGateway(
     val displayName: String,
     val version: String?,
 ) {
-    /** Constructed base URL for use with [com.openclaw.ghostcrab.domain.repository.GatewayConnectionManager]. */
-    val url: String get() = "http://$hostAddress:$port"
+    /** Constructed base URL (IPv6-safe) for [com.openclaw.ghostcrab.domain.repository.GatewayConnectionManager]. */
+    val url: String get() = GatewayUrl.of(hostAddress, port).toString()
 }
