@@ -9,6 +9,8 @@ import com.openclaw.ghostcrab.data.impl.GatewayConnectionManagerImpl
 import com.openclaw.ghostcrab.data.impl.ModelRepositoryImpl
 import com.openclaw.ghostcrab.data.impl.OnboardingRepositoryImpl
 import com.openclaw.ghostcrab.data.impl.SettingsRepositoryImpl
+import com.openclaw.ghostcrab.data.impl.appSettingsDataStore
+import com.openclaw.ghostcrab.data.impl.onboardingDataStore
 import com.openclaw.ghostcrab.data.storage.ConnectionProfileStore
 import com.openclaw.ghostcrab.domain.repository.AIRecommendationService
 import com.openclaw.ghostcrab.domain.repository.ConfigRepository
@@ -46,8 +48,8 @@ val dataModule = module {
     single<ModelRepository> { ModelRepositoryImpl(get<GatewayConnectionManagerImpl>()) }
     single<AIRecommendationService> { AIRecommendationServiceImpl(get<GatewayConnectionManagerImpl>()) }
     single<DiscoveryService> { NsdDiscoveryServiceImpl(androidContext()) }
-    single<OnboardingRepository> { OnboardingRepositoryImpl(androidContext()) }
-    single<SettingsRepository> { SettingsRepositoryImpl(androidContext()) }
+    single<OnboardingRepository> { OnboardingRepositoryImpl(androidContext().onboardingDataStore) }
+    single<SettingsRepository> { SettingsRepositoryImpl(androidContext().appSettingsDataStore) }
 
     if (com.openclaw.ghostcrab.BuildConfig.SKILLS_INSTALL_ENABLED) {
         single<InstalledSkillRepository> { InstalledSkillRepositoryImpl(wsFactory = liveWsFactory()) }

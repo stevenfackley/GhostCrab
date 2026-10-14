@@ -10,7 +10,8 @@ import com.openclaw.ghostcrab.domain.repository.SettingsRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
-private val Context.appSettingsDataStore: DataStore<Preferences> by preferencesDataStore(
+/** App-settings store (file `app_settings`), provided to DI. */
+internal val Context.appSettingsDataStore: DataStore<Preferences> by preferencesDataStore(
     name = "app_settings",
 )
 
@@ -21,17 +22,17 @@ private val KEY_ALLOW_CLEARTEXT_PUBLIC = booleanPreferencesKey("allow_cleartext_
  *
  * All preferences default to `false` unless explicitly set.
  *
- * @param context Application context.
+ * @param dataStore The `app_settings` preferences store.
  */
-class SettingsRepositoryImpl(private val context: Context) : SettingsRepository {
+class SettingsRepositoryImpl(private val dataStore: DataStore<Preferences>) : SettingsRepository {
 
     override val allowCleartextPublicIPs: Flow<Boolean> =
-        context.appSettingsDataStore.data.map { prefs ->
+        dataStore.data.map { prefs ->
             prefs[KEY_ALLOW_CLEARTEXT_PUBLIC] ?: false
         }
 
     override suspend fun setAllowCleartextPublicIPs(enabled: Boolean) {
-        context.appSettingsDataStore.edit { prefs ->
+        dataStore.edit { prefs ->
             prefs[KEY_ALLOW_CLEARTEXT_PUBLIC] = enabled
         }
     }
