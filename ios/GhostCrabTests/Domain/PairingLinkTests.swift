@@ -187,6 +187,20 @@ struct PairingLinkTests {
         #expect(PairingLink.gatewayURL(from: "ghostcrab://pair?p=abc") == nil)
     }
 
+    @Test(arguments: ["http://[fe80::1%en0]:18789", "http://[fe80::1%25en0]:18789/status"])
+    func ipv6ZoneIdIsDropped(raw: String) throws {
+        let url = try #require(PairingLink.gatewayURL(from: raw))
+        #expect(url.absoluteString == "http://[fe80::1]:18789")
+        #expect(url.host?.contains("%") == false)
+    }
+
+    @Test func ipv6ZoneIdIsDroppedFromAPairingLink() throws {
+        let request = try PairingLink.decode(PairingLinkFixture.link(
+            json: #"{"v":1,"url":"http://[fe80::1%en0]:18789","token":"tok_123"}"#
+        ))
+        #expect(request.gatewayURL.absoluteString == "http://[fe80::1]:18789")
+    }
+
     // MARK: - Token redaction
 
     @Test func descriptionsNeverContainTheToken() throws {

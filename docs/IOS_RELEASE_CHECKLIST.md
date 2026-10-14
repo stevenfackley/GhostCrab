@@ -67,7 +67,7 @@ brew install xcodegen
 - [x] ATS: `NSAllowsLocalNetworking` only, no `NSAllowsArbitraryLoads` (`docs/adr/0006-ios-ats-local-networking.md`)
 - [x] Version: `MARKETING_VERSION` 0.2.0 in `ios/project.yml`, matching Android
 - [x] CI lane: `.github/workflows/ios-pr.yml` runs the tests on the iOS simulator and compiles Mac Catalyst on every PR touching `ios/`
-- [x] Release workflow: `ExportOptions.plist` only exports, `altool` is the single upload path, and the API key wipe works on macOS
+- [ ] Release workflow: changed on PR #127 (`ExportOptions.plist` export only with `altool` as the single upload path, validated build number, `rm`-based key wipe, sandbox entitlements kept through xcodegen). Unverified until the first TestFlight run (roadmap 4.12): `ios-release.yml` has never run.
 
 ---
 

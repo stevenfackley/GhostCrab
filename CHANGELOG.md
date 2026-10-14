@@ -31,7 +31,7 @@ The iOS / Mac Catalyst app (`ios/`) has not shipped a build yet. These changes c
 - The app builds on Xcode 27 under Swift 6 strict concurrency. CI had never compiled it before, and the build-info script phase failed with a dependency cycle.
 - Double taps no longer start parallel connects, deletes, onboarding steps, model activations, config saves or AI applies. Leaving a screen cancels its pending work.
 - An unreadable saved-profile list is backed up and reported instead of being overwritten by the next save.
-- Undecodable `/status`, `/models` and `/config` JSON reports the URL, HTTP status and decoding error instead of looking like a gateway with no models or config. HTML bodies (the upstream `/status` quirk) still connect.
+- Undecodable `/status`, `/models`, `/config` and `/api/skills` JSON reports the URL, HTTP status and decoding error instead of looking like a gateway with no models or config. HTML bodies (the upstream `/status` quirk) still connect.
 - A failed Keychain token cleanup is logged instead of swallowed.
 - QR scanner: Scan again, and coming back from Manual Entry, restart the camera; the first scan asks for camera access instead of saying "unavailable"; a scanner that cannot start shows why. A camera blocked by Screen Time or device management says so instead of pointing to the camera switch in Settings.
 - Back while connecting no longer leaves "Error connecting to …" on the gateway picker: a cancelled connect ends disconnected, and a session the gateway had already accepted is disconnected.
@@ -40,6 +40,8 @@ The iOS / Mac Catalyst app (`ios/`) has not shipped a build yet. These changes c
 - A skill install blocked by the cleartext policy shows the policy message instead of "Protocol error 0: …".
 - A pairing link's name is saved as the profile name.
 - Mac Catalyst builds no longer reference the iOS-only VisionKit scanner bridge.
+- Mac Catalyst keeps its App Sandbox and network client entitlements: `xcodegen generate` rewrote the entitlements file from `project.yml` and dropped them, and the Mac App Store rejects an unsandboxed app. The unused `network.server` entitlement is gone.
+- An IPv6 zone id (`%en0`) in a pairing link or pasted URL is dropped from the gateway URL, like Android.
 - The release workflow's API key wipe called `shred`, which macOS does not ship. It now deletes the key and fails if the file is still there.
 
 #### Security
@@ -50,7 +52,8 @@ The iOS / Mac Catalyst app (`ios/`) has not shipped a build yet. These changes c
 - **ATS local-only**: `Info.plist` declares `NSAllowsLocalNetworking` and never `NSAllowsArbitraryLoads` ([ADR-006](docs/adr/0006-ios-ats-local-networking.md)). Plain HTTP works only to IP addresses, unqualified host names and `.local` names.
 - **Privacy manifest**: `PrivacyInfo.xcprivacy` declares no tracking, no collected data and one required-reason API, UserDefaults (CA92.1). A test checks it ships in the bundle.
 - **Host validation** rejects `@`, `?`, `#` and `\` in the Manual Entry host field.
-- **Self-hosted CI**: the PR lane skips fork PRs and checks out without persisting the token.
+- **Connection state redacted**: `print`, `dump` and string interpolation of the connection state show the session token as `<redacted>`.
+- **Self-hosted CI**: the PR lane skips fork PRs and checks out without persisting the token. The release workflow validates the build number input and reads it, and the App Store Connect key id and issuer id, as shell variables instead of inline expressions; its checkout no longer persists the token either.
 
 ## [0.2.0] - 2026-10-14
 

@@ -197,9 +197,11 @@ public enum PairingLink {
     ///   ``defaultHTTPSPort`` when absent) and no path, query or fragment; or `nil`
     ///   unless `raw` is an `http`/`https` URL with a non-empty host, no userinfo
     ///   and a port in 1–65535. Oversized input (over ``maxLength``) is `nil`.
+    ///   An IPv6 zone id is dropped (`http://[fe80::1%en0]:18789` →
+    ///   `http://[fe80::1]:18789`), like Android's `GatewayUrl`.
     public static func gatewayURL(from raw: String) -> URL? {
         guard raw.utf8.count <= maxLength else { return nil }
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = strippingIPv6ZoneID(raw.trimmingCharacters(in: .whitespacesAndNewlines))
         guard let comps = URLComponents(string: trimmed),
               let urlScheme = comps.scheme?.lowercased(),
               urlScheme == "http" || urlScheme == "https",
@@ -221,6 +223,20 @@ public enum PairingLink {
     }
 
     // MARK: - Internals
+
+    /// Drops the zone id (`%en0`, or RFC 6874's encoded `%25en0`) from a
+    /// bracketed IPv6 host right after `://`. A zone names an interface on the
+    /// machine that made the link, is meaningless here, and is not valid in a
+    /// URL authority. Anything else is returned unchanged.
+    private static func strippingIPv6ZoneID(_ url: String) -> String {
+        guard let open = url.range(of: "://["),
+              let close = url[open.upperBound...].firstIndex(of: "]"),
+              let percent = url[open.upperBound..<close].firstIndex(of: "%")
+        else {
+            return url
+        }
+        return String(url[..<percent]) + String(url[close...])
+    }
 
     /// Just the schema version.
     private struct Header: Decodable {

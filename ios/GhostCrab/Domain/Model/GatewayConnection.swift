@@ -44,3 +44,61 @@ public enum GatewayConnection: Sendable {
     ///   - cause: The error that caused the failure.
     case error(url: String, cause: GatewayError)
 }
+
+// MARK: - Redacted descriptions
+
+/// `description`, `debugDescription` and the reflection mirror never include
+/// the bearer token carried by ``GatewayConnection/connected(url:displayName:version:authRequirement:isHttps:capabilities:hardwareInfo:tokenOrNull:)``,
+/// so a stray `print`, `dump`, string interpolation or log line cannot leak it.
+extension GatewayConnection: CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
+
+    /// Redacted form: `tokenOrNull` shows as `<redacted>` (or `nil`).
+    public var description: String {
+        switch self {
+        case .disconnected:
+            return "disconnected"
+        case let .connecting(url):
+            return "connecting(url: \(url))"
+        case let .connected(url, displayName, version, authRequirement, isHttps, capabilities, hardwareInfo, tokenOrNull):
+            return "connected(url: \(url), displayName: \(displayName), version: \(version), "
+                + "authRequirement: \(authRequirement), isHttps: \(isHttps), capabilities: \(capabilities), "
+                + "hardwareInfo: \(hardwareInfo ?? "nil"), tokenOrNull: \(Self.redacted(tokenOrNull)))"
+        case let .error(url, cause):
+            return "error(url: \(url), cause: \(cause))"
+        }
+    }
+
+    /// Same as ``description``.
+    public var debugDescription: String { description }
+
+    /// Mirror without the token, so `dump` stays redacted.
+    public var customMirror: Mirror {
+        switch self {
+        case .disconnected:
+            return Mirror(self, children: [:], displayStyle: .enum)
+        case let .connecting(url):
+            return Mirror(self, children: ["url": url], displayStyle: .enum)
+        case let .connected(url, displayName, version, authRequirement, isHttps, capabilities, hardwareInfo, tokenOrNull):
+            return Mirror(
+                self,
+                children: [
+                    "url": url,
+                    "displayName": displayName,
+                    "version": version,
+                    "authRequirement": authRequirement,
+                    "isHttps": isHttps,
+                    "capabilities": capabilities,
+                    "hardwareInfo": hardwareInfo ?? "nil",
+                    "tokenOrNull": Self.redacted(tokenOrNull),
+                ],
+                displayStyle: .enum
+            )
+        case let .error(url, cause):
+            return Mirror(self, children: ["url": url, "cause": cause], displayStyle: .enum)
+        }
+    }
+
+    private static func redacted(_ token: String?) -> String {
+        token == nil ? "nil" : "<redacted>"
+    }
+}

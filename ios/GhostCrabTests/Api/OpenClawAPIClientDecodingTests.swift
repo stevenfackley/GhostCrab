@@ -139,6 +139,36 @@ struct OpenClawAPIClientDecodingTests {
         }
     }
 
+    // MARK: - GET /api/skills
+
+    @Test func installedSkillsDecodeFromABareArrayOrAnEnvelope() async throws {
+        let skill = #"{"slug":"wanng-ide/auto-skill-hunter","installed_version":"1.0.0"}"#
+        let (arrayClient, _) = makeClient { _ in .init(status: 200, json: " \n[\(skill)]") }
+        let (envelopeClient, _) = makeClient { _ in .init(status: 200, json: #"{"skills":["# + skill + "]}") }
+
+        #expect(try await arrayClient.getInstalledSkills().map(\.slug) == ["wanng-ide/auto-skill-hunter"])
+        #expect(try await envelopeClient.getInstalledSkills().map(\.slug) == ["wanng-ide/auto-skill-hunter"])
+    }
+
+    @Test func installedSkillsHTMLStillYieldsEmptyList() async throws {
+        let (client, _) = makeClient { _ in .html() }
+        #expect(try await client.getInstalledSkills().isEmpty)
+    }
+
+    @Test func installedSkillsEnvelopeThatDoesNotDecodeIsAnError() async {
+        let (client, base) = makeClient { _ in .init(status: 200, json: #"{"skills":[{"slug":1}]}"#) }
+        await expectDeserializationFailure(url: base.absoluteString + "/api/skills", kind: "typeMismatch") {
+            _ = try await client.getInstalledSkills()
+        }
+    }
+
+    @Test func installedSkillsArrayThatDoesNotDecodeIsAnError() async {
+        let (client, base) = makeClient { _ in .init(status: 200, json: #"[{"slug":"a"}]"#) }
+        await expectDeserializationFailure(url: base.absoluteString + "/api/skills", kind: "keyNotFound") {
+            _ = try await client.getInstalledSkills()
+        }
+    }
+
     @Test func cleartextBlockedInstallIsNotRetryable() {
         let error = GatewayError.cleartextBlocked(url: "http://8.8.8.8:18789/api/skills/install", host: "8.8.8.8")
         let mapped = error.toSkillInstallError()

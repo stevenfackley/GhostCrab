@@ -349,7 +349,8 @@ public actor OpenClawAPIClient {
     /// - Throws: ``GatewayError/auth(url:statusCode:)`` if the endpoint
     ///   requires authentication.
     /// - Throws: ``GatewayError/api(url:statusCode:body:)`` on unexpected HTTP
-    ///   errors.
+    ///   errors, and for a JSON body that is neither shape (the body names
+    ///   the decoding error) instead of returning an empty list.
     /// - Throws: ``GatewayError/unreachable(url:underlying:)`` if the host
     ///   cannot be reached.
     /// - Throws: ``GatewayError/timeout(url:underlying:)`` if the request
@@ -361,14 +362,15 @@ public actor OpenClawAPIClient {
             try self.mapErrors(url: url, response: response)
             guard self.contentTypeIsJSON(response) else { return [] }
             // The gateway returns either a bare array or `{"skills":[...]}`
-            // depending on build. Tolerate both.
-            if let arr = try? self.decoder.decode([InstalledSkillDTO].self, from: data) {
-                return arr
+            // depending on build. The first non-whitespace byte picks the
+            // shape, which is then decoded strictly: a body that fails to
+            // decode reports the HTTP status and the decoding error instead
+            // of looking like a gateway with no skills installed.
+            let jsonWhitespace: [UInt8] = [0x20, 0x09, 0x0A, 0x0D]
+            if data.first(where: { !jsonWhitespace.contains($0) }) == UInt8(ascii: "[") {
+                return try self.decodeJSON([InstalledSkillDTO].self, from: data, url: url, response: response)
             }
-            if let envelope = try? self.decoder.decode(InstalledSkillsEnvelope.self, from: data) {
-                return envelope.skills
-            }
-            return []
+            return try self.decodeJSON(InstalledSkillsEnvelope.self, from: data, url: url, response: response).skills
         }
     }
 

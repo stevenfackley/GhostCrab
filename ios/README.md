@@ -76,7 +76,9 @@ git checkout -- GhostCrab/App/BuildInfo.swift
 Runs on every pull request that touches `ios/**` or the workflow file, on the self-hosted Mac mini runner `[self-hosted, macOS, ARM64]`. Fork PRs are skipped, and checkout does not persist the token. Two jobs:
 
 - `ios-pr`: `xcodegen generate`, then `xcodebuild test` on an iPhone simulator. The simulator is the first iPhone that `xcodebuild -showdestinations` lists for the scheme (falling back to `xcrun simctl list`), so an Xcode upgrade needs no workflow edit. The xcresult test summary prints on every run; on failure, crash reports print and the xcresult is uploaded.
-- `ios-pr-catalyst`: an unsigned `xcodebuild build` for `platform=macOS,variant=Mac Catalyst,arch=arm64`, so iOS-only APIs fail the PR instead of the release archive.
+- `ios-pr-catalyst`: checks that the generated entitlements still have App Sandbox and `network.client`, then runs an unsigned `xcodebuild build` for `platform=macOS,variant=Mac Catalyst,arch=arm64`, so iOS-only APIs fail the PR instead of the release archive.
+
+`xcodegen generate` writes `GhostCrab/Resources/GhostCrab.entitlements` from `project.yml` (`targets.GhostCrab.entitlements.properties`). Add entitlements there; a key only in the `.entitlements` file is dropped on the next generate.
 
 ### Release: `.github/workflows/ios-release.yml`
 
