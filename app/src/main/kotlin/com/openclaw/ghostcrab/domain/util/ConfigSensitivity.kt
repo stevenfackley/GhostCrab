@@ -37,3 +37,16 @@ fun JsonElement.redactSecrets(): JsonElement = when (this) {
     is JsonArray -> JsonArray(map { it.redactSecrets() })
     else -> this
 }
+
+private val SECURITY_PATH =
+    Regex("(?i)(auth|token|secret|password|api[_-]?key|tls|ssl|cert|cors|cleartext|host|bind|allow)")
+
+/**
+ * `true` when changing the config value at [path] can weaken the gateway's security posture
+ * (auth mode, credentials, TLS, bind address, CORS, cleartext or allow-lists). Over-matching is
+ * intentional: a false positive costs one confirmation tap, a false negative can disable auth.
+ *
+ * @param path Dotted config path, e.g. `"gateway.auth.mode"`.
+ * @return Whether applying a change at [path] needs explicit user confirmation.
+ */
+fun isSecurityAffectingConfigPath(path: String): Boolean = SECURITY_PATH.containsMatchIn(path)
