@@ -246,4 +246,6 @@
     <string name="onboarding_troubleshoot_host_vs_lan_4">Windows firewall rule must match the active network profile. Check: Get-NetConnectionProfile. If it shows Public, -Profile Private alone will not match — use -Profile Any or widen the existing rule: Set-NetFirewallRule -DisplayName "OpenClaw Gateway" -Profile Any.</string>
     <string name="onboarding_troubleshoot_host_vs_lan_5">Confirm LAN reachability from a second device on the same Wi-Fi: curl http://[host-ip]:18789/health. If that also fails, the phone is not the problem — router client-isolation, firewall, or gateway bind-address is.</string>
     <string name="onboarding_troubleshoot_host_vs_lan_6">If clearing the app fixed it, you had a stale saved profile with a typo. Re-enter the IP carefully and use Scan LAN when possible — auto-discovery avoids manual-typing bugs.</string>
+    <string name="field_secret_show">Show value</string>
+    <string name="field_secret_hide">Hide value</string>
 </resources>

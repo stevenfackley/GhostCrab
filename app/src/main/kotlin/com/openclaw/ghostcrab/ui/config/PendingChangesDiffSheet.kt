@@ -19,6 +19,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import com.openclaw.ghostcrab.domain.util.redactSecrets
 import androidx.compose.ui.text.TextStyle
 import com.openclaw.ghostcrab.ui.theme.BrandTokens
 import com.openclaw.ghostcrab.ui.theme.MonoFontFamily
@@ -51,8 +52,9 @@ fun PendingChangesDiffSheet(
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
-    val oldText = prettyJson.encodeToString(JsonElement.serializer(), oldValue)
-    val newText = prettyJson.encodeToString(JsonElement.serializer(), newValue)
+    // Secrets never render in clear, even in a confirmation sheet.
+    val oldText = prettyJson.encodeToString(JsonElement.serializer(), oldValue.redactSecrets())
+    val newText = prettyJson.encodeToString(JsonElement.serializer(), newValue.redactSecrets())
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,

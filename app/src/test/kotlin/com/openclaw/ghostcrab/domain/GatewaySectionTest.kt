@@ -95,4 +95,10 @@ class GatewaySectionTest {
         val json = Json.parseToJsonElement("""{"http":{"host":"127.0.0.1","port":9000}}""")
         assertEquals(9000, json.toGatewaySectionOrNull()?.http?.port)
     }
+
+    @Test fun `GatewayAuthSection toString never contains the token`() {
+        val text = GatewayAuthSection(mode = AuthMode.bearer, token = "s3cr3t").toString()
+        assertTrue(text.contains("[REDACTED]"))
+        assertTrue(!text.contains("s3cr3t"))
+    }
 }

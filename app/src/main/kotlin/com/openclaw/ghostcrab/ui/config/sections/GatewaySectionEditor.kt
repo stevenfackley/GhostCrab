@@ -124,6 +124,7 @@ private fun GatewayAuthFields(
                 setLeaf(listOf("auth", "token"), if (token.isEmpty()) JsonNull else JsonPrimitive(token))
             },
             mono = true,
+            secret = true,
             error = fieldErrors["gateway.auth.token"],
         )
     }

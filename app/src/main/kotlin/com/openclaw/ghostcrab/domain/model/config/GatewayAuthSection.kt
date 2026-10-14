@@ -1,5 +1,6 @@
 package com.openclaw.ghostcrab.domain.model.config
 
+import com.openclaw.ghostcrab.domain.util.REDACTED_PLACEHOLDER
 import kotlinx.serialization.Serializable
 
 /** Authentication mode advertised by the gateway. */
@@ -15,4 +16,8 @@ enum class AuthMode { none, bearer }
 data class GatewayAuthSection(
     val mode: AuthMode = AuthMode.none,
     val token: String? = null,
-)
+) {
+    /** Redacts [token] so the section can be logged or dumped without leaking the bearer. */
+    override fun toString(): String =
+        "GatewayAuthSection(mode=$mode, token=${token?.let { REDACTED_PLACEHOLDER }})"
+}
