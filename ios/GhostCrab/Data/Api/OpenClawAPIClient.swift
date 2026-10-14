@@ -37,6 +37,8 @@ public actor OpenClawAPIClient {
 
     public let baseURL: URL
     private let token: String?
+    /// This client's cleartext-to-public-IP opt-in; attached to every request in ``send(_:timeout:)``.
+    private let allowCleartextPublicIPs: Bool
     private let session: URLSession
     private let decoder: JSONDecoder
     private let encoder: JSONEncoder
@@ -55,12 +57,9 @@ public actor OpenClawAPIClient {
         self.baseURL = baseURL
         self.token = token
 
-        // Make sure the guard knows whether to permit cleartext public-IP calls.
-        // The closure is captured by value here so per-client setting wins for
-        // the lifetime of the configuration. If multiple clients exist with
-        // differing flags, the most recently constructed one wins — same
-        // semantics as Kotlin's per-engine interceptor closure.
-        CleartextPublicIPGuard.configure { allowCleartextPublicIPs }
+        // Per-client opt-in: attached to each request in send(_:timeout:);
+        // no process-global guard state.
+        self.allowCleartextPublicIPs = allowCleartextPublicIPs
 
         let config = URLSessionConfiguration.ephemeral
         // Ceiling only: `send(_:timeout:)` sets every request's own timeoutInterval.
@@ -574,7 +573,8 @@ public actor OpenClawAPIClient {
         return "Response deserialization failed (DecodingError.\(kind)): \(detail)"
     }
 
-    /// Sends a request with the Authorization header injected when a token is present.
+    /// Sends a request with the Authorization header injected when a token is present
+    /// and this client's cleartext opt-in attached for ``CleartextPublicIPGuard``.
     /// Logs at debug level with the Authorization header stripped.
     ///
     /// - Parameters:
@@ -589,6 +589,7 @@ public actor OpenClawAPIClient {
         if let token {
             req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
+        req = CleartextPublicIPGuard.tagged(req, allowCleartextPublicIPs: allowCleartextPublicIPs)
         Self.logDebug(req)
         return try await session.data(for: req)
     }

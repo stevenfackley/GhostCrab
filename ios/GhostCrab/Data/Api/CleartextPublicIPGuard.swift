@@ -1,55 +1,51 @@
 import Foundation
 
 /// `URLProtocol` subclass that blocks cleartext HTTP requests to public (non-LAN)
-/// IP addresses unless the user has explicitly opted in via [Configuration.isAllowed].
+/// IP addresses unless the sending client opted in.
 ///
-/// Only numeric IPv4/IPv6 literals are evaluated — hostname-based URLs are always
-/// allowed through (DNS-resolved addresses aren't checked here to avoid
-/// double-resolution latency).
+/// The opt-in travels on each request as a `URLProtocol` property
+/// (``allowPropertyKey``), set by `OpenClawAPIClient.send` via
+/// ``tagged(_:allowCleartextPublicIPs:)``. There is no process-global
+/// switch, so two clients with different settings never interfere. A request
+/// without the property is treated as "not allowed" (fail-safe).
+///
+/// Only numeric IPv4/IPv6 literals are evaluated. Hostname-based URLs pass
+/// through (DNS-resolved addresses aren't checked here); cleartext to qualified
+/// hostnames is refused earlier by iOS ATS (``ATSCleartextPolicy``,
+/// `docs/adr/0006-ios-ats-local-networking.md`).
 ///
 /// Private ranges allowed by default: RFC-1918 (10/8, 172.16/12, 192.168/16),
 /// link-local (169.254/16), and loopback (127/8). IPv6 loopback (`::1`),
 /// link-local (`fe80::/10`) and unique-local (`fc00::/7`) all pass through.
 ///
-/// Direct port of `CleartextPublicIpInterceptor.kt`.
-///
-/// ### Usage
-/// Register the guard's closure once at app startup, then add the protocol class
-/// to the relevant `URLSessionConfiguration.protocolClasses`:
-/// ```swift
-/// CleartextPublicIPGuard.configure { settings.allowCleartextPublicIPs }
-/// config.protocolClasses = [CleartextPublicIPGuard.self] + (config.protocolClasses ?? [])
-/// ```
+/// Direct port of `CleartextPublicIpInterceptor.kt`, whose opt-in is likewise
+/// bound to one client (its OkHttp engine), not to the process.
 public final class CleartextPublicIPGuard: URLProtocol, @unchecked Sendable {
 
-    // MARK: - Configuration
+    // MARK: - Per-request opt-in
 
-    /// Thread-safe holder for the `isAllowed` closure. The system instantiates
-    /// `URLProtocol` subclasses on demand, so we can't inject per-instance state
-    /// without a class-level handoff.
-    private final class Configuration: @unchecked Sendable {
-        private let lock = NSLock()
-        private var _isAllowed: @Sendable () -> Bool = { false }
+    /// `URLProtocol` property key carrying the sending client's opt-in (`Bool`).
+    static let allowPropertyKey = "com.qavren.ghostcrab.allowCleartextPublicIPs"
 
-        var isAllowed: Bool {
-            lock.lock(); defer { lock.unlock() }
-            return _isAllowed()
+    /// Returns a copy of `request` tagged with the client's cleartext opt-in.
+    ///
+    /// - Parameters:
+    ///   - request: Outgoing request.
+    ///   - allowCleartextPublicIPs: The client's setting.
+    /// - Returns: The tagged request. If the copy cannot be made mutable, the
+    ///   untagged request is returned, which the guard treats as "not allowed".
+    static func tagged(_ request: URLRequest, allowCleartextPublicIPs: Bool) -> URLRequest {
+        guard let mutable = (request as NSURLRequest).mutableCopy() as? NSMutableURLRequest else {
+            return request
         }
-
-        func set(_ closure: @escaping @Sendable () -> Bool) {
-            lock.lock(); defer { lock.unlock() }
-            _isAllowed = closure
-        }
+        URLProtocol.setProperty(allowCleartextPublicIPs, forKey: allowPropertyKey, in: mutable)
+        return mutable as URLRequest
     }
 
-    private static let configuration = Configuration()
-
-    /// Install the gate-keeper closure. Called once at app composition root.
-    ///
-    /// - Parameter isAllowed: Closure that returns `true` if cleartext-to-public-IP
-    ///   requests should be permitted. Typically reads the setting from `SettingsStore`.
-    public static func configure(_ isAllowed: @escaping @Sendable () -> Bool) {
-        configuration.set(isAllowed)
+    /// Whether `request` carries a client opt-in for cleartext to public IPs.
+    /// Missing or non-Bool values read as `false`.
+    static func isAllowed(_ request: URLRequest) -> Bool {
+        (URLProtocol.property(forKey: allowPropertyKey, in: request) as? Bool) ?? false
     }
 
     // MARK: - URLProtocol
@@ -58,8 +54,9 @@ public final class CleartextPublicIPGuard: URLProtocol, @unchecked Sendable {
         guard let url = request.url else { return false }
         guard url.scheme?.lowercased() == "http" else { return false }
         guard let host = url.host else { return false }
-        // Only intercept (and reject) if this is a public IP literal AND not allowed.
-        return isPublicIPLiteral(host) && !configuration.isAllowed
+        // Only intercept (and reject) if this is a public IP literal AND the
+        // sending client did not opt in.
+        return isPublicIPLiteral(host) && !isAllowed(request)
     }
 
     public override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
