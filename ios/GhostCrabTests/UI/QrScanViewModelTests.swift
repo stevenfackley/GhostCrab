@@ -116,11 +116,28 @@ struct QrScanViewModelTests {
         #expect(vm.error == "QR code doesn't contain a valid gateway URL")
     }
 
-    @Test func clearErrorReenablesScanning() {
-        let (vm, _) = makeVM()
+    @Test func scanAgainClearsTheErrorAndStartsANewGeneration() {
+        let (vm, recorder) = makeVM()
         vm.onCodeScanned("not a url")
         #expect(vm.error != nil)
-        vm.clearError()
+        let generation = vm.scanGeneration
+
+        vm.scanAgain()
+
         #expect(vm.error == nil)
+        // A new generation is what makes the scanner bridge restart capture.
+        #expect(vm.scanGeneration == generation + 1)
+        vm.onCodeScanned("http://192.168.1.20:18789")
+        #expect(recorder.urls.map(\.absoluteString) == ["http://192.168.1.20:18789"])
+    }
+
+    @Test func reappearingStartsANewGeneration() {
+        let (vm, _) = makeVM()
+        vm.onCodeScanned("http://192.168.1.20:18789")
+        let generation = vm.scanGeneration
+
+        vm.screenDidAppear()
+
+        #expect(vm.scanGeneration == generation + 1)
     }
 }

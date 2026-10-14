@@ -41,7 +41,11 @@ public struct QrScanScreen: View {
         .toolbarColorScheme(.dark, for: .navigationBar)
         #endif
         .onAppear {
-            guard vm == nil else { return }
+            if let vm {
+                // Back from Manual Entry: an accepted scan stopped capture.
+                vm.screenDidAppear()
+                return
+            }
             let new = container.makeQrScanVM()
             // URL only: a pairing token was already stashed in the container's
             // PairingHandoff and never enters the route.
@@ -70,6 +74,7 @@ public struct QrScanScreen: View {
         ZStack {
             #if os(iOS)
             QRScannerRepresentable(
+                scanGeneration: vm.scanGeneration,
                 onPayload: { payload in
                     vm.onCodeScanned(payload)
                 }
@@ -96,7 +101,7 @@ public struct QrScanScreen: View {
                     .padding(DesignTokens.Spacing.md)
 
                     Button("Scan again") {
-                        vm.clearError()
+                        vm.scanAgain()
                     }
                     .font(AppFont.bodyBold(14))
                     .foregroundStyle(DesignTokens.Color.cyanPrimary)
@@ -212,9 +217,11 @@ private struct ViewfinderOverlay: View {
 /// proactively request access so the first prompt isn't deferred.
 private struct QRScannerRepresentable: UIViewControllerRepresentable {
 
+    /// ``QrScanViewModel/scanGeneration``; a change restarts capture.
+    let scanGeneration: Int
     let onPayload: (String) -> Void
 
-    func makeCoordinator() -> Coordinator { Coordinator(onPayload: onPayload) }
+    func makeCoordinator() -> Coordinator { Coordinator(scanGeneration: scanGeneration, onPayload: onPayload) }
 
     func makeUIViewController(context: Context) -> UIViewController {
         // Deployment target is iOS 18+, so `DataScannerViewController` is always
@@ -247,15 +254,31 @@ private struct QRScannerRepresentable: UIViewControllerRepresentable {
         return scanner
     }
 
-    func updateUIViewController(_ uiViewController: UIViewController, context: Context) {}
+    func updateUIViewController(_ uiViewController: UIViewController, context: Context) {
+        context.coordinator.restartIfNeeded(scanGeneration: scanGeneration)
+    }
 
     final class Coordinator: NSObject, DataScannerViewControllerDelegate {
         let onPayload: (String) -> Void
         weak var scanner: DataScannerViewController?
         private var didEmit = false
+        private var scanGeneration: Int
 
-        init(onPayload: @escaping (String) -> Void) {
+        init(scanGeneration: Int, onPayload: @escaping (String) -> Void) {
+            self.scanGeneration = scanGeneration
             self.onPayload = onPayload
+        }
+
+        /// Re-arms the scanner when the VM starts a new scan generation ("Scan
+        /// again", or the screen reappearing). Emitting a payload stops
+        /// capture, so without this the camera would stay frozen.
+        @MainActor
+        func restartIfNeeded(scanGeneration newGeneration: Int) {
+            guard newGeneration != scanGeneration else { return }
+            scanGeneration = newGeneration
+            didEmit = false
+            guard let scanner, !scanner.isScanning else { return }
+            try? scanner.startScanning()
         }
 
         func dataScanner(

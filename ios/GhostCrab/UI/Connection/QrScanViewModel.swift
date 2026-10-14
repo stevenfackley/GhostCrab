@@ -27,6 +27,12 @@ public final class QrScanViewModel {
     /// Never echoes the payload (a pairing payload contains the token).
     public private(set) var error: String?
 
+    /// Bumped by ``scanAgain()`` and ``screenDidAppear()``. The scanner bridge
+    /// stops capture after it emits one payload and restarts it whenever this
+    /// value changes, so "Scan again" after a rejected code, or coming back
+    /// from Manual Entry, gets a live camera again.
+    public private(set) var scanGeneration: Int = 0
+
     // MARK: - Side-effect callback
 
     /// Invoked with the gateway URL when a scan is accepted. Carries no secrets.
@@ -83,9 +89,17 @@ public final class QrScanViewModel {
         accept(url)
     }
 
-    /// Re-enables the scanner after an invalid scan was surfaced.
-    public func clearError() {
+    /// "Scan again" after an invalid scan was surfaced: clears ``error`` and
+    /// starts a new ``scanGeneration`` so the scanner restarts capture.
+    public func scanAgain() {
         error = nil
+        scanGeneration += 1
+    }
+
+    /// The screen appeared (first push, or back from Manual Entry after an
+    /// accepted scan stopped capture). Starts a new ``scanGeneration``.
+    public func screenDidAppear() {
+        scanGeneration += 1
     }
 
     // MARK: - Internals
