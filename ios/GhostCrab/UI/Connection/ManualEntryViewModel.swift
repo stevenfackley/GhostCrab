@@ -74,8 +74,8 @@ public final class ManualEntryViewModel {
     /// An IPv6 literal is bracketed and loses its zone id (`fe80::1%en0` →
     /// `http://[fe80::1]:18789`), like Android's `GatewayUrl`.
     public var assembledURL: String {
-        let urlHost = Self.urlHost(host)
-        let hostPart = urlHost.contains(":") ? "[\(urlHost)]" : urlHost
+        let bareHost = Self.urlHost(host)
+        let hostPart = bareHost.contains(":") ? "[\(bareHost)]" : bareHost
         return "\(scheme)://\(hostPart):\(port.trimmingCharacters(in: .whitespaces))"
     }
 
