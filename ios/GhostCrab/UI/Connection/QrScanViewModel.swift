@@ -25,7 +25,7 @@ public enum QrScannerFailure: Error, Sendable, Equatable {
 /// 2. **Pairing link**: `ghostcrab://pair?p=<base64url JSON>`, decoded by ``PairingLink``.
 ///    The gateway URL becomes the prefill. The bearer token and suggested name (if any) are stashed
 ///    in ``PairingHandoff`` and are never passed to navigation, because `Route`
-///    is `Hashable` and lives in `NavigationPath` / state restoration.
+///    is `Hashable` and lives in the navigation path / state restoration.
 ///
 /// Input over ``PairingLink/maxLength`` is rejected before any parsing. A scan
 /// never connects: it only pre-fills the manual-entry form.

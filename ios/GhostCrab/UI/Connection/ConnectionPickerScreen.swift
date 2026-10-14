@@ -9,7 +9,7 @@ import SwiftUI
 /// - Surfaces `ConnectionStatusBar` at the top when the gateway is currently
 ///   `.connecting` or `.error`.
 /// - Tap a profile → auto-connect via VM; on success VM flips `navigateToDashboard`
-///   and we push `.dashboard`.
+///   and `navigate.toDashboard()` shows the dashboard directly on the picker.
 public struct ConnectionPickerScreen: View {
 
     @Environment(\.navigate) private var navigate
@@ -67,7 +67,7 @@ public struct ConnectionPickerScreen: View {
         }
         .onChange(of: vm.navigateToDashboard) { _, ready in
             if ready {
-                navigate(.dashboard)
+                navigate.toDashboard()
                 vm.consumeNavigation()
             }
         }

@@ -212,7 +212,7 @@ public struct ManualEntryScreen: View {
         }
         .onChange(of: vm.navigateToDashboard) { _, ready in
             if ready {
-                navigate(.dashboard)
+                navigate.toDashboard()
                 vm.consumeNavigation()
             }
         }

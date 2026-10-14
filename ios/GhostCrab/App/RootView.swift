@@ -14,19 +14,18 @@ import SwiftUI
 struct RootView: View {
 
     @Environment(\.appContainer) private var container
-    @State private var path = NavigationPath()
-    @State private var startRoute: Route?
+    @State private var navigator = Navigator()
     @State private var deepLinkError: String?
 
     var body: some View {
-        NavigationStack(path: $path) {
+        NavigationStack(path: $navigator.path) {
             startGate
                 .navigationDestination(for: Route.self) { destination(for: $0) }
         }
         // Set on the whole stack so pushed destinations get it too. Set inside
         // `startGate` it reached only the start screen, and every pushed screen
         // (manual entry → dashboard, AI → installed skills) got the no-op default.
-        .environment(\.navigate, NavigateAction { route in path.append(route) })
+        .environment(\.navigate, NavigateAction(navigator))
         .task { await resolveStartRoute() }
         .onOpenURL { handleOpenURL($0) }
         .alert(
@@ -48,8 +47,8 @@ struct RootView: View {
 
     @ViewBuilder
     private var startGate: some View {
-        if let startRoute {
-            destination(for: startRoute)
+        if let root = navigator.root {
+            destination(for: root)
         } else {
             // Pre-resolution splash: solid abyss + spinner. Brief; resolves on first frame.
             DesignTokens.Color.abyss
@@ -63,7 +62,7 @@ struct RootView: View {
 
     private func resolveStartRoute() async {
         let completed = await container.onboarding.isCompleted()
-        startRoute = completed ? .connectionPicker : .onboarding
+        navigator.resolveRoot(completed ? .connectionPicker : .onboarding)
     }
 
     // MARK: - Deep links
@@ -72,14 +71,14 @@ struct RootView: View {
     /// Other schemes are ignored.
     ///
     /// The token goes to the container's ``PairingHandoff``; only the gateway URL
-    /// enters the navigation path. Nothing connects until the user taps Connect,
-    /// so a hostile link can at most pre-fill a form the user can read and reject.
+    /// enters the navigation path, and a repeated delivery of the same link is
+    /// dropped (see ``PairingDeepLink/open(_:handoff:navigator:)``). Nothing
+    /// connects until the user taps Connect, so a hostile link can at most
+    /// pre-fill a form the user can read and reject.
     /// The alert never echoes the payload (it contains the token).
     private func handleOpenURL(_ url: URL) {
         do {
-            if let route = try PairingDeepLink.route(for: url, handoff: container.pairingHandoff) {
-                path.append(route)
-            }
+            try PairingDeepLink.open(url, handoff: container.pairingHandoff, navigator: navigator)
         } catch {
             deepLinkError = PairingDeepLink.rejectionMessage(for: url, error: error)
         }
@@ -115,26 +114,5 @@ struct RootView: View {
         case .settings:
             SettingsScreen()
         }
-    }
-}
-
-// MARK: - Navigate action (passed down the tree)
-
-/// A lightweight typed-route navigator passed via Environment.
-/// Screens call `navigate(.dashboard)` to push without coupling to `NavigationPath`.
-public struct NavigateAction: Sendable {
-    private let push: @MainActor @Sendable (Route) -> Void
-    public init(_ push: @escaping @MainActor @Sendable (Route) -> Void) { self.push = push }
-    @MainActor public func callAsFunction(_ route: Route) { push(route) }
-}
-
-private struct NavigateKey: EnvironmentKey {
-    static let defaultValue = NavigateAction { _ in }
-}
-
-extension EnvironmentValues {
-    public var navigate: NavigateAction {
-        get { self[NavigateKey.self] }
-        set { self[NavigateKey.self] = newValue }
     }
 }

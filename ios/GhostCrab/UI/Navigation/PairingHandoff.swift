@@ -45,7 +45,7 @@ extension PairedGateway: CustomStringConvertible, CustomDebugStringConvertible, 
 /// manual-entry form.
 ///
 /// Why not `Route.manualEntry(prefillURL:token:)`: `Route` is `Hashable` and
-/// lives in `NavigationPath`, which SwiftUI may encode for state restoration,
+/// lives in the navigation path, which SwiftUI may encode for state restoration,
 /// so a token there could be written to disk. Here it lives only in memory,
 /// is cleared by the first ``takePairing(for:)`` (matching or not) and
 /// expires after ``defaultTTL`` (or the injected `ttl`), so an
