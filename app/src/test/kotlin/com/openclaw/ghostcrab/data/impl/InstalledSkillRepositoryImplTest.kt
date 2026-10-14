@@ -60,4 +60,15 @@ class InstalledSkillRepositoryImplTest {
         assertTrue(err is SkillInstallError.Unauthorized)
         assertEquals("operator.admin", (err as SkillInstallError.Unauthorized).missingScope)
     }
+
+    @Test
+    fun `install emits Failed Network when no session can be opened`() = runTest {
+        val repo = InstalledSkillRepositoryImpl { error("Cannot install skills while disconnected") }
+
+        val progress = repo.install("foo/bar").toList()
+
+        assertTrue(progress.first() is SkillInstallProgress.Connecting)
+        val failed = progress.last() as SkillInstallProgress.Failed
+        assertTrue(failed.error is SkillInstallError.Network)
+    }
 }

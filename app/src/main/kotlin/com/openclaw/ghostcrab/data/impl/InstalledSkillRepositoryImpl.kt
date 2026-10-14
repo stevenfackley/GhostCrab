@@ -6,6 +6,7 @@ import com.openclaw.ghostcrab.domain.model.SkillInstallError
 import com.openclaw.ghostcrab.domain.model.SkillInstallProgress
 import com.openclaw.ghostcrab.domain.model.SkillSource
 import com.openclaw.ghostcrab.domain.repository.InstalledSkillRepository
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
@@ -74,7 +75,15 @@ class InstalledSkillRepositoryImpl(
     @Suppress("LongMethod")
     override fun install(slug: String, version: String?): Flow<SkillInstallProgress> = channelFlow {
         send(SkillInstallProgress.Connecting(slug))
-        val ws = wsFactory()
+        val ws = try {
+            wsFactory()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // No live session (disconnected) or the WS upgrade failed: report, never crash the collector.
+            send(SkillInstallProgress.Failed(SkillInstallError.Network(e.message ?: e::class.java.simpleName)))
+            return@channelFlow
+        }
 
         val notifJob = ws.notifications
             .filter { it.method == "skills.install.progress" }
