@@ -97,7 +97,7 @@ public struct SettingsScreen: View {
                 .font(AppFont.bodyBold(12))
                 .foregroundStyle(DesignTokens.Color.cyanPrimary)
         } footer: {
-            Text("Disables the cleartext-IP guard for non-private addresses. Loopback and RFC-1918 ranges are always allowed. Leave this off unless you knowingly connect to a public-IP gateway over HTTP.")
+            Text("Allows HTTP to public IP addresses; loopback, link-local and RFC-1918 ranges are always allowed. It cannot unlock HTTP to hostnames such as gw.example.com or *.ts.net: iOS App Transport Security blocks those regardless, so use HTTPS. Leave this off unless you knowingly connect to a public-IP gateway over HTTP.")
                 .font(AppFont.body(12))
                 .foregroundStyle(DesignTokens.Color.textSecondary)
         }

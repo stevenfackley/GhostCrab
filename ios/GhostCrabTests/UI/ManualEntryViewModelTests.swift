@@ -65,4 +65,17 @@ struct ManualEntryViewModelTests {
         #expect(gateway.connectURLs.isEmpty)
         #expect(!vm.isConnecting)
     }
+
+    @Test func warnsWhenATSWillBlockPlainHTTPToAHostname() {
+        let vm = makeVM(handoff: PairingHandoff())
+        vm.setHost("box.tailnet-1234.ts.net")
+        #expect(vm.cleartextBlockedByATS)
+
+        vm.useHttps = true
+        #expect(!vm.cleartextBlockedByATS)
+
+        vm.useHttps = false
+        vm.setHost("192.168.1.20")
+        #expect(!vm.cleartextBlockedByATS)
+    }
 }

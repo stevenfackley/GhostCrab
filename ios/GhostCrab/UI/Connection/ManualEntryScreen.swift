@@ -68,6 +68,11 @@ public struct ManualEntryScreen: View {
                                 .font(AppFont.body(12))
                                 .foregroundStyle(DesignTokens.Color.crimsonError)
                         }
+                        if vm.cleartextBlockedByATS {
+                            Text("iOS blocks plain HTTP to internet hostnames (App Transport Security). Turn on HTTPS, or use the gateway's IP address or .local name.")
+                                .font(AppFont.body(12))
+                                .foregroundStyle(DesignTokens.Color.amberWarn)
+                        }
                     }
 
                     VStack(alignment: .leading, spacing: DesignTokens.Spacing.xs) {

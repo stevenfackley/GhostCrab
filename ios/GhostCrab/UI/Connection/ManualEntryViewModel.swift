@@ -67,6 +67,13 @@ public final class ManualEntryViewModel {
         "\(scheme)://\(host.trimmingCharacters(in: .whitespaces)):\(port.trimmingCharacters(in: .whitespaces))"
     }
 
+    /// `true` when HTTPS is off and iOS ATS will refuse plain HTTP to ``host``
+    /// (a qualified hostname that is neither an IP literal nor `.local`).
+    /// The screen shows a warning; connecting would fail before the request leaves the device.
+    public var cleartextBlockedByATS: Bool {
+        !useHttps && ATSCleartextPolicy.blocksCleartext(host: host)
+    }
+
     // MARK: - Field setters
 
     public func setHost(_ value: String) {

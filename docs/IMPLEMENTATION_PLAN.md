@@ -623,5 +623,6 @@ ADRs live under `docs/adr/NNNN-title.md`. The plan reserves these IDs:
 - ADR-003 — Stateless client; no offline config cache
 - ADR-004 — Gateway-proxied AI vs direct LLM API
 - ADR-005 — Onboarding does not execute privileged actions on user machines
+- ADR-006 — iOS App Transport Security: local networking only, no arbitrary loads (written 2026-10-14)
 
 Backfilled in Phase 10; created earlier if a deviation forces the decision sooner.
