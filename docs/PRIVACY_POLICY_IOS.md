@@ -54,8 +54,7 @@ When you connect to a gateway, the app sends:
 | `NSBonjourServices` (`_openclaw-gw._tcp`) | mDNS browsing for OpenClaw gateways advertising on the LAN | Implicit, on Scan screen open |
 | `NSCameraUsageDescription` | QR code scanner for pairing with a gateway via Cloudflare Tunnel URL or `ghostcrab://pair` deep link | First time the QR Scan screen is opened |
 | App Sandbox (Mac Catalyst only) | Required by Apple for Mac App Store distribution | Always enabled |
-| `com.apple.security.network.client` (Mac Catalyst) | Outbound network requests to your gateway | Always enabled |
-| `com.apple.security.network.server` (Mac Catalyst) | Inbound mDNS responses for LAN discovery | Always enabled |
+| `com.apple.security.network.client` (Mac Catalyst) | Outbound network requests to your gateway and Bonjour browsing for LAN discovery | Always enabled |
 
 No location, microphone, contacts, photos, calendar, reminders, motion, health, or media library permissions are requested.
 

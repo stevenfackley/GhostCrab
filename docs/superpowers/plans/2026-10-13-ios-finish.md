@@ -6,7 +6,7 @@
 
 **Architecture:** Pure SwiftUI with `@Observable @MainActor` ViewModels and hand-rolled DI in `AppContainer`. The frozen `Domain/Repository` protocols are not touched; every new type is additive. Secrets cross screens only through an in-memory one-shot `PairingHandoff` owned by `AppContainer`, never through `Route`. Networking stays in the `OpenClawAPIClient` actor, and per-request policy (timeouts, cleartext opt-in) moves from process-global state onto each `URLRequest`.
 
-**Tech Stack:** Swift 6 (`SWIFT_STRICT_CONCURRENCY: complete`), SwiftUI, iOS 18 / Mac Catalyst 14, XcodeGen, Swift Testing (`import Testing`) for unit tests, XCTest/XCUITest for the launch smoke test, GitHub Actions on the self-hosted Mac Mini runner.
+**Tech Stack:** Swift 6 (`SWIFT_STRICT_CONCURRENCY: complete`), SwiftUI, iOS 18 / Mac Catalyst 17 (macOS 14 Sonoma deployment target), XcodeGen, Swift Testing (`import Testing`) for unit tests, XCTest/XCUITest for the launch smoke test, GitHub Actions on the self-hosted Mac Mini runner.
 
 ---
 

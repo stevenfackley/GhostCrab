@@ -32,10 +32,17 @@ jobs:
       IOS_EXPORT_PATH: ${{ github.workspace }}/ios/build/export-ios
       MAC_EXPORT_PATH: ${{ github.workspace }}/ios/build/export-macos
       EXPORT_OPTIONS: ${{ github.workspace }}/ios/ExportOptions.plist
+      # Identifiers only; scripts read them as shell variables, never as
+      # inline expressions. The private key (ASC_KEY_P8) stays scoped to the
+      # one step that writes it to disk.
+      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Resolve Xcode
         run: |
@@ -54,16 +61,20 @@ jobs:
 
       - name: Resolve build number
         id: build_number
+        env:
+          BUILD_NUMBER_INPUT: ${{ inputs.build_number }}
+          RUN_NUMBER: ${{ github.run_number }}
         run: |
-          if [ -n "${{ inputs.build_number }}" ]; then
-            echo "value=${{ inputs.build_number }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "value=${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+          V="${BUILD_NUMBER_INPUT:-$RUN_NUMBER}"
+          # CFBundleVersion: one to three dot-separated integers.
+          if ! printf '%s' "$V" | grep -Eq '^[0-9]+(\.[0-9]+){0,2}$'; then
+            echo "::error::build_number must be one to three dot-separated integers (e.g. 42 or 1.2.3)"
+            exit 1
           fi
+          echo "value=$V" >> "$GITHUB_OUTPUT"
 
       - name: Install App Store Connect API key
         env:
-          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
         run: |
           mkdir -p ~/.appstoreconnect/private_keys
@@ -74,6 +85,8 @@ jobs:
 
       - name: Archive (iOS)
         working-directory: ${{ env.WORKING_DIR }}
+        env:
+          BUILD_NUMBER: ${{ steps.build_number.outputs.value }}
         run: |
           xcodebuild \
             -project GhostCrab.xcodeproj \
@@ -81,11 +94,11 @@ jobs:
             -configuration Release \
             -destination "generic/platform=iOS" \
             -archivePath "${IOS_ARCHIVE_PATH}" \
-            CURRENT_PROJECT_VERSION="${{ steps.build_number.outputs.value }}" \
+            CURRENT_PROJECT_VERSION="${BUILD_NUMBER}" \
             -allowProvisioningUpdates \
-            -authenticationKeyPath "$HOME/.appstoreconnect/private_keys/AuthKey_${{ secrets.ASC_KEY_ID }}.p8" \
-            -authenticationKeyID "${{ secrets.ASC_KEY_ID }}" \
-            -authenticationKeyIssuerID "${{ secrets.ASC_ISSUER_ID }}" \
+            -authenticationKeyPath "$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8" \
+            -authenticationKeyID "${ASC_KEY_ID}" \
+            -authenticationKeyIssuerID "${ASC_ISSUER_ID}" \
             archive
 
       - name: Export IPA (iOS)
@@ -97,23 +110,25 @@ jobs:
             -exportPath "${IOS_EXPORT_PATH}" \
             -exportOptionsPlist "${EXPORT_OPTIONS}" \
             -allowProvisioningUpdates \
-            -authenticationKeyPath "$HOME/.appstoreconnect/private_keys/AuthKey_${{ secrets.ASC_KEY_ID }}.p8" \
-            -authenticationKeyID "${{ secrets.ASC_KEY_ID }}" \
-            -authenticationKeyIssuerID "${{ secrets.ASC_ISSUER_ID }}"
+            -authenticationKeyPath "$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8" \
+            -authenticationKeyID "${ASC_KEY_ID}" \
+            -authenticationKeyIssuerID "${ASC_ISSUER_ID}"
 
       - name: Upload iOS build to TestFlight
         run: |
           xcrun altool --upload-app \
             -f "${IOS_EXPORT_PATH}/GhostCrab.ipa" \
             -t ios \
-            --apiKey "${{ secrets.ASC_KEY_ID }}" \
-            --apiIssuer "${{ secrets.ASC_ISSUER_ID }}"
+            --apiKey "${ASC_KEY_ID}" \
+            --apiIssuer "${ASC_ISSUER_ID}"
 
       # ── Mac Catalyst ───────────────────────────────────────────────────────
 
       - name: Archive (Mac Catalyst)
         if: inputs.skip_macos != true
         working-directory: ${{ env.WORKING_DIR }}
+        env:
+          BUILD_NUMBER: ${{ steps.build_number.outputs.value }}
         run: |
           xcodebuild \
             -project GhostCrab.xcodeproj \
@@ -121,11 +136,11 @@ jobs:
             -configuration Release \
             -destination "generic/platform=macOS,variant=Mac Catalyst" \
             -archivePath "${MAC_ARCHIVE_PATH}" \
-            CURRENT_PROJECT_VERSION="${{ steps.build_number.outputs.value }}" \
+            CURRENT_PROJECT_VERSION="${BUILD_NUMBER}" \
             -allowProvisioningUpdates \
-            -authenticationKeyPath "$HOME/.appstoreconnect/private_keys/AuthKey_${{ secrets.ASC_KEY_ID }}.p8" \
-            -authenticationKeyID "${{ secrets.ASC_KEY_ID }}" \
-            -authenticationKeyIssuerID "${{ secrets.ASC_ISSUER_ID }}" \
+            -authenticationKeyPath "$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8" \
+            -authenticationKeyID "${ASC_KEY_ID}" \
+            -authenticationKeyIssuerID "${ASC_ISSUER_ID}" \
             archive
 
       - name: Export PKG (Mac Catalyst)
@@ -138,9 +153,9 @@ jobs:
             -exportPath "${MAC_EXPORT_PATH}" \
             -exportOptionsPlist "${EXPORT_OPTIONS}" \
             -allowProvisioningUpdates \
-            -authenticationKeyPath "$HOME/.appstoreconnect/private_keys/AuthKey_${{ secrets.ASC_KEY_ID }}.p8" \
-            -authenticationKeyID "${{ secrets.ASC_KEY_ID }}" \
-            -authenticationKeyIssuerID "${{ secrets.ASC_ISSUER_ID }}"
+            -authenticationKeyPath "$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8" \
+            -authenticationKeyID "${ASC_KEY_ID}" \
+            -authenticationKeyIssuerID "${ASC_ISSUER_ID}"
 
       - name: Upload Mac Catalyst build to TestFlight
         if: inputs.skip_macos != true
@@ -154,8 +169,8 @@ jobs:
           xcrun altool --upload-app \
             -f "$PKG_PATH" \
             -t macos \
-            --apiKey "${{ secrets.ASC_KEY_ID }}" \
-            --apiIssuer "${{ secrets.ASC_ISSUER_ID }}"
+            --apiKey "${ASC_KEY_ID}" \
+            --apiIssuer "${ASC_ISSUER_ID}"
 
       # ── Artifacts + cleanup ────────────────────────────────────────────────
 
@@ -174,8 +189,6 @@ jobs:
 
       - name: Wipe ASC API key
         if: always()
-        env:
-          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
         run: |
           # macOS has no shred(1), so the old `shred -u ... || rm -f ...` only ever
           # reached its rm. On APFS (copy-on-write SSD) an in-place overwrite gives
