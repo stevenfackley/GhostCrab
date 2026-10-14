@@ -10,8 +10,9 @@ import SwiftUI
 /// method per screen ViewModel to centralise wiring.
 ///
 /// Equivalent to the Koin `AppModule + DataModule + UiModule` triple on the
-/// Android side. Tests construct ``AppContainer`` with mock repositories by
-/// using the test-only initialiser.
+/// Android side. There is no test-only initialiser: ViewModel unit tests do
+/// not build an `AppContainer`; they construct ViewModels directly with the
+/// fakes in `GhostCrabTests/Support/Fakes.swift`.
 @MainActor
 public final class AppContainer {
 
@@ -190,7 +191,8 @@ extension EnvironmentValues {
     /// `@Environment(\.appContainer) var container`.
     ///
     /// Traps (`preconditionFailure`) when read from a hierarchy that was never
-    /// given a container. Previews of container-reading screens must inject one.
+    /// given a container. Previews of container-reading screens must inject one
+    /// through ``injectedAppContainer``.
     public var appContainer: AppContainer {
         guard let container = injectedAppContainer else {
             preconditionFailure("AppContainer was not injected. Add .environment(\\.injectedAppContainer, container) at the scene root.")
