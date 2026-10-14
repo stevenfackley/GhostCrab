@@ -39,6 +39,9 @@ public struct AIRecommendationScreen: View {
         .onAppear {
             if vm == nil { vm = container.makeAIRecommendationVM() }
         }
+        .onDisappear {
+            vm?.cancelInFlight()
+        }
     }
 
     // MARK: - Content
