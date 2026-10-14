@@ -126,7 +126,7 @@ class ConfigEditorViewModel(
     /**
      * Writes the pending change for [section] to the gateway, then re-reads config.
      *
-     * On success: transitions to a fresh [ConfigEditorUiState.Ready] with `saveSuccess = true`.
+     * On success: reloads config, keeps pending edits of other sections, sets saveSuccess.
      * On 412: reloads config and sets `concurrentEditSection`.
      * On 422 / [ConfigValidationException]: sets the field error inline.
      * On other errors: transitions to [ConfigEditorUiState.Error].
@@ -141,8 +141,12 @@ class ConfigEditorViewModel(
             try {
                 configRepository.updateConfig(section, newValue)
                 val updated = configRepository.getConfig()
+                // Read the latest state: the user may have edited other sections while saving.
+                val latest = _state.value as? ConfigEditorUiState.Ready ?: current
                 _state.value = ConfigEditorUiState.Ready(
                     config = updated,
+                    pendingChanges = latest.pendingChanges - section,
+                    fieldErrors = latest.fieldErrors.filterKeys { !it.startsWith("$section.") },
                     saveSuccess = true,
                 )
             } catch (e: GatewayApiException) {

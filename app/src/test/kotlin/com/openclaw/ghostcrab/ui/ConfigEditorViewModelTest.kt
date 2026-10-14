@@ -241,6 +241,26 @@ class ConfigEditorViewModelTest {
         assertTrue(state.pendingChanges.isEmpty())
         assertTrue(state.fieldErrors.isEmpty())
     }
+
+    @Test
+    fun `confirmSave keeps pending edits of other sections`() = runTest(testDispatcher) {
+        val twoSections = sampleConfig.copy(
+            sections = sampleConfig.sections + ("models" to JsonObject(mapOf("timeout_ms" to JsonPrimitive(1)))),
+        )
+        val repo = FakeConfigRepository(configToReturn = twoSections)
+        val (vm, _) = makeVm(initialConnection = connectedState, repo = repo)
+        advanceUntilIdle()
+        val modelsEdit = JsonObject(mapOf("timeout_ms" to JsonPrimitive(2)))
+
+        vm.editSection("gateway", sampleEdit)
+        vm.editSection("models", modelsEdit)
+        vm.confirmSave("gateway")
+        advanceUntilIdle()
+
+        val state = vm.state.value as ConfigEditorUiState.Ready
+        assertEquals(mapOf("models" to modelsEdit), state.pendingChanges)
+        assertTrue(state.saveSuccess)
+    }
 }
 
 // ── Fakes ─────────────────────────────────────────────────────────────────────

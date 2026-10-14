@@ -182,7 +182,10 @@ fun ConfigEditorScreen(
                 is ConfigEditorUiState.Ready -> {
                     ReadyContent(
                         state = s,
-                        viewModel = viewModel,
+                        onEdit = viewModel::editSection,
+                        onFieldError = viewModel::setFieldError,
+                        onSave = viewModel::requestSave,
+                        onDiscard = viewModel::discardSection,
                         modifier = Modifier.fillMaxSize(),
                     )
 
@@ -241,7 +244,10 @@ fun ConfigEditorScreen(
 @Composable
 private fun ReadyContent(
     state: ConfigEditorUiState.Ready,
-    viewModel: ConfigEditorViewModel,
+    onEdit: (section: String, value: kotlinx.serialization.json.JsonElement) -> Unit,
+    onFieldError: (field: String, error: String?) -> Unit,
+    onSave: (section: String) -> Unit,
+    onDiscard: (section: String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var expandedSections by remember { mutableStateOf(emptySet<String>()) }
@@ -283,10 +289,10 @@ private fun ReadyContent(
                         expandedSections + sectionKey
                     }
                 },
-                onEdit = { newValue -> viewModel.editSection(sectionKey, newValue) },
-                onFieldError = { field, err -> viewModel.setFieldError(field, err) },
-                onSave = { viewModel.requestSave(sectionKey) },
-                onDiscard = { viewModel.discardSection(sectionKey) },
+                onEdit = { newValue -> onEdit(sectionKey, newValue) },
+                onFieldError = { field, err -> onFieldError(field, err) },
+                onSave = { onSave(sectionKey) },
+                onDiscard = { onDiscard(sectionKey) },
             )
         }
     }
