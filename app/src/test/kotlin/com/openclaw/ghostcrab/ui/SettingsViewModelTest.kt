@@ -195,6 +195,48 @@ class SettingsViewModelTest {
         assertNotNull(saved)
         assertEquals("New Name", saved?.first?.displayName)
     }
+
+    @Test
+    fun `saveProfileEdit adding a token flips hasToken to true`() = runTest {
+        val p = profile("9", "NoTok") // hasToken = false
+        val profileRepo = FakeSettingsProfileRepository(listOf(p))
+        val vm = makeVm(profileRepo = profileRepo)
+
+        vm.startEditProfile(p)
+        vm.saveProfileEdit("NoTok", "fresh-token")
+
+        val (saved, token) = profileRepo.savedProfiles.last()
+        assertTrue(saved.hasToken)
+        assertEquals("fresh-token", token)
+    }
+
+    @Test
+    fun `saveProfileEdit clearing the token flips hasToken to false`() = runTest {
+        val p = profile("10", "Tok").copy(hasToken = true)
+        val profileRepo = FakeSettingsProfileRepository(listOf(p)).apply { tokens["10"] = "old" }
+        val vm = makeVm(profileRepo = profileRepo)
+
+        vm.startEditProfile(p)
+        vm.saveProfileEdit("Tok", "")
+
+        val (saved, token) = profileRepo.savedProfiles.last()
+        assertFalse(saved.hasToken)
+        assertNull(token)
+    }
+
+    @Test
+    fun `saveProfileEdit with unchanged token keeps the stored token`() = runTest {
+        val p = profile("11", "Keep").copy(hasToken = true)
+        val profileRepo = FakeSettingsProfileRepository(listOf(p)).apply { tokens["11"] = "kept" }
+        val vm = makeVm(profileRepo = profileRepo)
+
+        vm.startEditProfile(p)
+        vm.saveProfileEdit("Keep", null)
+
+        val (saved, token) = profileRepo.savedProfiles.last()
+        assertTrue(saved.hasToken)
+        assertEquals("kept", token)
+    }
 }
 
 // ── Fakes ─────────────────────────────────────────────────────────────────────
@@ -214,7 +256,9 @@ private class FakeSettingsProfileRepository(
         flow.value = flow.value.map { if (it.id == profile.id) profile else it }
     }
 
-    override suspend fun getToken(profileId: String): String? = null
+    val tokens = mutableMapOf<String, String>()
+
+    override suspend fun getToken(profileId: String): String? = tokens[profileId]
 
     override suspend fun deleteProfile(profileId: String) {
         deletedIds += profileId

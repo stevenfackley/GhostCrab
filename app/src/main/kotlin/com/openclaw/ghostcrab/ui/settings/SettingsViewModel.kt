@@ -117,12 +117,15 @@ class SettingsViewModel(
         withReady { it.copy(editingProfile = null) }
         viewModelScope.launch {
             runCatching {
-                val updated = current.copy(displayName = displayName.trim())
                 val tokenToSave = when {
                     newToken == null -> profileRepository.getToken(current.id) // unchanged
                     newToken.isBlank() -> null  // clear
                     else -> newToken
                 }
+                val updated = current.copy(
+                    displayName = displayName.trim(),
+                    hasToken = tokenToSave != null,
+                )
                 profileRepository.saveProfile(updated, tokenToSave)
             }.onFailure { e -> withReady { s -> s.copy(errorMessage = e.message) } }
         }
