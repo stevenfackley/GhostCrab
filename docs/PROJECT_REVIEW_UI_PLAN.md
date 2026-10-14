@@ -1,3 +1,5 @@
+> Status: Not done — UI rework is roadmap decision 3.7; Phase 6/7 acceptance checks are in roadmap M5 (docs/superpowers/plans/2026-10-13-finish-development-roadmap.md).
+
 # GhostCrab Project Review and UI Rework Plan
 
 Date: April 15, 2026

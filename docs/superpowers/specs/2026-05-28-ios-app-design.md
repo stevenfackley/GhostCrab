@@ -1,3 +1,5 @@
+> Status (2026-10-14): Design reference, still authoritative. Implementation gaps are tracked in docs/superpowers/plans/2026-10-13-ios-finish.md (roadmap M4).
+
 # iOS App Design: GhostCrab for iOS — Full Feature Parity
 
 **Date:** 2026-05-28
