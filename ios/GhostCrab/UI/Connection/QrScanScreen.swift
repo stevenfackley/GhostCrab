@@ -43,9 +43,10 @@ public struct QrScanScreen: View {
         .onAppear {
             guard vm == nil else { return }
             let new = container.makeQrScanVM()
-            new.onNavigate = { url, _ in
-                let parsed = URL(string: url)
-                navigate(.manualEntry(prefillURL: parsed))
+            // URL only: a pairing token was already stashed in the container's
+            // PairingHandoff and never enters the route.
+            new.onNavigate = { url in
+                navigate(.manualEntry(prefillURL: url))
             }
             vm = new
         }

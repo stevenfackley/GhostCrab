@@ -123,9 +123,10 @@ public final class AppContainer {
         ScanViewModel(discoveryService: self.discovery)
     }
 
-    /// Builds a fresh `QrScanViewModel`. The screen wires `onNavigate` itself.
+    /// Builds a fresh `QrScanViewModel`. The screen wires `onNavigate` itself;
+    /// pairing tokens go to ``pairingHandoff``, never into the route.
     public func makeQrScanVM() -> QrScanViewModel {
-        QrScanViewModel()
+        QrScanViewModel(pairingHandoff: pairingHandoff)
     }
 
     /// Builds a fresh `AIRecommendationViewModel` wired to the gateway + config + models.
