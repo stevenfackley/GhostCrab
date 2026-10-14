@@ -13,7 +13,7 @@ struct GhostCrabApp: App {
     var body: some Scene {
         WindowGroup {
             RootView()
-                .environment(\.appContainer, container)
+                .environment(\.injectedAppContainer, container)
                 .preferredColorScheme(.dark)
                 .ghostCrabTheme()
         }

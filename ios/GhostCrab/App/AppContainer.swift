@@ -173,19 +173,28 @@ private struct AppContainerKey: EnvironmentKey {
 }
 
 extension EnvironmentValues {
-    /// Top-level dependency container. Set once in ``GhostCrabApp`` via
-    /// `.environment(\.appContainer, ...)`; read inside any view as
+    /// Write side of ``appContainer``. Inject once in ``GhostCrabApp`` via
+    /// `.environment(\.injectedAppContainer, container)`.
+    ///
+    /// Separate from the trapping read side because SwiftUI's
+    /// `.environment(_:_:)` writes through a `WritableKeyPath`, and a key-path
+    /// write to a computed property runs its getter first: a settable
+    /// `appContainer` would trap on the parent environment, which by definition
+    /// has no container yet.
+    public var injectedAppContainer: AppContainer? {
+        get { self[AppContainerKey.self] }
+        set { self[AppContainerKey.self] = newValue }
+    }
+
+    /// Top-level dependency container. Read inside any view as
     /// `@Environment(\.appContainer) var container`.
     ///
     /// Traps (`preconditionFailure`) when read from a hierarchy that was never
     /// given a container. Previews of container-reading screens must inject one.
     public var appContainer: AppContainer {
-        get {
-            guard let container = self[AppContainerKey.self] else {
-                preconditionFailure("AppContainer was not injected. Add .environment(\\.appContainer, container) at the scene root.")
-            }
-            return container
+        guard let container = injectedAppContainer else {
+            preconditionFailure("AppContainer was not injected. Add .environment(\\.injectedAppContainer, container) at the scene root.")
         }
-        set { self[AppContainerKey.self] = newValue }
+        return container
     }
 }
