@@ -73,6 +73,7 @@ import java.util.concurrent.atomic.AtomicReference
 @Composable
 fun QrScanScreen(
     onNavigateToManualEntry: (String) -> Unit,
+    onNavigateToPairedEntry: () -> Unit,
     onNavigateBack: () -> Unit,
     viewModel: QrScanViewModel = koinViewModel(),
 ) {
@@ -104,6 +105,7 @@ fun QrScanScreen(
     ObserveAsEvents(viewModel.events) { event ->
         when (event) {
             is QrScanEvent.NavigateToManualEntry -> onNavigateToManualEntry(event.url)
+            QrScanEvent.NavigateToPairedEntry -> onNavigateToPairedEntry()
         }
     }
 

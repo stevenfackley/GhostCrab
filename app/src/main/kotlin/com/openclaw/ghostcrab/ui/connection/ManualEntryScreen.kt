@@ -65,6 +65,8 @@ fun ManualEntryScreen(
     LaunchedEffect(prefillUrl) {
         if (prefillUrl != null) viewModel.setPrefillUrl(prefillUrl)
     }
+    // A QR / deep-link pair bundle waiting in PairingHandoff (no-op otherwise).
+    LaunchedEffect(Unit) { viewModel.consumePendingPairing() }
 
     ObserveAsEvents(viewModel.events) { event ->
         when (event) {

@@ -59,7 +59,11 @@ class ManualEntryViewModel(
     private val connectionManager: GatewayConnectionManager,
     private val profileRepository: ConnectionProfileRepository,
     private val onboardingRepository: OnboardingRepository,
+    private val pairingHandoff: PairingHandoff,
 ) : ViewModel() {
+
+    /** Display name from a consumed pair bundle; used for the saved profile instead of the gateway's own name. */
+    private var pairedName: String? = null
 
     private val _form = MutableStateFlow(ManualEntryFormState())
     val form: StateFlow<ManualEntryFormState> = _form.asStateFlow()
@@ -96,6 +100,28 @@ class ManualEntryViewModel(
                 portError = null,
             )
         }
+    }
+
+    /**
+     * Consumes a pending [com.openclaw.ghostcrab.domain.util.PairBundle] (QR or `ghostcrab://pair`
+     * deep link) and prefills the form. Never connects by itself: the user confirms with Connect.
+     *
+     * @return `true` if a bundle was consumed; `false` when none was pending (e.g. on recomposition).
+     */
+    fun consumePendingPairing(): Boolean {
+        val bundle = pairingHandoff.take() ?: return false
+        pairedName = bundle.name?.takeIf { it.isNotBlank() }
+        _form.update {
+            it.copy(
+                useHttps = bundle.url.scheme == "https",
+                host = bundle.url.host,
+                port = bundle.url.port.toString(),
+                token = bundle.token.orEmpty(),
+                hostError = null,
+                portError = null,
+            )
+        }
+        return true
     }
 
     fun onTokenChange(value: String) {
@@ -135,8 +161,9 @@ class ManualEntryViewModel(
     }
 
     private suspend fun saveConnectedProfile(url: String, token: String?) {
-        val displayName = (connectionManager.connectionState.value as? GatewayConnection.Connected)
-            ?.displayName ?: url
+        val displayName = pairedName
+            ?: (connectionManager.connectionState.value as? GatewayConnection.Connected)?.displayName
+            ?: url
         val existingId = profileRepository.getProfiles().first().firstOrNull { it.url == url }?.id
         profileRepository.saveProfile(
             ConnectionProfile(

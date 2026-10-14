@@ -6,6 +6,7 @@ import com.openclaw.ghostcrab.ui.settings.SettingsViewModel
 import com.openclaw.ghostcrab.ui.config.ConfigEditorViewModel
 import com.openclaw.ghostcrab.ui.connection.ConnectionPickerViewModel
 import com.openclaw.ghostcrab.ui.connection.ManualEntryViewModel
+import com.openclaw.ghostcrab.ui.connection.PairingHandoff
 import com.openclaw.ghostcrab.ui.connection.QrScanViewModel
 import com.openclaw.ghostcrab.ui.connection.ScanViewModel
 import com.openclaw.ghostcrab.ui.dashboard.DashboardViewModel
@@ -15,8 +16,9 @@ import org.koin.androidx.viewmodel.dsl.viewModel
 import org.koin.dsl.module
 
 val uiModule = module {
+    single { PairingHandoff() }
     viewModel { ConnectionPickerViewModel(get(), get(), get()) }
-    viewModel { ManualEntryViewModel(get(), get(), get()) }
+    viewModel { ManualEntryViewModel(get(), get(), get(), get()) }
     viewModel { ScanViewModel(get(), get(), get()) }
     viewModel {
         DashboardViewModel(
@@ -39,7 +41,7 @@ val uiModule = module {
         )
     }
     viewModel { SettingsViewModel(get(), get(), get()) }
-    viewModel { QrScanViewModel() }
+    viewModel { QrScanViewModel(get()) }
     if (com.openclaw.ghostcrab.BuildConfig.SKILLS_INSTALL_ENABLED) {
         viewModel { InstalledSkillsViewModel(get()) }
     }

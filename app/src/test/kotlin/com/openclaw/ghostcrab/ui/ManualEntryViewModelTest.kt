@@ -7,10 +7,13 @@ import com.openclaw.ghostcrab.domain.repository.ConnectionProfileRepository
 import com.openclaw.ghostcrab.domain.repository.GatewayConnectionManager
 import com.openclaw.ghostcrab.domain.repository.OnboardingRepository
 import com.openclaw.ghostcrab.domain.util.DEFAULT_GATEWAY_PORT
+import com.openclaw.ghostcrab.domain.util.GatewayUrl
+import com.openclaw.ghostcrab.domain.util.PairBundle
 import com.openclaw.ghostcrab.ui.connection.ManualEntryEvent
 import com.openclaw.ghostcrab.ui.connection.ManualEntryFormState
 import com.openclaw.ghostcrab.ui.connection.ManualEntryUiState
 import com.openclaw.ghostcrab.ui.connection.ManualEntryViewModel
+import com.openclaw.ghostcrab.ui.connection.PairingHandoff
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -50,7 +53,7 @@ class ManualEntryViewModelTest {
         every { connectionManager.connectionState } returns
             MutableStateFlow(GatewayConnection.Disconnected)
         every { profileRepository.getProfiles() } returns flowOf(emptyList())
-        vm = ManualEntryViewModel(connectionManager, profileRepository, onboardingRepository)
+        vm = ManualEntryViewModel(connectionManager, profileRepository, onboardingRepository, PairingHandoff())
     }
 
     @AfterEach
@@ -252,5 +255,23 @@ class ManualEntryViewModelTest {
     fun `https prefill without port defaults to 443`() {
         vm.setPrefillUrl("https://abc-xyz.trycloudflare.com")
         assertEquals("443", vm.form.value.port)
+    }
+
+    @Test
+    fun `consumePendingPairing prefills host, port and token without connecting`() {
+        val handoff = PairingHandoff().apply {
+            offer(PairBundle(GatewayUrl("https", "gw.example", 8443), token = "tkn", name = "Den"))
+        }
+        val pairedVm = ManualEntryViewModel(connectionManager, profileRepository, onboardingRepository, handoff)
+
+        assertTrue(pairedVm.consumePendingPairing())
+
+        val form = pairedVm.form.value
+        assertTrue(form.useHttps)
+        assertEquals("gw.example", form.host)
+        assertEquals("8443", form.port)
+        assertEquals("tkn", form.token)
+        assertFalse(pairedVm.consumePendingPairing())
+        coVerify(exactly = 0) { connectionManager.connect(any(), any()) }
     }
 }

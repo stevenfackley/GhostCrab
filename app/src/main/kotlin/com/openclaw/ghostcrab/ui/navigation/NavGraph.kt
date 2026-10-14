@@ -54,6 +54,11 @@ fun NavGraph() {
                         popUpTo("qr_scan") { inclusive = true }
                     }
                 },
+                onNavigateToPairedEntry = {
+                    navController.navigate("manual_entry") {
+                        popUpTo("qr_scan") { inclusive = true }
+                    }
+                },
                 onNavigateBack = { navController.popBackStack() },
             )
         }
