@@ -72,7 +72,9 @@ public struct QrScanScreen: View {
     @ViewBuilder
     private func scannerStack(vm: QrScanViewModel) -> some View {
         ZStack {
-            #if os(iOS)
+            // Same condition as the QRScannerRepresentable definition below:
+            // os(iOS) alone is also true on Mac Catalyst, where it is not defined.
+            #if os(iOS) && !targetEnvironment(macCatalyst)
             QRScannerRepresentable(
                 scanGeneration: vm.scanGeneration,
                 onPayload: { payload in
