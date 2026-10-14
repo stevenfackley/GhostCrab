@@ -47,7 +47,7 @@ Package root: `app/src/main/kotlin/com/openclaw/ghostcrab/`
 | `data/storage/` | `ConnectionProfileStore` (DataStore metadata + EncryptedSharedPreferences tokens) |
 | `data/impl/` | Repository implementations |
 | `ui/theme/` | `BrandTokens`, `Color`, `Type`, `Shape`, `Spacing`, `GhostCrabTheme` |
-| `ui/components/` | Shared composables: `GlassSurface`, `SecurityBanner`, `ConnectionStatusBar`, etc. |
+| `ui/components/` | Shared composables: `GlassSurface`, `SecurityBanner`, `ObserveAsEvents`, `IntFieldRow`, etc. |
 | `ui/navigation/` | `NavGraph` composable only; routes are string literals in the `composable("...")` calls (no `Routes` class). The `ai_recommendation` route exists only when `BuildConfig.AI_PRO_ENABLED` |
 | `ui/ErrorMessages.kt` | `toUserMessage()` — the single renderer of errors for users |
 | `ui/connection/PairingHandoff.kt` | In-memory one-shot handoff (2 min expiry) of a decoded `ghostcrab://pair` bundle to ManualEntry; the token never enters a route or saved state |
