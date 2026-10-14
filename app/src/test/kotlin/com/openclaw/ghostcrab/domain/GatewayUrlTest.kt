@@ -44,6 +44,13 @@ class GatewayUrlTest {
         assertThrows(IllegalArgumentException::class.java) { GatewayUrl("http", " ", 1) }
     }
 
+    @Test fun `ofOrNull returns null for records that cannot form a valid url`() {
+        assertNull(GatewayUrl.ofOrNull("192.168.1.5", 0))
+        assertNull(GatewayUrl.ofOrNull("192.168.1.5", 70000))
+        assertNull(GatewayUrl.ofOrNull("  ", 18789))
+        assertEquals("http://[fe80::1]:18789", GatewayUrl.ofOrNull("fe80::1%wlan0", 18789).toString())
+    }
+
     @Test fun `discovered IPv6 gateway produces a valid URL`() {
         val gw = DiscoveredGateway("gw", "fe80::1%wlan0", 18789, "gw", null)
         assertEquals("http://[fe80::1]:18789", gw.url)

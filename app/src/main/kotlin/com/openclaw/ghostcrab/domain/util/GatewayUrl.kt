@@ -73,5 +73,21 @@ data class GatewayUrl(val scheme: String, val host: String, val port: Int) {
          */
         fun of(host: String, port: Int, https: Boolean = false): GatewayUrl =
             GatewayUrl(if (https) "https" else "http", host.substringBefore('%'), port)
+
+        /**
+         * Like [of] but returns `null` instead of throwing when the pair cannot form a valid URL
+         * (blank host, port outside 1–65535). Use for untrusted input such as mDNS records.
+         *
+         * @param host Resolved host address.
+         * @param port Resolved port.
+         * @param https Whether to use `https`.
+         * @return The URL, or `null` if invalid.
+         */
+        fun ofOrNull(host: String, port: Int, https: Boolean = false): GatewayUrl? =
+            try {
+                of(host, port, https)
+            } catch (_: IllegalArgumentException) {
+                null
+            }
     }
 }
