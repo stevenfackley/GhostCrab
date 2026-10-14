@@ -117,8 +117,12 @@ class ManualEntryViewModel(
     /** Parses a full URL (LAN scan, QR) and populates scheme/host/port individually. */
     fun setPrefillUrl(url: String) {
         val parsed = GatewayUrl.parse(url)
+        // Never carry a token (or a suggested name) to a different host.
+        pairedName = null
+        tokenFromPairing = false
         _form.update {
             it.copy(
+                token = "",
                 useHttps = parsed?.scheme == "https",
                 host = parsed?.host.orEmpty(),
                 port = (parsed?.port ?: DEFAULT_GATEWAY_PORT).toString(),

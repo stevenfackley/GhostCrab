@@ -363,4 +363,12 @@ class ManualEntryViewModelTest {
         vm.onHostChange("gw-a.example")
         assertEquals("tkn", vm.form.value.token)
     }
+
+    @Test
+    fun `setPrefillUrl clears a token and name left over from an earlier pairing`() {
+        val vm = pairedVm()
+        vm.setPrefillUrl("http://gw-b.example:18789")
+        assertEquals("", vm.form.value.token)
+        assertEquals("gw-b.example", vm.form.value.host)
+    }
 }
