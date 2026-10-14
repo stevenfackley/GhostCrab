@@ -44,6 +44,15 @@ public final class ManualEntryViewModel {
     /// Mirrors Android's `pairedName`.
     public private(set) var pairedName: String?
 
+    /// Text of the "Pairing link" field: a `ghostcrab://pair` link or a gateway
+    /// URL. Only ``applyPastedLink()`` reads it, never each keystroke. Can hold a
+    /// token: cleared once applied.
+    public var pastedLink: String = ""
+
+    /// Why the last ``applyPastedLink()`` was rejected, or `nil`. Never echoes
+    /// the link (a pairing link contains the token).
+    public private(set) var pastedLinkError: String?
+
     /// In-flight connect, if any. Read-only outside the VM so tests can await it.
     @ObservationIgnored private(set) var connectTask: Task<Void, Never>?
 
@@ -128,6 +137,50 @@ public final class ManualEntryViewModel {
             let name = paired.displayName?.trimmingCharacters(in: .whitespacesAndNewlines)
             self.pairedName = (name?.isEmpty ?? true) ? nil : name
         }
+    }
+
+    /// Fills the form from ``pastedLink``. This is how Mac Catalyst, which has
+    /// no QR scanner, takes a pairing link, and how any device takes a link
+    /// copied from a message.
+    ///
+    /// - A `ghostcrab:` link is decoded by ``PairingLink`` and goes through
+    ///   ``PairingHandoff`` like a scanned QR code: its URL fills scheme, host
+    ///   and port, its token fills ``token`` and its name becomes ``pairedName``.
+    /// - Anything else must pass ``PairingLink/gatewayURL(from:)`` (`http` or
+    ///   `https`, a host, no userinfo); it fills scheme, host and port only.
+    ///
+    /// On success ``pastedLink`` is cleared. On failure ``pastedLinkError`` is
+    /// set and the form is left as it was. Never connects: the user still
+    /// reviews the form and taps Connect.
+    public func applyPastedLink() {
+        guard pastedLink.utf8.count <= PairingLink.maxLength else {
+            pastedLinkError = "Link is too large (over \(PairingLink.maxLength) characters)"
+            return
+        }
+        let trimmed = pastedLink.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            pastedLinkError = "Paste a gateway URL or a ghostcrab://pair link first"
+            return
+        }
+
+        if PairingLink.isPairingLink(trimmed) {
+            let request: PairingRequest
+            do {
+                request = try PairingLink.decode(trimmed)
+            } catch {
+                pastedLinkError = "Pairing link is malformed: \(error.localizedDescription)"
+                return
+            }
+            pairingHandoff.stash(request)
+            setPrefillURL(request.gatewayURL)
+        } else if let url = PairingLink.gatewayURL(from: trimmed) {
+            setPrefillURL(url)
+        } else {
+            pastedLinkError = "Not an http(s) gateway URL or a ghostcrab://pair link"
+            return
+        }
+        pastedLink = ""
+        pastedLinkError = nil
     }
 
     // MARK: - Connect

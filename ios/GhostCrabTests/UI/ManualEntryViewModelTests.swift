@@ -112,6 +112,79 @@ struct ManualEntryViewModelTests {
         #expect(profiles.savedProfiles.map(\.displayName) == ["Fake Gateway"])
     }
 
+    // MARK: - Pasted links (Mac Catalyst has no QR scanner)
+
+    @Test func pastedPairingLinkFillsTheFormThroughTheHandoff() throws {
+        let handoff = PairingHandoff()
+        let gateway = FakeGatewayConnectionManager()
+        let vm = makeVM(handoff: handoff, gateway: gateway)
+        vm.pastedLink = "  " + PairingLinkFixture.link(
+            json: #"{"v":1,"url":"http://192.168.1.20:18789","token":"tok_123","name":"Basement"}"#
+        ) + "\n"
+
+        vm.applyPastedLink()
+
+        #expect(!vm.useHttps)
+        #expect(vm.host == "192.168.1.20")
+        #expect(vm.port == "18789")
+        #expect(vm.token == "tok_123")
+        #expect(vm.pairedName == "Basement")
+        #expect(vm.pastedLinkError == nil)
+        // The field held the token: cleared once applied.
+        #expect(vm.pastedLink == "")
+        // One-shot hand-off, already taken; and a paste never connects.
+        #expect(handoff.takePairing(for: try #require(URL(string: "http://192.168.1.20:18789"))) == nil)
+        #expect(gateway.connectURLs.isEmpty)
+    }
+
+    @Test func pastedGatewayURLFillsSchemeHostAndPort() {
+        let vm = makeVM(handoff: PairingHandoff())
+        vm.pastedLink = "https://gw.example.com:8443/admin?x=1"
+
+        vm.applyPastedLink()
+
+        #expect(vm.useHttps)
+        #expect(vm.host == "gw.example.com")
+        #expect(vm.port == "8443")
+        #expect(vm.token == "")
+        #expect(vm.pastedLinkError == nil)
+        #expect(vm.pastedLink == "")
+    }
+
+    @Test func malformedPastedPairingLinkLeavesTheFormAlone() {
+        let vm = makeVM(handoff: PairingHandoff())
+        vm.setHost("192.168.1.5")
+        let link = PairingLinkFixture.link(json: #"{"v":2,"url":"http://192.168.1.20:18789","token":"tok_123"}"#)
+        vm.pastedLink = link
+
+        vm.applyPastedLink()
+
+        #expect(vm.pastedLinkError == "Pairing link is malformed: unsupported pairing data version 2")
+        #expect(vm.host == "192.168.1.5")
+        #expect(vm.token == "")
+        #expect(vm.pastedLink == link)
+    }
+
+    @Test(arguments: ["gw.example.com", "http://admin:hunter2@192.168.1.20:18789", "ftp://192.168.1.20"])
+    func pastedTextThatIsNotAGatewayURLIsRejected(text: String) {
+        let vm = makeVM(handoff: PairingHandoff())
+        vm.pastedLink = text
+
+        vm.applyPastedLink()
+
+        #expect(vm.pastedLinkError == "Not an http(s) gateway URL or a ghostcrab://pair link")
+        #expect(vm.host == "")
+    }
+
+    @Test func emptyPasteAsksForALink() {
+        let vm = makeVM(handoff: PairingHandoff())
+        vm.pastedLink = "  \n"
+
+        vm.applyPastedLink()
+
+        #expect(vm.pastedLinkError == "Paste a gateway URL or a ghostcrab://pair link first")
+    }
+
     // MARK: - IPv6 hosts
 
     @Test func bracketedIPv6LiteralConnects() async {

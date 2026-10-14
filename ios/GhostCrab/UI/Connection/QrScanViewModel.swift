@@ -1,6 +1,21 @@
 import Foundation
 import Observation
 
+/// Why the live camera scanner could not start capture.
+///
+/// `QrScanScreen` maps VisionKit's `DataScannerViewController.ScanningUnavailable`
+/// and a refused camera prompt to this, so ``QrScanViewModel`` stays
+/// VisionKit-free and testable.
+public enum QrScannerFailure: Error, Sendable, Equatable {
+    /// Camera access was refused, or a device policy restricts the camera.
+    case cameraAccessDenied
+    /// This device cannot run the data scanner.
+    case unsupported
+    /// `startScanning()` threw something else. Carries only the error's type
+    /// name, which can contain no payload or token.
+    case startFailed(errorType: String)
+}
+
 /// ViewModel for `QrScanScreen`.
 ///
 /// Accepts two payload shapes:
@@ -23,7 +38,8 @@ public final class QrScanViewModel {
     /// The last accepted gateway URL. Set right before ``onNavigate`` fires.
     public private(set) var lastDecoded: URL?
 
-    /// Human-readable validation error for the last rejected payload, or `nil`.
+    /// Human-readable validation error for the last rejected payload, or why
+    /// the scanner could not start (``scannerDidFail(_:)``), or `nil`.
     /// Never echoes the payload (a pairing payload contains the token).
     public private(set) var error: String?
 
@@ -87,8 +103,24 @@ public final class QrScanViewModel {
         accept(url)
     }
 
-    /// "Scan again" after an invalid scan was surfaced: clears ``error`` and
-    /// starts a new ``scanGeneration`` so the scanner restarts capture.
+    /// The scanner bridge could not start or restart capture. Sets ``error``
+    /// so the screen says why the camera shows nothing, and offers "Scan again".
+    ///
+    /// - Parameter failure: Why capture did not start.
+    public func scannerDidFail(_ failure: QrScannerFailure) {
+        switch failure {
+        case .cameraAccessDenied:
+            error = "Camera access is off for GhostCrab. Allow it in Settings > Privacy & Security > Camera, or use Manual Entry."
+        case .unsupported:
+            error = "Live QR scanning is unavailable on this device. Use Manual Entry instead."
+        case .startFailed(let errorType):
+            error = "The camera couldn't start (\(errorType)). Tap Scan again, or use Manual Entry."
+        }
+    }
+
+    /// "Scan again" after an invalid scan or a scanner failure was surfaced:
+    /// clears ``error`` and starts a new ``scanGeneration`` so the scanner
+    /// restarts capture.
     public func scanAgain() {
         error = nil
         scanGeneration += 1

@@ -2,8 +2,10 @@ import SwiftUI
 
 /// Manual gateway URL/token entry. Mirrors `ManualEntryScreen.kt`.
 ///
-/// Uses SwiftUI `Form` with sections: Connection (HTTPS toggle + host + port),
-/// Authentication (bearer token with visibility toggle). Shows
+/// Uses SwiftUI `Form` with sections: Pairing link (paste a `ghostcrab://pair`
+/// link or gateway URL, the Mac Catalyst stand-in for the QR scanner),
+/// Connection (HTTPS toggle + host + port), Authentication (bearer token with
+/// visibility toggle). Shows
 /// `HttpSecurityBanner` above the form when HTTPS is off; renders the assembled
 /// URL preview in JetBrains Mono. Connect button is disabled while connecting
 /// or any field has a validation error.
@@ -33,6 +35,39 @@ public struct ManualEntryScreen: View {
                             .listRowBackground(Color.clear)
                             .listRowInsets(EdgeInsets())
                     }
+                }
+
+                Section {
+                    HStack {
+                        TextField("Gateway URL or ghostcrab://pair link", text: $vm.pastedLink)
+                            #if os(iOS)
+                            .keyboardType(.URL)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled(true)
+                            #endif
+                            .font(AppFont.mono(13))
+                            .foregroundStyle(DesignTokens.Color.textPrimary)
+                            .submitLabel(.done)
+                            .onSubmit { vm.applyPastedLink() }
+                            .disabled(vm.isConnecting)
+
+                        Button("Fill") {
+                            vm.applyPastedLink()
+                        }
+                        .font(AppFont.bodyBold(14))
+                        .foregroundStyle(DesignTokens.Color.cyanPrimary)
+                        .buttonStyle(.plain)
+                        .disabled(vm.isConnecting)
+                    }
+                    if let err = vm.pastedLinkError {
+                        Text(err)
+                            .font(AppFont.body(12))
+                            .foregroundStyle(DesignTokens.Color.crimsonError)
+                    }
+                } header: {
+                    Text("Pairing link")
+                } footer: {
+                    Text("Paste a link to fill the form below. Nothing connects until you tap Connect.")
                 }
 
                 Section("Connection") {

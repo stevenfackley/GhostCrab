@@ -12,7 +12,8 @@ import AVFoundation
 /// for live QR decoding, with a cyan viewfinder overlay drawn in SwiftUI.
 ///
 /// On Mac Catalyst we render an empty-state fallback (no `DataScannerViewController`
-/// support) with a button that pushes straight to the manual-entry screen.
+/// support) with a button that pushes straight to the manual-entry screen, whose
+/// Pairing link field takes a pasted `ghostcrab://pair` link or gateway URL.
 public struct QrScanScreen: View {
 
     @Environment(\.appContainer) private var container
@@ -79,6 +80,9 @@ public struct QrScanScreen: View {
                 scanGeneration: vm.scanGeneration,
                 onPayload: { payload in
                     vm.onCodeScanned(payload)
+                },
+                onFailure: { failure in
+                    vm.scannerDidFail(failure)
                 }
             )
             .ignoresSafeArea()
@@ -133,9 +137,9 @@ public struct QrScanScreen: View {
         EmptyState(
             icon: "qrcode.viewfinder",
             title: "QR scanning isn't supported on Mac",
-            message: "Use Manual Entry to paste the gateway URL or a ghostcrab://pair link instead.",
+            message: "Open Manual Entry and paste the gateway URL or the ghostcrab://pair link into its Pairing link field.",
             action: (
-                label: "Paste URL instead",
+                label: "Open Manual Entry",
                 run: { navigate(.manualEntry(prefillURL: nil)) }
             )
         )
@@ -222,8 +226,12 @@ private struct QRScannerRepresentable: UIViewControllerRepresentable {
     /// ``QrScanViewModel/scanGeneration``; a change restarts capture.
     let scanGeneration: Int
     let onPayload: (String) -> Void
+    /// Capture could not start (camera refused, or VisionKit threw).
+    let onFailure: (QrScannerFailure) -> Void
 
-    func makeCoordinator() -> Coordinator { Coordinator(scanGeneration: scanGeneration, onPayload: onPayload) }
+    func makeCoordinator() -> Coordinator {
+        Coordinator(scanGeneration: scanGeneration, onPayload: onPayload, onFailure: onFailure)
+    }
 
     func makeUIViewController(context: Context) -> UIViewController {
         // Deployment target is iOS 18+, so `DataScannerViewController` is always
@@ -247,11 +255,18 @@ private struct QRScannerRepresentable: UIViewControllerRepresentable {
 
         // Camera permission can be requested up-front. VisionKit will refuse to
         // start otherwise; we forward the decision but don't block construction.
-        // A main-actor Task keeps the non-Sendable scanner on the main actor
-        // (the old completion-handler + DispatchQueue hop sent it across).
-        Task { @MainActor in
-            guard await AVCaptureDevice.requestAccess(for: .video) else { return }
-            try? scanner.startScanning()
+        // A main-actor Task keeps the work on the main actor. It holds the
+        // coordinator weakly (and the coordinator holds the scanner weakly), so
+        // leaving the screen while the prompt is up frees both.
+        let coordinator = context.coordinator
+        Task { @MainActor [weak coordinator] in
+            let granted = await AVCaptureDevice.requestAccess(for: .video)
+            guard let coordinator else { return }
+            if granted {
+                coordinator.startScanning()
+            } else {
+                coordinator.report(.cameraAccessDenied)
+            }
         }
         return scanner
     }
@@ -260,27 +275,53 @@ private struct QRScannerRepresentable: UIViewControllerRepresentable {
         context.coordinator.restartIfNeeded(scanGeneration: scanGeneration)
     }
 
+    @MainActor
     final class Coordinator: NSObject, DataScannerViewControllerDelegate {
         let onPayload: (String) -> Void
+        let onFailure: (QrScannerFailure) -> Void
         weak var scanner: DataScannerViewController?
         private var didEmit = false
         private var scanGeneration: Int
 
-        init(scanGeneration: Int, onPayload: @escaping (String) -> Void) {
+        init(
+            scanGeneration: Int,
+            onPayload: @escaping (String) -> Void,
+            onFailure: @escaping (QrScannerFailure) -> Void
+        ) {
             self.scanGeneration = scanGeneration
             self.onPayload = onPayload
+            self.onFailure = onFailure
+        }
+
+        /// Starts capture unless it is already running. A VisionKit refusal
+        /// goes to ``report(_:)`` instead of leaving a frozen camera with no
+        /// message.
+        func startScanning() {
+            guard let scanner, !scanner.isScanning else { return }
+            do {
+                try scanner.startScanning()
+            } catch {
+                report(QrScannerFailure(scannerError: error))
+            }
+        }
+
+        /// Hands `failure` to the VM on the next main-actor turn:
+        /// ``restartIfNeeded(scanGeneration:)`` runs inside a SwiftUI view
+        /// update, where writing observable state is not allowed.
+        func report(_ failure: QrScannerFailure) {
+            Task { @MainActor [weak self] in
+                self?.onFailure(failure)
+            }
         }
 
         /// Re-arms the scanner when the VM starts a new scan generation ("Scan
         /// again", or the screen reappearing). Emitting a payload stops
         /// capture, so without this the camera would stay frozen.
-        @MainActor
         func restartIfNeeded(scanGeneration newGeneration: Int) {
             guard newGeneration != scanGeneration else { return }
             scanGeneration = newGeneration
             didEmit = false
-            guard let scanner, !scanner.isScanning else { return }
-            try? scanner.startScanning()
+            startScanning()
         }
 
         func dataScanner(
@@ -297,6 +338,30 @@ private struct QRScannerRepresentable: UIViewControllerRepresentable {
                     return
                 }
             }
+        }
+
+        /// The scanner stopped mid-session (for example camera access was
+        /// revoked). Same visible error as a failed start.
+        func dataScanner(
+            _ dataScanner: DataScannerViewController,
+            becameUnavailableWithError error: DataScannerViewController.ScanningUnavailable
+        ) {
+            report(QrScannerFailure(scannerError: error))
+        }
+    }
+}
+
+private extension QrScannerFailure {
+    /// Maps what `DataScannerViewController.startScanning()` throws. Keeps
+    /// only the error's type name for anything unexpected.
+    init(scannerError error: any Error) {
+        switch error as? DataScannerViewController.ScanningUnavailable {
+        case .cameraRestricted?:
+            self = .cameraAccessDenied
+        case .unsupported?:
+            self = .unsupported
+        default:
+            self = .startFailed(errorType: String(describing: type(of: error)))
         }
     }
 }

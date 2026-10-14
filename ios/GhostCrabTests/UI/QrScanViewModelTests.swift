@@ -131,6 +131,30 @@ struct QrScanViewModelTests {
         #expect(recorder.urls.map(\.absoluteString) == ["http://192.168.1.20:18789"])
     }
 
+    @Test func scannerThatCannotStartShowsWhyAndScanAgainRetries() {
+        let (vm, _) = makeVM()
+
+        vm.scannerDidFail(.cameraAccessDenied)
+
+        #expect(vm.error == "Camera access is off for GhostCrab. Allow it in Settings > Privacy & Security > Camera, or use Manual Entry.")
+        let generation = vm.scanGeneration
+        vm.scanAgain()
+        #expect(vm.error == nil)
+        #expect(vm.scanGeneration == generation + 1)
+    }
+
+    @Test func unsupportedScannerPointsToManualEntry() {
+        let (vm, _) = makeVM()
+        vm.scannerDidFail(.unsupported)
+        #expect(vm.error == "Live QR scanning is unavailable on this device. Use Manual Entry instead.")
+    }
+
+    @Test func unexpectedScannerErrorNamesItsType() {
+        let (vm, _) = makeVM()
+        vm.scannerDidFail(.startFailed(errorType: "ScanningUnavailable"))
+        #expect(vm.error == "The camera couldn't start (ScanningUnavailable). Tap Scan again, or use Manual Entry.")
+    }
+
     @Test func reappearingStartsANewGeneration() {
         let (vm, _) = makeVM()
         vm.onCodeScanned("http://192.168.1.20:18789")
