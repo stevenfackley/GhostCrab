@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.openclaw.ghostcrab.domain.model.DiscoveredGateway
 import com.openclaw.ghostcrab.ui.components.GlassSurface
+import com.openclaw.ghostcrab.ui.components.ObserveAsEvents
 import com.openclaw.ghostcrab.ui.theme.BrandTokens
 import com.openclaw.ghostcrab.ui.theme.MonoFontFamily
 import com.openclaw.ghostcrab.ui.theme.Spacing
@@ -73,12 +74,10 @@ fun ScanScreen(
 
     LaunchedEffect(Unit) { viewModel.startScan() }
 
-    LaunchedEffect(Unit) {
-        viewModel.events.collect { event ->
-            when (event) {
-                is ScanEvent.NavigateToManualEntry -> onNavigateToManualEntry(event.prefillUrl)
-                ScanEvent.NavigateToDashboard -> onNavigateToDashboard()
-            }
+    ObserveAsEvents(viewModel.events) { event ->
+        when (event) {
+            is ScanEvent.NavigateToManualEntry -> onNavigateToManualEntry(event.prefillUrl)
+            ScanEvent.NavigateToDashboard -> onNavigateToDashboard()
         }
     }
 

@@ -80,6 +80,13 @@ private data class SettingsCallbacks(
     val onNavigateToInstalledSkills: () -> Unit,
 )
 
+/**
+ * Settings screen: saved connections, onboarding replay, installed skills, security options, and About.
+ *
+ * @param onNavigateBack Called to pop back to the previous screen.
+ * @param onNavigateToInstalledSkills Called when the user opens the installed-skills list.
+ * @param viewModel Injected via Koin by default.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(

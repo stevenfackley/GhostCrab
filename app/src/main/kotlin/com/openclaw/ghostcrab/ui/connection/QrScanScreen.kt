@@ -63,6 +63,7 @@ import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
+import com.openclaw.ghostcrab.ui.components.ObserveAsEvents
 import com.openclaw.ghostcrab.ui.theme.BrandTokens
 import org.koin.androidx.compose.koinViewModel
 import java.util.concurrent.Executors
@@ -100,11 +101,9 @@ fun QrScanScreen(
         else permissionLauncher.launch(Manifest.permission.CAMERA)
     }
 
-    LaunchedEffect(viewModel) {
-        viewModel.events.collect { event ->
-            when (event) {
-                is QrScanEvent.NavigateToManualEntry -> onNavigateToManualEntry(event.url)
-            }
+    ObserveAsEvents(viewModel.events) { event ->
+        when (event) {
+            is QrScanEvent.NavigateToManualEntry -> onNavigateToManualEntry(event.url)
         }
     }
 

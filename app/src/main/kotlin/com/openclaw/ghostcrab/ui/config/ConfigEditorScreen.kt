@@ -89,6 +89,13 @@ fun ConfigEditorScreen(
         }
     }
 
+    // Show save-failure snackbar; pending edits stay in place so the user can retry.
+    LaunchedEffect(readyState?.saveError) {
+        val message = readyState?.saveError ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(message)
+        viewModel.clearSaveError()
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(

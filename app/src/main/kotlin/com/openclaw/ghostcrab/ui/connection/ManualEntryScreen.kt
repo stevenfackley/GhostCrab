@@ -45,6 +45,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.openclaw.ghostcrab.ui.components.HttpSecurityBanner
+import com.openclaw.ghostcrab.ui.components.ObserveAsEvents
 import com.openclaw.ghostcrab.ui.theme.BrandTokens
 import com.openclaw.ghostcrab.ui.theme.MonoFontFamily
 import com.openclaw.ghostcrab.ui.theme.Spacing
@@ -65,11 +66,9 @@ fun ManualEntryScreen(
         if (prefillUrl != null) viewModel.setPrefillUrl(prefillUrl)
     }
 
-    LaunchedEffect(Unit) {
-        viewModel.events.collect { event ->
-            when (event) {
-                ManualEntryEvent.NavigateToDashboard -> onNavigateToDashboard()
-            }
+    ObserveAsEvents(viewModel.events) { event ->
+        when (event) {
+            ManualEntryEvent.NavigateToDashboard -> onNavigateToDashboard()
         }
     }
 

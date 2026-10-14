@@ -53,6 +53,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.openclaw.ghostcrab.R
 import com.openclaw.ghostcrab.domain.model.ConnectionProfile
 import com.openclaw.ghostcrab.ui.components.GlassSurface
+import com.openclaw.ghostcrab.ui.components.ObserveAsEvents
 import com.openclaw.ghostcrab.ui.theme.BrandTokens
 import com.openclaw.ghostcrab.ui.theme.MonoFontFamily
 import com.openclaw.ghostcrab.ui.theme.Spacing
@@ -72,11 +73,9 @@ fun ConnectionPickerScreen(
     val pickerState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
 
-    LaunchedEffect(viewModel) {
-        viewModel.events.collect { event ->
-            when (event) {
-                ConnectionPickerEvent.NavigateToDashboard -> onNavigateToDashboard()
-            }
+    ObserveAsEvents(viewModel.events) { event ->
+        when (event) {
+            ConnectionPickerEvent.NavigateToDashboard -> onNavigateToDashboard()
         }
     }
     LaunchedEffect(pickerState.errorMessage) {
