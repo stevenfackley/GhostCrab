@@ -5,16 +5,19 @@ import com.openclaw.ghostcrab.data.api.dto.AIRecommendationResponseDto
 import com.openclaw.ghostcrab.data.api.dto.HealthResponse
 import com.openclaw.ghostcrab.data.api.dto.ModelDto
 import com.openclaw.ghostcrab.data.api.dto.StatusResponse
+import com.openclaw.ghostcrab.domain.exception.CleartextBlockedException
 import com.openclaw.ghostcrab.domain.exception.ConfigValidationException
 import com.openclaw.ghostcrab.domain.exception.GatewayApiException
 import com.openclaw.ghostcrab.domain.exception.GatewayAuthException
 import com.openclaw.ghostcrab.domain.exception.GatewayException
+import com.openclaw.ghostcrab.domain.exception.GatewayProtocolException
 import com.openclaw.ghostcrab.domain.exception.GatewayTimeoutException
 import com.openclaw.ghostcrab.domain.exception.GatewayTlsException
 import com.openclaw.ghostcrab.domain.exception.GatewayUnreachableException
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.engine.okhttp.OkHttp
+import io.ktor.client.network.sockets.ConnectTimeoutException
 import io.ktor.client.plugins.HttpRequestTimeoutException
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.api.createClientPlugin
@@ -36,6 +39,7 @@ import io.ktor.http.Url
 import io.ktor.http.contentType
 import io.ktor.http.isSecure
 import io.ktor.http.isSuccess
+import io.ktor.serialization.ContentConvertException
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
@@ -46,8 +50,8 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.SerializationException
-import java.net.ConnectException
-import java.net.UnknownHostException
+import java.io.IOException
+import java.net.SocketTimeoutException
 import javax.net.ssl.SSLException
 
 /**
@@ -236,12 +240,11 @@ class OpenClawApiClient private constructor(
                 setBody(request)
             }
             when (response.status) {
-                HttpStatusCode.OK -> response.body()
                 HttpStatusCode.NotFound -> throw GatewayApiException(url, 404)
                 HttpStatusCode.TooManyRequests -> throw GatewayApiException(url, 429)
                 else -> {
                     response.mapErrors(url)
-                    error("unreachable")
+                    response.body()
                 }
             }
         }
@@ -363,20 +366,27 @@ private suspend fun <T> safeRequest(url: String, block: suspend () -> T): T {
     } catch (e: CancellationException) {
         throw e
     } catch (e: GatewayException) {
-        // Re-throw all domain exceptions unchanged — including ConfigValidationException,
-        // which would otherwise fall through to the generic catch and become GatewayUnreachableException.
+        // Domain exceptions (incl. ConfigValidationException) pass through unchanged.
         throw e
     } catch (e: HttpRequestTimeoutException) {
         throw GatewayTimeoutException(url, e)
+    } catch (e: ConnectTimeoutException) {
+        throw GatewayTimeoutException(url, e)
+    } catch (e: SocketTimeoutException) {
+        throw GatewayTimeoutException(url, e)
     } catch (e: SSLException) {
         throw GatewayTlsException(url, e)
-    } catch (e: UnknownHostException) {
-        throw GatewayUnreachableException(url, e)
-    } catch (e: ConnectException) {
+    } catch (e: CleartextBlockedIOException) {
+        throw CleartextBlockedException(url, e.host, e)
+    } catch (e: IOException) {
+        // DNS failure, refused/reset connection, no route: the host is unreachable.
         throw GatewayUnreachableException(url, e)
     } catch (e: SerializationException) {
-        throw GatewayApiException(url, 0, "Response deserialization failed: ${e.message}")
+        throw GatewayProtocolException(url, "response deserialization failed: ${e.message}", e)
+    } catch (e: ContentConvertException) {
+        throw GatewayProtocolException(url, "response deserialization failed: ${e.message}", e)
     } catch (e: Exception) {
-        throw GatewayUnreachableException(url, e)
+        // Anything else is a client/protocol bug, not a connectivity problem — never call it "unreachable".
+        throw GatewayProtocolException(url, e::class.java.simpleName + (e.message?.let { ": $it" } ?: ""), e)
     }
 }

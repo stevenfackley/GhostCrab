@@ -123,3 +123,37 @@ class ConfigValidationException(
 ) : GatewayException("Invalid value for '$field': $reason") {
     override val isRetryable: Boolean = false
 }
+
+/**
+ * A cleartext (`http://`) request to a public IP literal was refused by the app's own policy before
+ * it left the device. Fix: use HTTPS, or enable Settings → Security → "Allow cleartext to public IPs".
+ *
+ * @param url The URL that was blocked.
+ * @param host The public IP literal that triggered the block.
+ */
+class CleartextBlockedException(
+    val url: String,
+    val host: String,
+    cause: Throwable? = null,
+) : GatewayException(
+    "Cleartext HTTP to public IP $host blocked by app policy ($url). " +
+        "Use HTTPS or enable Settings → Security → Allow cleartext to public IPs.",
+    cause,
+) {
+    override val isRetryable: Boolean = false
+}
+
+/**
+ * The gateway answered, but not in a way this client understands (undecodable body, refused
+ * WebSocket upgrade), or the request could not even be built. Not a connectivity problem.
+ *
+ * @param url The URL involved.
+ * @param detail What went wrong, for display.
+ */
+class GatewayProtocolException(
+    val url: String,
+    val detail: String,
+    cause: Throwable? = null,
+) : GatewayException("Unexpected gateway response at $url: $detail", cause) {
+    override val isRetryable: Boolean = false
+}

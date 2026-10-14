@@ -21,10 +21,7 @@ internal class CleartextPublicIpInterceptor(
     override fun intercept(chain: Interceptor.Chain): Response {
         val request = chain.request()
         if (request.url.scheme == "http" && !isAllowed() && isPublicIpLiteral(request.url.host)) {
-            throw IOException(
-                "Cleartext HTTP to public IP ${request.url.host} is blocked. " +
-                    "Enable it in Settings → Security or use HTTPS."
-            )
+            throw CleartextBlockedIOException(request.url.host)
         }
         return chain.proceed(request)
     }
@@ -75,3 +72,13 @@ internal class CleartextPublicIpInterceptor(
         private val IPV4_REGEX = Regex("""^\d{1,3}(\.\d{1,3}){3}$""")
     }
 }
+
+/**
+ * Thrown by [CleartextPublicIpInterceptor]. An [IOException] so OkHttp fails the call normally;
+ * `safeRequest` converts it into [com.openclaw.ghostcrab.domain.exception.CleartextBlockedException].
+ *
+ * @param host The public IP literal that was blocked.
+ */
+internal class CleartextBlockedIOException(val host: String) : IOException(
+    "Cleartext HTTP to public IP $host is blocked. Enable it in Settings → Security or use HTTPS.",
+)
