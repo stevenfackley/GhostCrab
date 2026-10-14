@@ -60,6 +60,15 @@ brew install xcodegen
 
 - [x] `docs/PRIVACY_POLICY_IOS.md` published at `https://getghostcrab.com/privacy` (site live 2026-08-05; the in-app Settings link resolves to the same URL)
 
+### In the repo (`feat/ios-finish`, PR #127)
+
+- [x] Fonts bundled: Inter (4 weights) and JetBrains Mono (2 weights) in `ios/GhostCrab/Resources/Fonts/`, registered via `UIAppFonts`, OFL licenses alongside
+- [x] Privacy manifest: `ios/GhostCrab/Resources/PrivacyInfo.xcprivacy` (no tracking, no collected data, UserDefaults CA92.1), shipped in the bundle
+- [x] ATS: `NSAllowsLocalNetworking` only, no `NSAllowsArbitraryLoads` (`docs/adr/0006-ios-ats-local-networking.md`)
+- [x] Version: `MARKETING_VERSION` 0.2.0 in `ios/project.yml`, matching Android
+- [x] CI lane: `.github/workflows/ios-pr.yml` runs the tests on the iOS simulator and compiles Mac Catalyst on every PR touching `ios/`
+- [x] Release workflow: `ExportOptions.plist` only exports, `altool` is the single upload path, and the API key wipe works on macOS
+
 ---
 
 ## Per-release
@@ -99,13 +108,13 @@ The Mac mini runner does:
 2. `xcodegen generate` → creates `GhostCrab.xcodeproj`
 3. Install ASC API key at `~/.appstoreconnect/private_keys/AuthKey_<KeyID>.p8` (mode 600)
 4. **Archive iOS** (`generic/platform=iOS`)
-5. **Export iOS IPA**
+5. **Export iOS IPA** (`ExportOptions.plist` `destination=export`: export only, no upload)
 6. **Upload iOS IPA** via `xcrun altool` → goes to App Store Connect → iOS TestFlight queue
 7. **Archive Mac Catalyst** (`generic/platform=macOS,variant=Mac Catalyst`)
 8. **Export Mac PKG**
 9. **Upload Mac PKG** via `xcrun altool -t macos` → goes to App Store Connect → macOS TestFlight queue
 10. Upload artifacts (IPA + PKG + dSYMs) to GitHub
-11. `shred -u` the API key
+11. Delete the API key file (`rm -f`; macOS has no `shred`) and fail if it is still there
 
 Total wall-clock: ~12-18 min for both, ~6-8 min iOS-only.
 

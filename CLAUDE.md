@@ -53,7 +53,7 @@ Package root: `app/src/main/kotlin/com/openclaw/ghostcrab/`
 | `ui/connection/PairingHandoff.kt` | In-memory one-shot handoff (2 min expiry) of a decoded `ghostcrab://pair` bundle to ManualEntry; the token never enters a route or saved state |
 | `ui/{connection,dashboard,config,model,airecommend,installedskills,onboarding,settings}/` | Per-feature Compose screens + ViewModels |
 | `app/lint.xml` | Lint suppressions with rationale (icon duplicates, font cert data, deliberate cleartext base-config) |
-| `ios/`, `site/` | Sibling apps in this repo: the iOS/Catalyst client (Swift) and the getghostcrab.com Astro site. Not part of the Android module |
+| `ios/`, `site/` | Sibling apps in this repo: the iOS/Catalyst client (Swift) and the getghostcrab.com Astro site. Not part of the Android module. iOS has its own PR CI lane, `.github/workflows/ios-pr.yml` (simulator tests + Mac Catalyst compile on the self-hosted Mac Mini); see `ios/README.md` |
 
 ## Key Constraints
 

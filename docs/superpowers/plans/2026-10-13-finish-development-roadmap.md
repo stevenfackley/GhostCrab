@@ -68,20 +68,20 @@ Legend: size **S** ≤ ½ day, **M** ≤ 2 days, **L** > 2 days. **⚠ manual** 
 
 ## M4 — iOS finish
 
-| # | Item | Source | Size | Plan |
-|---|---|---|---|---|
-| 4.1 | QR pairing keeps token; register `ghostcrab://` URL scheme + `onOpenURL` | iOS A, top-10 #3 | M | C |
-| 4.2 | Model activation confirm dialog + in-flight Task guards | iOS A/C, #4 | S | C |
-| 4.3 | Bundle Inter + JetBrains Mono (`UIAppFonts`) — .ttf download ⚠ manual | iOS A/F, #2 | S | C |
-| 4.4 | `PrivacyInfo.xcprivacy` (UserDefaults CA92.1 …) — upload blocker | iOS F, #1 | S | C |
-| 4.5 | ATS: `NSAllowsLocalNetworking` (never `NSAllowsArbitraryLoads`); document FQDN limitation | iOS D P1 | S | C |
-| 4.6 | `RootView` VM-per-render, second `AppContainer` default, dead `PendingScreen` | iOS B | M | C |
-| 4.7 | `try?` swallowing (ProfileStore data loss, orphaned tokens, decode → "no models") | iOS C | M | C |
-| 4.8 | 15 s connect timeout (dead code today); per-client cleartext guard | iOS C P2 | M | C |
-| 4.9 | Tests via the unused `MockURLProtocol`; VM tests; empty UITests target | iOS E | L | C |
-| 4.10 | `ExportOptions` `destination: upload` vs altool double upload; `shred` on macOS; runner label | iOS F | S | C |
-| 4.11 | PR CI lane `ios-pr.yml` on `[self-hosted, macOS, mac-mini-ios]` | iOS E/F P1 | M | C |
-| 4.12 | ⚠ manual: App Store Connect record, categories, age rating, ASC API key + secrets `ASC_KEY_ID`/`ASC_ISSUER_ID`/`ASC_KEY_P8`, first TestFlight upload, Mac Catalyst smoke | `IOS_RELEASE_CHECKLIST.md` | M | — |
+| # | Item | Source | Size | Plan | Status |
+|---|---|---|---|---|---|
+| 4.1 | QR pairing keeps token; register `ghostcrab://` URL scheme + `onOpenURL` | iOS A, top-10 #3 | M | C | Done, PR #127 |
+| 4.2 | Model activation confirm dialog + in-flight Task guards | iOS A/C, #4 | S | C | Done, PR #127 |
+| 4.3 | Bundle Inter + JetBrains Mono (`UIAppFonts`) — .ttf download ⚠ manual | iOS A/F, #2 | S | C | Done, PR #127 |
+| 4.4 | `PrivacyInfo.xcprivacy` (UserDefaults CA92.1 …) — upload blocker | iOS F, #1 | S | C | Done, PR #127 |
+| 4.5 | ATS: `NSAllowsLocalNetworking` (never `NSAllowsArbitraryLoads`); document FQDN limitation | iOS D P1 | S | C | Done, PR #127 |
+| 4.6 | `RootView` VM-per-render, second `AppContainer` default, dead `PendingScreen` | iOS B | M | C | Done, PR #127 |
+| 4.7 | `try?` swallowing (ProfileStore data loss, orphaned tokens, decode → "no models") | iOS C | M | C | Done, PR #127 |
+| 4.8 | 15 s connect timeout (dead code today); per-client cleartext guard | iOS C P2 | M | C | Done, PR #127 |
+| 4.9 | Tests via the unused `MockURLProtocol`; VM tests; empty UITests target | iOS E | L | C | Done, PR #127 |
+| 4.10 | `ExportOptions` `destination: upload` vs altool double upload; `shred` on macOS; runner label | iOS F | S | C | Done, PR #127 |
+| 4.11 | PR CI lane `ios-pr.yml` on `[self-hosted, macOS, ARM64]` (the runner has no `mac-mini-ios` label); also compiles Mac Catalyst | iOS E/F P1 | M | C | Done, PR #127 |
+| 4.12 | ⚠ manual: App Store Connect record, categories, age rating, ASC API key + secrets `ASC_KEY_ID`/`ASC_ISSUER_ID`/`ASC_KEY_P8`, first TestFlight upload, Mac Catalyst smoke | `IOS_RELEASE_CHECKLIST.md` | M | — | Open |
 
 ## M5 — Real-gateway verification (biggest documented risk)
 
