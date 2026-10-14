@@ -102,6 +102,17 @@ class ProfileStoreCorruptedException(cause: Throwable) :
 }
 
 /**
+ * Clearing all saved gateways removed the profile list but could not wipe the encrypted token store,
+ * so saved tokens may remain on the device.
+ *
+ * @param cause The failure from the encrypted preferences.
+ */
+class TokenWipeFailedException(cause: Throwable) :
+    GatewayException("Saved gateways were removed but stored tokens could not be wiped.", cause) {
+    override val isRetryable: Boolean = true
+}
+
+/**
  * The gateway does not have the AI recommendation skill installed.
  *
  * @param url The gateway URL.

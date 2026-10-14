@@ -14,6 +14,7 @@ import com.openclaw.ghostcrab.data.storage.decodeProfilesForRead
 import com.openclaw.ghostcrab.data.storage.decodeProfilesForWrite
 import com.openclaw.ghostcrab.domain.exception.ProfileNeedsReauthException
 import com.openclaw.ghostcrab.domain.exception.ProfileStoreCorruptedException
+import com.openclaw.ghostcrab.domain.exception.TokenWipeFailedException
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
@@ -175,5 +176,27 @@ class ConnectionProfileStoreTest {
     fun `profiles flow rethrows non-IO errors`() {
         val prefs = flow<androidx.datastore.preferences.core.Preferences> { throw IllegalStateException("x") }
         assertThrows(IllegalStateException::class.java) { runBlocking { prefs.toProfilesFlow().first() } }
+    }
+
+    @Test
+    fun `wipeTokens surfaces a failed encrypted prefs wipe as TokenWipeFailedException`() {
+        val editor = mockk<SharedPreferences.Editor>(relaxed = true)
+        every { editor.clear() } throws GeneralSecurityException("keystore gone")
+        val prefs = mockk<SharedPreferences> { every { edit() } returns editor }
+
+        val e = assertThrows(TokenWipeFailedException::class.java) {
+            runBlocking { makeStore(prefs).wipeTokens() }
+        }
+        assertEquals("keystore gone", e.cause?.message)
+    }
+
+    @Test
+    fun `wipeTokens clears the encrypted prefs`() = runTest {
+        val editor = mockk<SharedPreferences.Editor>(relaxed = true)
+        val prefs = mockk<SharedPreferences> { every { edit() } returns editor }
+
+        makeStore(prefs).wipeTokens()
+
+        verify { editor.clear() }
     }
 }

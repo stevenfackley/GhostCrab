@@ -11,6 +11,7 @@ import androidx.datastore.preferences.preferencesDataStore
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import com.openclaw.ghostcrab.domain.exception.ProfileNeedsReauthException
+import com.openclaw.ghostcrab.domain.exception.TokenWipeFailedException
 import com.openclaw.ghostcrab.domain.exception.ProfileStoreCorruptedException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -138,11 +139,20 @@ class ConnectionProfileStore(
     /**
      * Removes every saved profile, the corruption backup (if any) and all stored tokens, even when
      * the stored profile list cannot be decoded.
+     *
+     * @throws TokenWipeFailedException if the encrypted token store cannot be wiped (the
+     *   profile list is already gone by then, so the caller must surface that tokens may remain).
      */
     suspend fun clearAll() {
         context.profileDataStore.edit { prefs -> prefs.clearProfileKeys() }
-        withContext(ioDispatcher) {
-            runCatching { encryptedPrefs.edit().clear().apply() }
+        wipeTokens()
+    }
+
+    internal suspend fun wipeTokens() = withContext(ioDispatcher) {
+        try {
+            encryptedPrefs.edit().clear().apply()
+        } catch (@Suppress("TooGenericExceptionCaught") e: Exception) {
+            throw TokenWipeFailedException(e)
         }
     }
 
