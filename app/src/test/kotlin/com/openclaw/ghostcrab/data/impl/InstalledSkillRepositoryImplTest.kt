@@ -16,7 +16,7 @@ class InstalledSkillRepositoryImplTest {
     @Test
     fun `install emits progress notifications then Succeeded`() = runTest {
         val session = FakeWsSession()
-        val ws = GatewayWsClient.forTesting(session, tokenProvider = { "tkn" })
+        val ws = GatewayWsClient.forTesting(session)
         val repo = InstalledSkillRepositoryImpl { ws }
 
         val emissions = async {
@@ -44,7 +44,7 @@ class InstalledSkillRepositoryImplTest {
     @Test
     fun `install maps -32003 error to Unauthorized`() = runTest {
         val session = FakeWsSession()
-        val ws = GatewayWsClient.forTesting(session, tokenProvider = { "tkn" })
+        val ws = GatewayWsClient.forTesting(session)
         val repo = InstalledSkillRepositoryImpl { ws }
 
         val emissions = async { repo.install("foo/bar").toList() }

@@ -14,7 +14,7 @@ class ScopeProbeImplTest {
     @Test
     fun `probe parses scopes from auth_whoami response`() = runTest {
         val session = FakeWsSession()
-        val ws = GatewayWsClient.forTesting(session, tokenProvider = { "tkn" })
+        val ws = GatewayWsClient.forTesting(session)
         val probe = ScopeProbeImpl { ws }
 
         val result = async { probe.probe() }
@@ -32,7 +32,7 @@ class ScopeProbeImplTest {
     @Test
     fun `probe maps method-not-found to UnknownOldGateway`() = runTest {
         val session = FakeWsSession()
-        val ws = GatewayWsClient.forTesting(session, tokenProvider = { "tkn" })
+        val ws = GatewayWsClient.forTesting(session)
         val probe = ScopeProbeImpl { ws }
 
         val result = async { probe.probe() }

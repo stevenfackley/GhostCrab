@@ -1,18 +1,24 @@
 package com.openclaw.ghostcrab.data.ws
 
+import com.openclaw.ghostcrab.domain.exception.GatewayException
+import com.openclaw.ghostcrab.domain.exception.GatewayTimeoutException
+import com.openclaw.ghostcrab.domain.exception.GatewayUnreachableException
 import io.ktor.client.plugins.websocket.webSocketSession
 import io.ktor.websocket.close
 import io.ktor.websocket.readText
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -28,19 +34,20 @@ interface WsSession {
 }
 
 /**
- * Multiplexed JSON-RPC 2.0 client over a single WS session. Request ids are allocated
- * from a monotonic counter; pending responses are parked as [CompletableDeferred] by id.
- * Notifications (no `id`) are fanned out via [notifications].
+ * Multiplexed JSON-RPC 2.0 client over a single WS session. Request ids come from a monotonic
+ * counter; pending responses are parked as [CompletableDeferred] by id. Notifications (no `id`)
+ * are fanned out via [notifications].
  *
- * @param session The underlying [WsSession] carrying raw text frames.
- * @param tokenProvider Supplier for the current bearer token (may return null).
+ * Every [request] is bounded by a timeout, and when the socket closes all pending requests fail
+ * with [GatewayUnreachableException] instead of hanging. Construct with [create] or [forTesting].
  */
 class GatewayWsClient private constructor(
     private val session: WsSession,
-    private val tokenProvider: () -> String?,
-    private val json: Json = Json { ignoreUnknownKeys = true; encodeDefaults = true },
-    dispatcher: CoroutineContext = Dispatchers.Default,
+    private val endpoint: String,
+    private val requestTimeoutMs: Long,
+    dispatcher: CoroutineContext,
 ) {
+    private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
     private val scope = CoroutineScope(SupervisorJob() + dispatcher)
     private val nextId = AtomicLong(1)
     private val pending = ConcurrentHashMap<Long, CompletableDeferred<JsonRpcResponse>>()
@@ -50,8 +57,18 @@ class GatewayWsClient private constructor(
     val notifications: Flow<JsonRpcNotification> = _notifications
 
     private val readerJob: Job = scope.launch {
-        session.incoming().collect { raw ->
-            dispatch(raw)
+        var transportError: Exception? = null
+        try {
+            session.incoming().collect { raw -> dispatch(raw) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (@Suppress("TooGenericExceptionCaught") e: Exception) {
+            // A transport error ends the socket like a close does. It must not escape this scope:
+            // there is no handler, so it would reach the default uncaught-exception handler.
+            transportError = e
+        } finally {
+            // Socket closed (or client closed): nobody will ever answer the parked requests.
+            failPending(GatewayUnreachableException(endpoint, transportError))
         }
     }
 
@@ -79,53 +96,69 @@ class GatewayWsClient private constructor(
      * @param method The RPC method name (e.g. `"skills.list"`).
      * @param params Optional JSON parameters.
      * @return The `result` field of the response, or an empty [JsonObject] if absent.
-     * @throws WsRpcException if the response contains an `error` object.
+     * @throws WsRpcException if the response carries an `error` object.
+     * @throws GatewayTimeoutException if no response arrives within the request timeout.
+     * @throws GatewayUnreachableException if the socket closed before the response arrived.
      */
     suspend fun request(method: String, params: JsonElement?): JsonElement {
         val id = nextId.getAndIncrement()
         val deferred = CompletableDeferred<JsonRpcResponse>()
         pending[id] = deferred
         val req = JsonRpcRequest(id = id, method = method, params = params)
-        @Suppress("TooGenericExceptionCaught")
-        try {
+        val res = try {
             session.send(json.encodeToString(JsonRpcRequest.serializer(), req))
-        } catch (e: Throwable) {
+            withTimeout(requestTimeoutMs) { deferred.await() }
+        } catch (e: TimeoutCancellationException) {
+            throw GatewayTimeoutException("$endpoint#$method", e)
+        } finally {
             pending.remove(id)
-            throw e
         }
-        val res = deferred.await()
         res.error?.let { throw WsRpcException(code = it.code, message = it.message) }
         return res.result ?: JsonObject(emptyMap())
     }
 
-    /** Cancels the reader loop, the scope, and closes the underlying session. */
+    /** Cancels the reader loop and the scope, then closes the underlying session. */
     suspend fun close() {
         readerJob.cancel()
         scope.cancel()
         session.close()
     }
 
+    private fun failPending(cause: GatewayException) {
+        pending.values.forEach { it.completeExceptionally(cause) }
+        pending.clear()
+    }
+
     /** Thrown when the server returns a JSON-RPC error object. */
     class WsRpcException(val code: Int, override val message: String) : RuntimeException(message)
 
     companion object {
+        /** Time to wait for a JSON-RPC response before failing with [GatewayTimeoutException]. */
+        const val DEFAULT_REQUEST_TIMEOUT_MS = 30_000L
+
         /**
-         * For unit tests only — wires directly to a [FakeWsSession] without Ktor.
-         * Production code should construct via DI with a Ktor-backed [WsSession].
+         * Production factory — reader loop on [Dispatchers.Default].
          *
-         * @param dispatcher Coroutine context for the internal reader loop. Tests should
-         *   pass [Dispatchers.Unconfined] (or a test dispatcher) so frame dispatch is
-         *   deterministic; production uses the default [Dispatchers.Default].
+         * @param session A connected WS session.
+         * @param endpoint The `ws(s)://…/ws` URL, used in error messages.
+         * @return A client that owns [session]; call [close] when done.
+         */
+        fun create(session: WsSession, endpoint: String): GatewayWsClient =
+            GatewayWsClient(session, endpoint, DEFAULT_REQUEST_TIMEOUT_MS, Dispatchers.Default)
+
+        /**
+         * For unit tests only — deterministic frame dispatch on [Dispatchers.Unconfined] by default.
+         *
+         * @param session Fake session.
+         * @param dispatcher Context for the reader loop.
+         * @param requestTimeoutMs Per-request timeout (virtual time under `runTest`).
+         * @return A client that owns [session].
          */
         fun forTesting(
             session: WsSession,
-            tokenProvider: () -> String?,
             dispatcher: CoroutineContext = Dispatchers.Unconfined,
-        ): GatewayWsClient = GatewayWsClient(
-            session = session,
-            tokenProvider = tokenProvider,
-            dispatcher = dispatcher,
-        )
+            requestTimeoutMs: Long = DEFAULT_REQUEST_TIMEOUT_MS,
+        ): GatewayWsClient = GatewayWsClient(session, "ws://test/ws", requestTimeoutMs, dispatcher)
     }
 }
 
@@ -174,5 +207,5 @@ suspend fun openGatewayWs(
         val token = tokenProvider()
         if (token != null) headers.append("Authorization", "Bearer $token")
     }
-    return GatewayWsClient.forTesting(KtorWsSession(session), tokenProvider)
+    return GatewayWsClient.create(KtorWsSession(session), endpoint = wsUrl)
 }
