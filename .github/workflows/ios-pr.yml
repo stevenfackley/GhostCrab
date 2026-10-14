@@ -74,12 +74,14 @@ jobs:
             -skipMacroValidation \
             -quiet
 
-      - name: Summarise test failures
-        if: failure()
+      - name: Test summary
+        if: always()
         run: |
           XCRESULT="$RUNNER_TEMP/GhostCrab.xcresult"
           [ -d "$XCRESULT" ] || exit 0
+          # -quiet hides per-test output; print the counts and any failures.
           xcrun xcresulttool get test-results summary --path "$XCRESULT" --compact || true
+          [ "${{ job.status }}" = "success" ] && exit 0
           # Crash reports (app or test runner died before reporting results).
           DIAG="$RUNNER_TEMP/diagnostics"
           xcrun xcresulttool export diagnostics --path "$XCRESULT" --output-path "$DIAG" >/dev/null 2>&1 || true
