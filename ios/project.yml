@@ -66,6 +66,14 @@ targets:
               - ghostcrab
         ITSAppUsesNonExemptEncryption: false
         LSApplicationCategoryType: "public.app-category.developer-tools"  # macOS App Store category
+        # Bundle-root file names; each file is <PostScriptName>.ttf (AppFont.PostScriptName).
+        UIAppFonts:
+          - Inter-Regular.ttf
+          - Inter-Medium.ttf
+          - Inter-SemiBold.ttf
+          - Inter-Bold.ttf
+          - JetBrainsMono-Regular.ttf
+          - JetBrainsMono-Medium.ttf
     entitlements:
       path: GhostCrab/Resources/GhostCrab.entitlements
       properties:
