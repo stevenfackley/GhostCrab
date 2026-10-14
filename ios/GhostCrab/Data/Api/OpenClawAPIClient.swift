@@ -27,7 +27,12 @@ public actor OpenClawAPIClient {
         category: "OpenClawAPIClient"
     )
 
-    private init(baseURL: URL, token: String?, allowCleartextPublicIPs: Bool) {
+    private init(
+        baseURL: URL,
+        token: String?,
+        allowCleartextPublicIPs: Bool,
+        additionalProtocolClasses: [AnyClass] = []
+    ) {
         self.baseURL = baseURL
         self.token = token
 
@@ -43,7 +48,7 @@ public actor OpenClawAPIClient {
         config.timeoutIntervalForResource = 30
         config.waitsForConnectivity = false
         config.requestCachePolicy = .reloadIgnoringLocalCacheData
-        config.protocolClasses = [CleartextPublicIPGuard.self] + (config.protocolClasses ?? [])
+        config.protocolClasses = [CleartextPublicIPGuard.self] + additionalProtocolClasses + (config.protocolClasses ?? [])
 
         // 15s connect timeout via the connection-establishment knob.
         config.connectionProxyDictionary = nil
@@ -97,6 +102,31 @@ public actor OpenClawAPIClient {
             baseURL: baseURL,
             token: token,
             allowCleartextPublicIPs: allowCleartextPublicIPs
+        )
+    }
+
+    /// Test seam: the same client the production factories build, plus extra
+    /// `URLProtocol` classes (e.g. `MockURLProtocol`) that are consulted after
+    /// ``CleartextPublicIPGuard``, so guard behaviour stays under test.
+    /// Internal, so only reachable through `@testable import`.
+    ///
+    /// - Parameters:
+    ///   - baseURL: Gateway base URL.
+    ///   - token: Bearer token, or `nil` for an unauthenticated client.
+    ///   - allowCleartextPublicIPs: Same meaning as in the production factories.
+    ///   - protocolClasses: Protocol classes appended after the guard.
+    /// - Returns: A client whose session routes through `protocolClasses`.
+    static func makeForTesting(
+        baseURL: URL,
+        token: String? = nil,
+        allowCleartextPublicIPs: Bool = false,
+        protocolClasses: [AnyClass]
+    ) -> OpenClawAPIClient {
+        OpenClawAPIClient(
+            baseURL: baseURL,
+            token: token,
+            allowCleartextPublicIPs: allowCleartextPublicIPs,
+            additionalProtocolClasses: protocolClasses
         )
     }
 
