@@ -3,6 +3,9 @@ package com.openclaw.ghostcrab.domain.util
 import kotlinx.serialization.DeserializationStrategy
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import java.util.Base64
 
 /** Longest scanned or deep-linked payload [decodePairCode] accepts; longer input is rejected before decoding. */
@@ -11,7 +14,11 @@ const val MAX_PAIR_CODE_LENGTH: Int = 4096
 private const val PAIR_SCHEME = "ghostcrab:"
 private const val PAIR_PREFIX = "ghostcrab://pair?"
 private const val PAIR_VERSION = 1
-private val pairJson = Json { ignoreUnknownKeys = true }
+private val pairJson = Json {
+    ignoreUnknownKeys = true
+    isLenient = false
+    coerceInputValues = false
+}
 
 /**
  * Connection bundle carried by a `ghostcrab://pair?p=<base64url(json)>` code (schema v1, see
@@ -51,10 +58,6 @@ sealed interface PairCodeResult {
     data class Invalid(val reason: String) : PairCodeResult
 }
 
-/** Just the schema version, read first so a newer version is reported as such even if its shape differs. */
-@Serializable
-private data class PairHeader(val v: Int)
-
 @Serializable
 private data class PairPayloadV1(
     val v: Int,
@@ -88,7 +91,7 @@ fun decodePairCode(raw: String): PairCodeResult {
 
 private fun decodeBundle(uri: String): PairCodeResult {
     val json = payloadJson(uri)
-    val version = json?.let { decodeOrNull(PairHeader.serializer(), it) }?.v
+    val version = json?.let { readVersion(it) }
     val payload = json?.takeIf { version == PAIR_VERSION }?.let { decodeOrNull(PairPayloadV1.serializer(), it) }
     val url = payload?.url?.let { GatewayUrl.parse(it) }
     return when {
@@ -104,8 +107,22 @@ private fun decodeBundle(uri: String): PairCodeResult {
 private fun payloadJson(uri: String): String? {
     val encoded = uri.takeIf { it.startsWith(PAIR_PREFIX, ignoreCase = true) }
         ?.substringAfter('?')?.split('&')?.firstOrNull { it.startsWith("p=") }?.removePrefix("p=")
-    return encoded?.let { runCatching { String(Base64.getUrlDecoder().decode(it), Charsets.UTF_8) }.getOrNull() }
+    return encoded?.let { decodeBase64Text(it) }
 }
+
+/** Decodes URL-safe base64, falling back to standard base64 (`+` and `/`), as iOS does. */
+private fun decodeBase64Text(encoded: String): String? =
+    runCatching { String(Base64.getUrlDecoder().decode(encoded), Charsets.UTF_8) }.getOrNull()
+        ?: runCatching { String(Base64.getDecoder().decode(encoded), Charsets.UTF_8) }.getOrNull()
+
+/**
+ * The schema version, read first so a newer version is reported as such even if its shape differs.
+ * Strict: only a JSON number counts; a quoted `"1"` is not a version.
+ */
+private fun readVersion(json: String): Int? = runCatching {
+    val v = pairJson.parseToJsonElement(json).jsonObject["v"]?.jsonPrimitive
+    v?.takeIf { !it.isString }?.intOrNull
+}.getOrNull()
 
 private fun <T> decodeOrNull(deserializer: DeserializationStrategy<T>, json: String): T? =
     runCatching { pairJson.decodeFromString(deserializer, json) }.getOrNull()
