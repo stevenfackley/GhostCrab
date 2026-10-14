@@ -35,7 +35,11 @@ data class ManualEntryFormState(
     val assembledUrl: String
         get() {
             val h = host.trim()
-            return "$scheme://${if (h.contains(':')) "[$h]" else h}:${port.trim()}"
+            val p = port.trim()
+            // Canonical form (e.g. port "08080" -> 8080) so dedup and saved-profile matching agree.
+            // Falls back to the raw text while the form is still incomplete (live preview).
+            return p.toIntOrNull()?.let { GatewayUrl.ofOrNull(h, it, useHttps)?.toString() }
+                ?: "$scheme://${if (h.contains(':')) "[$h]" else h}:$p"
         }
 
     /** Redacts [token] so form state can be logged or dumped without leaking a bearer. */

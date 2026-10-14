@@ -180,6 +180,13 @@ class ManualEntryViewModelTest {
     }
 
     @Test
+    fun `assembledUrl canonicalises a zero-padded port and brackets IPv6`() {
+        vm.onHostChange("::1")
+        vm.onPortChange("08080")
+        assertEquals("http://[::1]:8080", vm.form.value.assembledUrl)
+    }
+
+    @Test
     fun `connect calls connectionManager with assembled URL`() = runTest {
         coEvery { connectionManager.connect(any(), any()) } returns Unit
         vm.onHostChange("192.168.0.23")

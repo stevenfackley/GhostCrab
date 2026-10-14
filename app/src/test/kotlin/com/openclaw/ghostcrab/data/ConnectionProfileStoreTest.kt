@@ -8,6 +8,7 @@ import com.openclaw.ghostcrab.data.storage.KEY_PROFILES
 import com.openclaw.ghostcrab.data.storage.KEY_PROFILES_CORRUPT_BACKUP
 import com.openclaw.ghostcrab.data.storage.clearProfileKeys
 import com.openclaw.ghostcrab.data.storage.profilesForWrite
+import com.openclaw.ghostcrab.data.storage.toProfilesFlow
 import com.openclaw.ghostcrab.data.storage.StoredProfile
 import com.openclaw.ghostcrab.data.storage.decodeProfilesForRead
 import com.openclaw.ghostcrab.data.storage.decodeProfilesForWrite
@@ -16,12 +17,15 @@ import com.openclaw.ghostcrab.domain.exception.ProfileStoreCorruptedException
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
+import java.io.IOException
 import java.security.GeneralSecurityException
 
 /**
@@ -159,5 +163,17 @@ class ConnectionProfileStoreTest {
 
         assertNull(prefs[KEY_PROFILES])
         assertNull(prefs[KEY_PROFILES_CORRUPT_BACKUP])
+    }
+
+    @Test
+    fun `profiles flow reads as empty on a DataStore IOException`() = runTest {
+        val prefs = flow<androidx.datastore.preferences.core.Preferences> { throw IOException("disk") }
+        assertEquals(emptyList<StoredProfile>(), prefs.toProfilesFlow().first())
+    }
+
+    @Test
+    fun `profiles flow rethrows non-IO errors`() {
+        val prefs = flow<androidx.datastore.preferences.core.Preferences> { throw IllegalStateException("x") }
+        assertThrows(IllegalStateException::class.java) { runBlocking { prefs.toProfilesFlow().first() } }
     }
 }

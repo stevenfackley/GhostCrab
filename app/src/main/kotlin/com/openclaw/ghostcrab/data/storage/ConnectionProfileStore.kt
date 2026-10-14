@@ -15,12 +15,14 @@ import com.openclaw.ghostcrab.domain.exception.ProfileStoreCorruptedException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import java.io.IOException
 
 private val Context.profileDataStore: DataStore<Preferences> by preferencesDataStore(
     name = "connection_profiles",
@@ -37,6 +39,11 @@ private val profileJson = Json { ignoreUnknownKeys = true }
 /** Decodes the stored list for display. Undecodable data reads as empty and is never written back. */
 internal fun decodeProfilesForRead(json: String?): List<StoredProfile> =
     json?.let { runCatching { profileJson.decodeFromString<List<StoredProfile>>(it) }.getOrNull() }.orEmpty()
+
+/** Maps raw preferences to profiles; a DataStore [IOException] reads as empty (fail closed), others propagate. */
+internal fun Flow<Preferences>.toProfilesFlow(): Flow<List<StoredProfile>> =
+    map { prefs -> decodeProfilesForRead(prefs[KEY_PROFILES]) }
+        .catch { e -> if (e is IOException) emit(emptyList()) else throw e }
 
 /**
  * Decodes the stored list before a read-modify-write.
@@ -110,7 +117,7 @@ class ConnectionProfileStore(
     // ── DataStore ─────────────────────────────────────────────────────────────
 
     fun getProfilesFlow(): Flow<List<StoredProfile>> =
-        context.profileDataStore.data.map { prefs -> decodeProfilesForRead(prefs[KEY_PROFILES]) }
+        context.profileDataStore.data.toProfilesFlow()
 
     suspend fun saveProfile(profile: StoredProfile) {
         context.profileDataStore.edit { prefs ->
