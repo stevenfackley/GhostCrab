@@ -34,7 +34,6 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -42,6 +41,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.openclaw.ghostcrab.ui.components.GlassSurface
 import com.openclaw.ghostcrab.ui.config.sections.GatewaySectionEditor
 import com.openclaw.ghostcrab.ui.config.sections.RawJsonSectionEditor
@@ -62,14 +62,15 @@ import org.koin.androidx.compose.koinViewModel
  * Section order: `"gateway"` first, remaining keys alphabetically.
  *
  * @param onNavigateBack Called when the back arrow is tapped or state becomes [ConfigEditorUiState.Disconnected].
+ * @param viewModel Injected via Koin by default.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ConfigEditorScreen(
     onNavigateBack: () -> Unit,
+    viewModel: ConfigEditorViewModel = koinViewModel(),
 ) {
-    val viewModel: ConfigEditorViewModel = koinViewModel()
-    val state by viewModel.state.collectAsState()
+    val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
 
     // Navigate back when disconnected

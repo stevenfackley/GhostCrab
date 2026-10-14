@@ -159,8 +159,10 @@ class InstalledSkillRepositoryImpl(
         }
 
     private fun JsonObject.toInstalledSkill(): InstalledSkill = InstalledSkill(
-        slug = this["slug"]!!.jsonPrimitive.content,
-        installedVersion = this["installed_version"]!!.jsonPrimitive.content,
+        slug = checkNotNull(this["slug"]) { "Installed skill entry has no slug" }.jsonPrimitive.content,
+        installedVersion = checkNotNull(this["installed_version"]) {
+            "Installed skill entry has no installed_version"
+        }.jsonPrimitive.content,
         source = when (this["source"]?.jsonPrimitive?.contentOrNull) {
             "ClawHub", "clawhub" -> SkillSource.ClawHub
             "Local", "local" -> SkillSource.Local

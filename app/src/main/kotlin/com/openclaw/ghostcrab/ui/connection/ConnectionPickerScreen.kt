@@ -40,7 +40,6 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -50,6 +49,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.openclaw.ghostcrab.R
 import com.openclaw.ghostcrab.domain.model.ConnectionProfile
 import com.openclaw.ghostcrab.ui.components.GlassSurface
@@ -68,8 +68,8 @@ fun ConnectionPickerScreen(
     onNavigateToOnboarding: () -> Unit = {},
     viewModel: ConnectionPickerViewModel = koinViewModel(),
 ) {
-    val profiles by viewModel.profiles.collectAsState()
-    val pickerState by viewModel.uiState.collectAsState()
+    val profiles by viewModel.profiles.collectAsStateWithLifecycle()
+    val pickerState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(viewModel) {
@@ -85,7 +85,7 @@ fun ConnectionPickerScreen(
         viewModel.clearError()
     }
 
-    val showOnboarding by viewModel.showOnboarding.collectAsState()
+    val showOnboarding by viewModel.showOnboarding.collectAsStateWithLifecycle()
     LaunchedEffect(showOnboarding) {
         if (showOnboarding) {
             onNavigateToOnboarding()

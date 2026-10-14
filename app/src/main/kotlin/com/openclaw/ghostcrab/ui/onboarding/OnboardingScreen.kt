@@ -3,10 +3,10 @@ package com.openclaw.ghostcrab.ui.onboarding
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.res.stringResource
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.openclaw.ghostcrab.R
 import com.openclaw.ghostcrab.domain.model.OnboardingStep
 import com.openclaw.ghostcrab.ui.onboarding.steps.ConnectedStep
@@ -39,7 +39,7 @@ public fun OnboardingScreen(
     onDone: () -> Unit,
     viewModel: OnboardingViewModel = koinViewModel(),
 ) {
-    val step by viewModel.step.collectAsState()
+    val step by viewModel.step.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(step) {
@@ -86,7 +86,7 @@ public fun OnboardingScreen(
             onSkip = { viewModel.skip() },
             title = stringResource(R.string.onboarding_start_title),
         ) {
-            val token by viewModel.suggestedToken.collectAsState()
+            val token by viewModel.suggestedToken.collectAsStateWithLifecycle()
             StartGatewayStep(
                 token = token,
                 onRegenerateToken = { viewModel.regenerateToken() },

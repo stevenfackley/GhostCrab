@@ -40,7 +40,6 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -51,6 +50,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.openclaw.ghostcrab.BuildConfig
 import com.openclaw.ghostcrab.R
 import com.openclaw.ghostcrab.domain.model.ConnectionProfile
@@ -85,9 +85,9 @@ private data class SettingsCallbacks(
 fun SettingsScreen(
     onNavigateBack: () -> Unit,
     onNavigateToInstalledSkills: () -> Unit = {},
+    viewModel: SettingsViewModel = koinViewModel(),
 ) {
-    val viewModel: SettingsViewModel = koinViewModel()
-    val state by viewModel.state.collectAsState()
+    val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbarHostState = androidx.compose.runtime.remember { SnackbarHostState() }
     val onboardingResetMessage = stringResource(R.string.settings_onboarding_reset_success)
     val readyState = androidx.compose.runtime.remember(state) { state as? SettingsUiState.Ready }

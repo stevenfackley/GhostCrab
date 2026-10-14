@@ -35,7 +35,6 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -44,6 +43,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.openclaw.ghostcrab.ui.components.HttpSecurityBanner
 import com.openclaw.ghostcrab.ui.theme.BrandTokens
 import com.openclaw.ghostcrab.ui.theme.MonoFontFamily
@@ -58,8 +58,8 @@ fun ManualEntryScreen(
     prefillUrl: String? = null,
     viewModel: ManualEntryViewModel = koinViewModel(),
 ) {
-    val form by viewModel.form.collectAsState()
-    val uiState by viewModel.uiState.collectAsState()
+    val form by viewModel.form.collectAsStateWithLifecycle()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
     LaunchedEffect(prefillUrl) {
         if (prefillUrl != null) viewModel.setPrefillUrl(prefillUrl)
@@ -165,9 +165,7 @@ fun ManualEntryScreen(
                     textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = MonoFontFamily),
                     isError = form.hostError != null,
                     supportingText = {
-                        if (form.hostError != null) {
-                            Text(form.hostError!!, color = BrandTokens.colorCrimsonError)
-                        }
+                        form.hostError?.let { Text(it, color = BrandTokens.colorCrimsonError) }
                     },
                     keyboardOptions = KeyboardOptions(
                         keyboardType = KeyboardType.Uri,
@@ -188,9 +186,7 @@ fun ManualEntryScreen(
                     textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = MonoFontFamily),
                     isError = form.portError != null,
                     supportingText = {
-                        if (form.portError != null) {
-                            Text(form.portError!!, color = BrandTokens.colorCrimsonError)
-                        }
+                        form.portError?.let { Text(it, color = BrandTokens.colorCrimsonError) }
                     },
                     keyboardOptions = KeyboardOptions(
                         keyboardType = KeyboardType.Number,

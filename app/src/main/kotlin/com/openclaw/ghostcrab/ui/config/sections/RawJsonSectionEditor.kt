@@ -67,9 +67,9 @@ fun RawJsonSectionEditor(
             minLines = 5,
             modifier = Modifier.fillMaxWidth(),
         )
-        if (parseError != null) {
+        parseError?.let { message ->
             Text(
-                text = parseError!!,
+                text = message,
                 color = BrandTokens.colorCrimsonError,
                 style = MaterialTheme.typography.labelSmall,
                 modifier = Modifier.padding(start = Spacing.xs, top = Spacing.xs),

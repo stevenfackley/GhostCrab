@@ -47,7 +47,6 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -60,6 +59,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.openclaw.ghostcrab.R
 import com.openclaw.ghostcrab.domain.model.GatewayConnection
 import com.openclaw.ghostcrab.domain.model.SkillInstallError
@@ -80,12 +80,15 @@ import org.koin.androidx.compose.koinViewModel
  * shows an empty state with install guidance.
  *
  * @param onNavigateBack Called to pop back to Dashboard.
+ * @param viewModel Injected via Koin by default.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AIRecommendationScreen(onNavigateBack: () -> Unit) {
-    val viewModel: AIRecommendationViewModel = koinViewModel()
-    val state by viewModel.state.collectAsState()
+fun AIRecommendationScreen(
+    onNavigateBack: () -> Unit,
+    viewModel: AIRecommendationViewModel = koinViewModel(),
+) {
+    val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
 
     var query by rememberSaveable { mutableStateOf("") }
