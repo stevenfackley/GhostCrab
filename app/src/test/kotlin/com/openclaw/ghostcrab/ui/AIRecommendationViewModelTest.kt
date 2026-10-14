@@ -438,6 +438,44 @@ class AIRecommendationViewModelTest {
         assertTrue(s.canInstall)
     }
 
+    @Test
+    fun `security-affecting selection is confirmed before anything is written`() = runTest {
+        val risky = change("gateway", "auth.mode")
+        val configRepo = FakeAIConfigRepository()
+        val (vm, _) = makeVm(
+            service = FakeAIService(available = true, recommendation = recommendation(risky)),
+            config = configRepo,
+        )
+        vm.submitQuery("query")
+        vm.toggleChange(risky)
+
+        vm.applySelectedChanges()
+        assertEquals(listOf(risky), (vm.state.value as AIRecommendationUiState.Ready).confirmSecurityChanges)
+        assertEquals(0, configRepo.updateCallCount)
+
+        vm.applySelectedChanges(securityConfirmed = true)
+        assertEquals(1, configRepo.updateCallCount)
+        assertTrue((vm.state.value as AIRecommendationUiState.Ready).confirmSecurityChanges.isEmpty())
+    }
+
+    @Test
+    fun `dismissSecurityConfirmation applies nothing`() = runTest {
+        val risky = change("gateway", "auth.mode")
+        val configRepo = FakeAIConfigRepository()
+        val (vm, _) = makeVm(
+            service = FakeAIService(available = true, recommendation = recommendation(risky)),
+            config = configRepo,
+        )
+        vm.submitQuery("query")
+        vm.toggleChange(risky)
+        vm.applySelectedChanges()
+
+        vm.dismissSecurityConfirmation()
+
+        assertTrue((vm.state.value as AIRecommendationUiState.Ready).confirmSecurityChanges.isEmpty())
+        assertEquals(0, configRepo.updateCallCount)
+    }
+
 }
 
 // ── Fakes ─────────────────────────────────────────────────────────────────────

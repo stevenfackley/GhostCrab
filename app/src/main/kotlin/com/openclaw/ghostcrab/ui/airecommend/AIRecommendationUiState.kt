@@ -47,6 +47,8 @@ sealed interface AIRecommendationUiState {
      *   Cleared by [AIRecommendationViewModel.clearApplyFlags].
      * @param applyError Non-null when a config-apply operation failed.
      *   Cleared by [AIRecommendationViewModel.clearApplyFlags].
+     * @param confirmSecurityChanges Non-empty while the UI must ask the user to confirm these
+     *   security-affecting changes before anything is written.
      */
     data class Ready(
         val query: String,
@@ -55,6 +57,7 @@ sealed interface AIRecommendationUiState {
         val isApplying: Boolean = false,
         val applySuccess: Boolean = false,
         val applyError: String? = null,
+        val confirmSecurityChanges: List<SuggestedChange> = emptyList(),
     ) : AIRecommendationUiState
 
     /**

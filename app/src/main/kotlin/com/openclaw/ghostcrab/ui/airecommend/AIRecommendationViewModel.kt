@@ -24,9 +24,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
@@ -99,7 +96,7 @@ class AIRecommendationViewModel(
         viewModelScope.launch {
             _state.value = AIRecommendationUiState.Loading
             try {
-                val context = buildContext()
+                val context = buildRecommendationContext(connectionManager, configRepository, modelRepository)
                 val recommendation = aiService.getRecommendation(trimmed, context)
                 _state.value = AIRecommendationUiState.Ready(
                     query = trimmed,
@@ -148,49 +145,30 @@ class AIRecommendationViewModel(
     }
 
     /**
-     * Applies all changes in [AIRecommendationUiState.Ready.selectedChanges] via [configRepository].
+     * Applies [AIRecommendationUiState.Ready.selectedChanges] via [configRepository].
      *
-     * Each change is sent as a JSON merge-patch: `{key: suggestedValue}` to `section`.
-     * Sets [AIRecommendationUiState.Ready.applySuccess] on success, or
-     * [AIRecommendationUiState.Ready.applyError] on failure.
+     * If any selected change is security-affecting and [securityConfirmed] is `false`, nothing is
+     * written: [AIRecommendationUiState.Ready.confirmSecurityChanges] is set so the screen can ask
+     * first. Call again with `securityConfirmed = true` after the user accepts.
      *
-     * Re-reads the current state snapshot immediately before the final assignment so that any
-     * toggles made while the apply coroutine was in flight are preserved.
+     * No-op if state is not [AIRecommendationUiState.Ready] or nothing is selected.
      *
-     * No-op if state is not [AIRecommendationUiState.Ready] or [selectedChanges] is empty.
+     * @param securityConfirmed `true` once the user explicitly accepted security-affecting changes.
      */
-    fun applySelectedChanges() {
-        val snapshot = _state.value as? AIRecommendationUiState.Ready ?: return
-        if (snapshot.selectedChanges.isEmpty()) return
-        viewModelScope.launch {
-            _state.update { (it as? AIRecommendationUiState.Ready)?.copy(isApplying = true, applyError = null) ?: it }
-            var appliedCount = 0
-            try {
-                snapshot.selectedChanges.forEach { change ->
-                    val patch = buildJsonObject { put(change.key, parseJsonValue(change.suggestedValue)) }
-                    configRepository.updateConfig(change.section, patch)
-                    appliedCount++
-                }
-                // Re-read state so any toggles made mid-apply aren't clobbered
-                _state.update {
-                    (it as? AIRecommendationUiState.Ready)
-                        ?.copy(isApplying = false, applySuccess = true) ?: it
-                }
-            } catch (e: GatewayException) {
-                val total = snapshot.selectedChanges.size
-                val errorMsg = if (appliedCount > 0) {
-                    "Applied $appliedCount of $total changes; " +
-                        "stopped at change ${appliedCount + 1}: " +
-                        (e.message ?: "Unknown error")
-                } else {
-                    e.message ?: "Failed to apply changes"
-                }
-                _state.update {
-                    (it as? AIRecommendationUiState.Ready)
-                        ?.copy(isApplying = false, applyError = errorMsg) ?: it
-                }
-            }
+    fun applySelectedChanges(securityConfirmed: Boolean = false) {
+        val snapshot = (_state.value as? AIRecommendationUiState.Ready)
+            ?.takeIf { it.selectedChanges.isNotEmpty() } ?: return
+        val risky = snapshot.selectedChanges.filter { it.isSecurityAffecting }
+        if (risky.isNotEmpty() && !securityConfirmed) {
+            _state.value = snapshot.copy(confirmSecurityChanges = risky)
+        } else {
+            launchApply(snapshot)
         }
+    }
+
+    /** Closes the security confirmation without applying anything. */
+    fun dismissSecurityConfirmation() {
+        _state.update { (it as? AIRecommendationUiState.Ready)?.copy(confirmSecurityChanges = emptyList()) ?: it }
     }
 
     /**
@@ -290,46 +268,62 @@ class AIRecommendationViewModel(
         }
     }
 
-    /**
-     * Assembles context for the AI query. Network failures for config/model are non-fatal —
-     * the request proceeds with empty config or null model rather than aborting.
-     *
-     * [CancellationException] is explicitly re-thrown so coroutine cancellation is never swallowed.
-     */
-    private suspend fun buildContext(): RecommendationContext {
-        val connState = connectionManager.connectionState.value as? GatewayConnection.Connected
-        val activeConfig = runCatching { configRepository.getConfig() }
-            .onFailure { if (it is CancellationException) throw it }
-            .getOrElse { OpenClawConfig(emptyMap()) }
-        val activeModelId = runCatching {
-            modelRepository.getModels().firstOrNull { it.isActive }?.id
+    private fun launchApply(snapshot: AIRecommendationUiState.Ready) {
+        viewModelScope.launch {
+            _state.update {
+                (it as? AIRecommendationUiState.Ready)
+                    ?.copy(isApplying = true, applyError = null, confirmSecurityChanges = emptyList()) ?: it
+            }
+            var appliedCount = 0
+            try {
+                snapshot.selectedChanges.forEach { change ->
+                    val patch = buildJsonObject { put(change.key, parseSuggestedValue(change.suggestedValue)) }
+                    configRepository.updateConfig(change.section, patch)
+                    appliedCount++
+                }
+                _state.update {
+                    (it as? AIRecommendationUiState.Ready)?.copy(isApplying = false, applySuccess = true) ?: it
+                }
+            } catch (e: GatewayException) {
+                val total = snapshot.selectedChanges.size
+                val errorMsg = if (appliedCount > 0) {
+                    "Applied $appliedCount of $total changes; " +
+                        "stopped at change ${appliedCount + 1}: " + (e.message ?: "Unknown error")
+                } else {
+                    e.message ?: "Failed to apply changes"
+                }
+                _state.update {
+                    (it as? AIRecommendationUiState.Ready)?.copy(isApplying = false, applyError = errorMsg) ?: it
+                }
+            }
         }
-            .onFailure { if (it is CancellationException) throw it }
-            .getOrNull()
-        return RecommendationContext(
-            activeConfig = activeConfig,
-            hardwareInfo = connState?.hardwareInfo,
-            activeModelId = activeModelId,
-        )
-    }
-
-    /**
-     * Parses [value] as a [JsonElement]. Falls back to a [JsonPrimitive] string if parsing fails,
-     * so malformed suggestions don't crash the apply flow.
-     *
-     * [CancellationException] cannot be thrown here (no suspending calls).
-     *
-     * @param value JSON-encoded string from the AI response.
-     * @return Parsed [JsonElement], or a string primitive on parse failure.
-     */
-    private fun parseJsonValue(value: String): JsonElement = runCatching {
-        Json.parseToJsonElement(value)
-    }.getOrElse {
-        JsonPrimitive(value)
     }
 
     private companion object {
         /** ClawHub slug for the AI recommendation skill. Must match strings.xml copy. */
         const val AI_RECOMMEND_SLUG = "wanng-ide/auto-skill-hunter"
     }
+}
+
+/**
+ * Assembles context for an AI query. Config/model failures are non-fatal — the request proceeds
+ * with an empty config or no model. [CancellationException] is always rethrown.
+ */
+private suspend fun buildRecommendationContext(
+    connectionManager: GatewayConnectionManager,
+    configRepository: ConfigRepository,
+    modelRepository: ModelRepository,
+): RecommendationContext {
+    val connState = connectionManager.connectionState.value as? GatewayConnection.Connected
+    val activeConfig = runCatching { configRepository.getConfig() }
+        .onFailure { if (it is CancellationException) throw it }
+        .getOrElse { OpenClawConfig(emptyMap()) }
+    val activeModelId = runCatching { modelRepository.getModels().firstOrNull { it.isActive }?.id }
+        .onFailure { if (it is CancellationException) throw it }
+        .getOrNull()
+    return RecommendationContext(
+        activeConfig = activeConfig,
+        hardwareInfo = connState?.hardwareInfo,
+        activeModelId = activeModelId,
+    )
 }
