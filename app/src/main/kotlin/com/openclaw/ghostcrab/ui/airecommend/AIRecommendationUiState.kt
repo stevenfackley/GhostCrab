@@ -43,9 +43,10 @@ sealed interface AIRecommendationUiState {
      * @param recommendation Full recommendation from the gateway AI skill.
      * @param selectedChanges Changes the user ticked. Starts **empty** — nothing is pre-selected.
      * @param isApplying `true` while a config-apply operation is in flight.
-     * @param applySuccess `true` after all selected changes were applied successfully.
+     * @param applySuccess `true` after every selected change was written to the gateway.
      *   Cleared by [AIRecommendationViewModel.clearApplyFlags].
-     * @param applyError Non-null when a config-apply operation failed.
+     * @param applyError Non-null when a config-apply operation failed — or, alongside
+     *   [applySuccess], a warning that every write landed but reloading the config failed.
      *   Cleared by [AIRecommendationViewModel.clearApplyFlags].
      * @param confirmSecurityChanges Non-empty while the UI must ask the user to confirm these
      *   security-affecting changes before anything is written.

@@ -6,6 +6,9 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertThrows
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.ValueSource
 
 class JsonPatchTest {
 
@@ -27,5 +30,31 @@ class JsonPatchTest {
     fun `withLeaf creates missing intermediate objects`() {
         val edited = JsonObject(emptyMap()).withLeaf(listOf("mdns", "enabled"), JsonPrimitive(false))
         assertEquals("""{"mdns":{"enabled":false}}""", edited.toString())
+    }
+
+    @Test
+    fun `withLeaf rejects an empty path`() {
+        assertThrows<IllegalArgumentException> {
+            JsonObject(emptyMap()).withLeaf(emptyList(), JsonPrimitive(1))
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["", "a..b", ".a"])
+    fun `withLeaf rejects a dotted path with an empty segment`(dotted: String) {
+        assertThrows<IllegalArgumentException> {
+            JsonObject(emptyMap()).withLeaf(dotted.split('.'), JsonPrimitive(1))
+        }
+    }
+
+    @Test
+    fun `withLeaf replaces an array or primitive on the path with an object`() {
+        val original = Json.parseToJsonElement("""{"http":[1,2],"mdns":"off","keep":true}""")
+
+        val edited = original
+            .withLeaf(listOf("http", "port"), JsonPrimitive(443))
+            .withLeaf(listOf("mdns", "enabled"), JsonPrimitive(false))
+
+        assertEquals("""{"http":{"port":443},"mdns":{"enabled":false},"keep":true}""", edited.toString())
     }
 }

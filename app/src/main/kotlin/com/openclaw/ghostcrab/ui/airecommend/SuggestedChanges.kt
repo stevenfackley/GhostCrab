@@ -82,16 +82,22 @@ internal fun displayValueFor(path: String, suggestedValue: String): String {
 /**
  * Groups [changes] into one RFC 7396 merge-patch per top-level section. Dotted keys become nested
  * objects (`"http.port"` → `{"http":{"port":…}}`), so the gateway never receives a literal
- * `"http.port"` key. Later changes to the same leaf win.
+ * `"http.port"` key. Within a section, changes are applied shallowest path first, so a parent object
+ * (`"http"` = `{"host":…}`) never wipes a deeper change (`"http.port"`) that was listed before it;
+ * among changes of equal depth, later ones win.
  *
  * @param changes Changes the user selected.
  * @return Section key → merge-patch object, in first-seen section order.
+ * @throws IllegalArgumentException if a change key is empty or has an empty dotted segment
+ *   (e.g. `"a..b"`), see [withLeaf].
  */
 internal fun sectionPatches(changes: Collection<SuggestedChange>): Map<String, JsonObject> =
     changes.groupBy { it.section }.mapValues { (_, sectionChanges) ->
-        sectionChanges.fold(JsonObject(emptyMap())) { patch, change ->
-            patch.withLeaf(change.key.split('.'), parseSuggestedValue(change.suggestedValue))
-        }
+        sectionChanges
+            .sortedBy { change -> change.key.count { it == '.' } }
+            .fold(JsonObject(emptyMap())) { patch, change ->
+                patch.withLeaf(change.key.split('.'), parseSuggestedValue(change.suggestedValue))
+            }
     }
 
 private fun JsonElement.nestedKeyPaths(prefix: String): List<String> = when (this) {

@@ -38,10 +38,15 @@ fun JsonElement.toGatewaySection(): GatewaySection =
  * represented by the typed model. Callers must then fall back to raw JSON editing — never to
  * defaults, which would misrepresent the gateway's real settings.
  *
- * @return Parsed [GatewaySection], or `null` on any decoding failure.
+ * @return Parsed [GatewaySection], or `null` when decoding fails (`SerializationException` is an
+ *   [IllegalArgumentException]).
  */
 fun JsonElement.toGatewaySectionOrNull(): GatewaySection? =
-    runCatching { configJson.decodeFromJsonElement<GatewaySection>(this) }.getOrNull()
+    try {
+        configJson.decodeFromJsonElement<GatewaySection>(this)
+    } catch (_: IllegalArgumentException) {
+        null
+    }
 
 /**
  * Encodes this [GatewaySection] to a [JsonElement] suitable for use as a config patch body.

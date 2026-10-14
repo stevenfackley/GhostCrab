@@ -7,6 +7,10 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.joinAll
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
@@ -108,5 +112,25 @@ class ConfigRepositoryImplTest {
         repo.updateConfig("gateway", JsonPrimitive("x"))
 
         coVerify { newSessionClient.updateConfig("gateway", JsonPrimitive("x"), null) }
+    }
+
+    @Test
+    fun `a read that overlaps a write cannot overwrite the write's newer ETag`() = runTest {
+        val readGate = CompletableDeferred<Unit>()
+        coEvery { mockClient.getConfig() } coAnswers {
+            readGate.await()
+            Pair(sectionMap, "etag-read")
+        }
+        coEvery { mockClient.updateConfig("gateway", JsonPrimitive("a"), any()) } returns "etag-write"
+
+        val read = launch { repo.getConfig() }
+        runCurrent()
+        val write = launch { repo.updateConfig("gateway", JsonPrimitive("a")) }
+        runCurrent()
+        readGate.complete(Unit)
+        joinAll(read, write)
+        repo.updateConfig("gateway", JsonPrimitive("b"))
+
+        coVerify { mockClient.updateConfig("gateway", JsonPrimitive("b"), "etag-write") }
     }
 }

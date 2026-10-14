@@ -104,4 +104,16 @@ class SuggestedChangesTest {
         val patch = sectionPatches(listOf(change("models", "default", "gpt-4o"))).getValue("models")
         assertEquals("""{"default":"gpt-4o"}""", patch.toString())
     }
+
+    @Test
+    fun `a parent-object suggestion does not wipe a deeper suggestion listed before it`() {
+        val patch = sectionPatches(
+            listOf(
+                change("gateway", "http.port", "443"),
+                change("gateway", "http", """{"host":"127.0.0.1"}"""),
+            ),
+        ).getValue("gateway")
+
+        assertEquals("""{"http":{"host":"127.0.0.1","port":443}}""", patch.toString())
+    }
 }

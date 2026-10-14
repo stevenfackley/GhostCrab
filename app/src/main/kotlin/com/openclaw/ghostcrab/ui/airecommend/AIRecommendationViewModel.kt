@@ -279,28 +279,10 @@ class AIRecommendationViewModel(
                 ?.copy(isApplying = true, applyError = null, confirmSecurityChanges = emptyList()) ?: it
         }
         viewModelScope.launch {
-            val patches = sectionPatches(changes)
-            var appliedSections = 0
-            try {
-                patches.forEach { (section, patch) ->
-                    configRepository.updateConfig(section, patch)
-                    appliedSections++
-                    // ConfigRepository contract: reconcile after every write (this also refreshes the ETag).
-                    configRepository.getConfig()
-                }
-                _state.update {
-                    (it as? AIRecommendationUiState.Ready)?.copy(isApplying = false, applySuccess = true) ?: it
-                }
-            } catch (e: GatewayException) {
-                val errorMsg = if (appliedSections > 0) {
-                    "Applied $appliedSections of ${patches.size} sections; " +
-                        "stopped at section ${appliedSections + 1}: " + (e.message ?: "Unknown error")
-                } else {
-                    e.message ?: "Failed to apply changes"
-                }
-                _state.update {
-                    (it as? AIRecommendationUiState.Ready)?.copy(isApplying = false, applyError = errorMsg) ?: it
-                }
+            val outcome = applyChanges(configRepository, changes)
+            _state.update {
+                (it as? AIRecommendationUiState.Ready)
+                    ?.copy(isApplying = false, applySuccess = outcome.allWritten, applyError = outcome.message) ?: it
             }
         }
     }
@@ -310,6 +292,60 @@ class AIRecommendationViewModel(
         const val AI_RECOMMEND_SLUG = "wanng-ide/auto-skill-hunter"
     }
 }
+
+/**
+ * Result of [applyChanges].
+ *
+ * @param allWritten `true` when every section patch was accepted by the gateway.
+ * @param message Error text when a write failed or the changes could not be turned into patches, or a
+ *   warning when every write landed but reloading the config afterwards failed; `null` otherwise.
+ */
+private class ApplyOutcome(val allWritten: Boolean, val message: String?)
+
+/**
+ * Writes [changes] as one merge-patch per section and reloads the config after every write
+ * (ConfigRepository contract). A failed reload does not undo a landed write, and each write already
+ * refreshed the ETag, so the remaining sections are still sent and the reload failure is surfaced as
+ * a warning on an otherwise successful apply. A failed write stops the apply. [CancellationException]
+ * propagates.
+ */
+private suspend fun applyChanges(configRepository: ConfigRepository, changes: List<SuggestedChange>): ApplyOutcome {
+    val patches = try {
+        sectionPatches(changes)
+    } catch (e: IllegalArgumentException) {
+        return ApplyOutcome(allWritten = false, message = "Cannot apply suggestions: ${e.message}")
+    }
+    var written = 0
+    var reloadError: GatewayException? = null
+    return try {
+        for ((section, patch) in patches) {
+            configRepository.updateConfig(section, patch)
+            written++
+            reloadError = configRepository.reloadFailure() ?: reloadError
+        }
+        ApplyOutcome(
+            allWritten = true,
+            message = reloadError?.let { "All $written sections applied; reloading config failed: ${it.reason()}" },
+        )
+    } catch (e: GatewayException) {
+        val message = if (written > 0) {
+            "Applied $written of ${patches.size} sections; stopped at section ${written + 1}: ${e.reason()}"
+        } else {
+            e.message ?: "Failed to apply changes"
+        }
+        ApplyOutcome(allWritten = false, message = message)
+    }
+}
+
+/** Reloads the config after a write; returns the failure instead of throwing it. */
+private suspend fun ConfigRepository.reloadFailure(): GatewayException? = try {
+    getConfig()
+    null
+} catch (e: GatewayException) {
+    e
+}
+
+private fun GatewayException.reason(): String = message ?: this::class.simpleName.orEmpty()
 
 /**
  * Assembles context for an AI query. Config/model failures are non-fatal — the request proceeds

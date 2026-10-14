@@ -558,6 +558,69 @@ class AIRecommendationViewModelTest {
         assertTrue((vm.state.value as AIRecommendationUiState.Ready).applySuccess)
     }
 
+    @Test
+    fun `a failed write reports the gateway error and no success`() = runTest {
+        val c = change()
+        val configRepo = FakeAIConfigRepository()
+        val (vm, _) = makeVm(
+            service = FakeAIService(available = true, recommendation = recommendation(c)),
+            config = configRepo,
+        )
+        vm.submitQuery("query")
+        vm.toggleChange(c)
+        val error = GatewayApiException("$gatewayUrl/config/models", 503)
+        configRepo.updateError = error
+
+        vm.applySelectedChanges()
+
+        val ready = vm.state.value as AIRecommendationUiState.Ready
+        assertFalse(ready.applySuccess)
+        assertEquals(error.message, ready.applyError)
+    }
+
+    @Test
+    fun `a reload failure after every write landed is success with a warning`() = runTest {
+        val c1 = change("gateway", "max_connections")
+        val c2 = change("models", "timeout_ms")
+        val configRepo = FakeAIConfigRepository()
+        val (vm, _) = makeVm(
+            service = FakeAIService(available = true, recommendation = recommendation(c1, c2)),
+            config = configRepo,
+        )
+        vm.submitQuery("query")
+        vm.toggleChange(c1)
+        vm.toggleChange(c2)
+        val error = GatewayApiException("$gatewayUrl/config", 503)
+        configRepo.getConfigError = error
+
+        vm.applySelectedChanges()
+
+        val ready = vm.state.value as AIRecommendationUiState.Ready
+        assertEquals(listOf("gateway", "models"), configRepo.updatedSections)
+        assertTrue(ready.applySuccess)
+        assertEquals("All 2 sections applied; reloading config failed: ${error.message}", ready.applyError)
+    }
+
+    @Test
+    fun `a suggestion with an empty path segment is reported instead of crashing`() = runTest {
+        val malformed = change("gateway", "http..port")
+        val configRepo = FakeAIConfigRepository()
+        val (vm, _) = makeVm(
+            service = FakeAIService(available = true, recommendation = recommendation(malformed)),
+            config = configRepo,
+        )
+        vm.submitQuery("query")
+        vm.toggleChange(malformed)
+
+        vm.applySelectedChanges()
+
+        val ready = vm.state.value as AIRecommendationUiState.Ready
+        assertEquals(0, configRepo.updateCallCount)
+        assertFalse(ready.applySuccess)
+        assertFalse(ready.isApplying)
+        assertTrue(ready.applyError.orEmpty().startsWith("Cannot apply suggestions:"))
+    }
+
 }
 
 // ── Fakes ─────────────────────────────────────────────────────────────────────
@@ -596,9 +659,11 @@ private class FakeAIConfigRepository : ConfigRepository {
     var gate: CompletableDeferred<Unit>? = null
     val updatedSections = mutableListOf<String>()
     var getConfigCalls = 0
+    var getConfigError: Exception? = null
 
     override suspend fun getConfig(): OpenClawConfig {
         getConfigCalls++
+        getConfigError?.let { throw it }
         return OpenClawConfig(emptyMap())
     }
 
