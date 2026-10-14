@@ -5,6 +5,7 @@ import com.openclaw.ghostcrab.domain.util.REDACTED_PLACEHOLDER
 import com.openclaw.ghostcrab.domain.util.isSecretKey
 import com.openclaw.ghostcrab.domain.util.isSecurityAffectingConfigPath
 import com.openclaw.ghostcrab.domain.util.redactSecrets
+import com.openclaw.ghostcrab.domain.util.withLeaf
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -77,6 +78,21 @@ internal fun displayValueFor(path: String, suggestedValue: String): String {
         else -> redacted.toString()
     }
 }
+
+/**
+ * Groups [changes] into one RFC 7396 merge-patch per top-level section. Dotted keys become nested
+ * objects (`"http.port"` → `{"http":{"port":…}}`), so the gateway never receives a literal
+ * `"http.port"` key. Later changes to the same leaf win.
+ *
+ * @param changes Changes the user selected.
+ * @return Section key → merge-patch object, in first-seen section order.
+ */
+internal fun sectionPatches(changes: Collection<SuggestedChange>): Map<String, JsonObject> =
+    changes.groupBy { it.section }.mapValues { (_, sectionChanges) ->
+        sectionChanges.fold(JsonObject(emptyMap())) { patch, change ->
+            patch.withLeaf(change.key.split('.'), parseSuggestedValue(change.suggestedValue))
+        }
+    }
 
 private fun JsonElement.nestedKeyPaths(prefix: String): List<String> = when (this) {
     is JsonObject -> entries.flatMap { (key, value) ->

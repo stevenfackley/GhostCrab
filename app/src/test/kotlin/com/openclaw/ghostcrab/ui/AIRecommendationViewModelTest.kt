@@ -537,6 +537,27 @@ class AIRecommendationViewModelTest {
         assertEquals(1, configRepo.updateCallCount)
     }
 
+    @Test
+    fun `apply sends one patch per section and reconciles after each write`() = runTest {
+        val c1 = change("gateway", "http.port")
+        val c2 = change("gateway", "max_connections")
+        val c3 = change("models", "timeout_ms")
+        val configRepo = FakeAIConfigRepository()
+        val (vm, _) = makeVm(
+            service = FakeAIService(available = true, recommendation = recommendation(c1, c2, c3)),
+            config = configRepo,
+        )
+        vm.submitQuery("query")
+        listOf(c1, c2, c3).forEach(vm::toggleChange)
+        val readsBeforeApply = configRepo.getConfigCalls
+
+        vm.applySelectedChanges()
+
+        assertEquals(listOf("gateway", "models"), configRepo.updatedSections)
+        assertEquals(2, configRepo.getConfigCalls - readsBeforeApply)
+        assertTrue((vm.state.value as AIRecommendationUiState.Ready).applySuccess)
+    }
+
 }
 
 // ── Fakes ─────────────────────────────────────────────────────────────────────
@@ -573,14 +594,20 @@ private class FakeAIConfigRepository : ConfigRepository {
     var lastSectionUpdated: String? = null
     var updateError: Exception? = null
     var gate: CompletableDeferred<Unit>? = null
+    val updatedSections = mutableListOf<String>()
+    var getConfigCalls = 0
 
-    override suspend fun getConfig(): OpenClawConfig = OpenClawConfig(emptyMap())
+    override suspend fun getConfig(): OpenClawConfig {
+        getConfigCalls++
+        return OpenClawConfig(emptyMap())
+    }
 
     override suspend fun updateConfig(section: String, value: JsonElement) {
         gate?.await()
         updateError?.let { throw it }
         updateCallCount++
         lastSectionUpdated = section
+        updatedSections += section
     }
 }
 

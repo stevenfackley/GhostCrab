@@ -5,6 +5,7 @@ import com.openclaw.ghostcrab.domain.util.REDACTED_PLACEHOLDER
 import com.openclaw.ghostcrab.ui.airecommend.displayValueFor
 import com.openclaw.ghostcrab.ui.airecommend.isApplicable
 import com.openclaw.ghostcrab.ui.airecommend.isSecurityAffecting
+import com.openclaw.ghostcrab.ui.airecommend.sectionPatches
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -81,5 +82,26 @@ class SuggestedChangesTest {
         assertEquals("60000", displayValueFor("models.timeout_ms", "60000"))
         assertEquals("\"gpt-4o\"", displayValueFor("models.default", "\"gpt-4o\""))
         assertEquals("gpt-4o", displayValueFor("models.default", "gpt-4o"))
+    }
+
+    @Test
+    fun `changes in one section merge into a single nested patch`() {
+        val patches = sectionPatches(
+            listOf(
+                change("gateway", "http.port", "443"),
+                change("gateway", "http.host", "\"127.0.0.1\""),
+                change("models", "timeout_ms", "60000"),
+            ),
+        )
+
+        assertEquals(listOf("gateway", "models"), patches.keys.toList())
+        assertEquals("""{"http":{"port":443,"host":"127.0.0.1"}}""", patches.getValue("gateway").toString())
+        assertEquals("""{"timeout_ms":60000}""", patches.getValue("models").toString())
+    }
+
+    @Test
+    fun `bare-word suggested values are sent as JSON strings`() {
+        val patch = sectionPatches(listOf(change("models", "default", "gpt-4o"))).getValue("models")
+        assertEquals("""{"default":"gpt-4o"}""", patch.toString())
     }
 }

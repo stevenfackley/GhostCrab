@@ -24,8 +24,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
 
 /**
  * ViewModel for the AI Recommendations screen.
@@ -281,21 +279,22 @@ class AIRecommendationViewModel(
                 ?.copy(isApplying = true, applyError = null, confirmSecurityChanges = emptyList()) ?: it
         }
         viewModelScope.launch {
-            var appliedCount = 0
+            val patches = sectionPatches(changes)
+            var appliedSections = 0
             try {
-                changes.forEach { change ->
-                    val patch = buildJsonObject { put(change.key, parseSuggestedValue(change.suggestedValue)) }
-                    configRepository.updateConfig(change.section, patch)
-                    appliedCount++
+                patches.forEach { (section, patch) ->
+                    configRepository.updateConfig(section, patch)
+                    appliedSections++
+                    // ConfigRepository contract: reconcile after every write (this also refreshes the ETag).
+                    configRepository.getConfig()
                 }
                 _state.update {
                     (it as? AIRecommendationUiState.Ready)?.copy(isApplying = false, applySuccess = true) ?: it
                 }
             } catch (e: GatewayException) {
-                val total = changes.size
-                val errorMsg = if (appliedCount > 0) {
-                    "Applied $appliedCount of $total changes; " +
-                        "stopped at change ${appliedCount + 1}: " + (e.message ?: "Unknown error")
+                val errorMsg = if (appliedSections > 0) {
+                    "Applied $appliedSections of ${patches.size} sections; " +
+                        "stopped at section ${appliedSections + 1}: " + (e.message ?: "Unknown error")
                 } else {
                     e.message ?: "Failed to apply changes"
                 }
