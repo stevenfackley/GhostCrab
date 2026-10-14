@@ -104,7 +104,7 @@ public struct ManualEntryScreen: View {
                                 .foregroundStyle(DesignTokens.Color.crimsonError)
                         }
                         if vm.cleartextBlockedByATS {
-                            Text("iOS blocks plain HTTP to internet hostnames (App Transport Security). Turn on HTTPS, or use the gateway's IP address or .local name.")
+                            Text("iOS App Transport Security blocks plain HTTP to any hostname: only .local names and IP addresses are allowed over HTTP. Turn on HTTPS, or use the gateway's IP address or .local name.")
                                 .font(AppFont.body(12))
                                 .foregroundStyle(DesignTokens.Color.amberWarn)
                         }

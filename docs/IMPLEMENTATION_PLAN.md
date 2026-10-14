@@ -616,13 +616,14 @@ WebSocket streaming · offline config cache · iOS · agent runtime on-device ·
 
 ## 7. Architecture Decision Records
 
-ADRs live under `docs/adr/NNNN-title.md`. The plan reserves these IDs:
+ADRs live under `docs/adr/NNNN-title.md`. IDs in use, plus the one still reserved:
 
 - ADR-001 — Kotlin + Compose over React Native
 - ADR-002 — Auth-mode probing via `/health` + `/status` asymmetry
 - ADR-003 — Stateless client; no offline config cache
 - ADR-004 — Gateway-proxied AI vs direct LLM API
-- ADR-005 — Onboarding does not execute privileged actions on user machines
-- ADR-006 — iOS App Transport Security: local networking only, no arbitrary loads (written 2026-10-14)
+- ADR-005 — Additive methods on frozen repository interfaces (`0005-additive-repository-methods.md`, written 2026-10-14)
+- ADR-006 — iOS App Transport Security: local networking only, no arbitrary loads (`0006-ios-ats-local-networking.md`, written 2026-10-14)
+- Reserved, not yet written — Onboarding does not execute privileged actions on user machines. Takes the next free number (ADR-007 or later) when written; it originally held ADR-005.
 
 Backfilled in Phase 10; created earlier if a deviation forces the decision sooner.

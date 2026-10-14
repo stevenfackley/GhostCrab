@@ -87,6 +87,7 @@ GhostCrab is a developer and infrastructure-operator utility. It is not directed
 - If a Keychain entry becomes unreadable (e.g. after a major iOS restore), the app deletes the corrupted entry and prompts you to re-authenticate. Tokens are never written to plaintext logs.
 - The `Authorization: Bearer …` header is automatically redacted from any text passed through the in-app logger (`PrivacySafeLogger`). URLs containing embedded credentials (`http://user:pass@host`) are similarly redacted.
 - HTTP (non-TLS) connections are permitted for LAN use; the app displays a prominent amber security banner when a connection is unencrypted. HTTP connections to **public** IP addresses are blocked by default; you must explicitly opt in via Settings → Security.
+- iOS App Transport Security blocks plain HTTP to every hostname except `.local` names, whatever the setting above, so a gateway reached by any other name (including LAN names such as `.lan`, `.home.arpa` or `*.ts.net`) needs HTTPS.
 
 ---
 
