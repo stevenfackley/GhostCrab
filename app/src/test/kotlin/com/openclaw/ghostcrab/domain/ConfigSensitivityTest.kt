@@ -33,4 +33,32 @@ class ConfigSensitivityTest {
             .forEach { assertTrue(isSecretKey(it), it) }
         listOf("port", "mode", "host", "serviceName").forEach { assertFalse(isSecretKey(it), it) }
     }
+
+    @Test
+    fun `isSecretKey matches authorization, passphrase and pwd`() {
+        listOf("authorization", "Authorization", "ssh_passphrase", "Passphrase", "pwd", "db_pwd")
+            .forEach { assertTrue(isSecretKey(it), it) }
+    }
+
+    @Test
+    fun `isSecretKey matches bare key and key suffixes without api`() {
+        listOf("key", "KEY", "signing_key", "HMAC_KEY", "hmac-key", "signingKey", "encryptionKey")
+            .forEach { assertTrue(isSecretKey(it), it) }
+        listOf("monkey", "hotkey", "keys", "keepalive").forEach { assertFalse(isSecretKey(it), it) }
+    }
+
+    @Test
+    fun `redacts URLs with embedded credentials regardless of key name`() {
+        val config = Json.parseToJsonElement(
+            """{"upstream":"https://bob:hunter2@example.com/v1","mirrors":["redis://:s3cr3t@cache:6379"],""" +
+                """"docs":"https://example.com/docs"}""",
+        )
+
+        val redacted = config.redactSecrets().toString()
+
+        assertFalse(redacted.contains("hunter2"))
+        assertFalse(redacted.contains("s3cr3t"))
+        assertTrue(redacted.contains("https://example.com/docs"))
+        assertEquals(2, redacted.split(REDACTED_PLACEHOLDER).size - 1)
+    }
 }

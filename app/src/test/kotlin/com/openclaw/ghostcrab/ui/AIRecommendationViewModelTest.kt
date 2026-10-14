@@ -29,11 +29,13 @@ import io.mockk.coEvery
 import io.mockk.mockk
 import com.openclaw.ghostcrab.ui.airecommend.AIRecommendationUiState
 import com.openclaw.ghostcrab.ui.airecommend.AIRecommendationViewModel
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
@@ -78,11 +80,15 @@ class AIRecommendationViewModelTest {
 
     private val connectedNoSkill = connectedWithSkill.copy(capabilities = emptyList())
 
-    private fun change(section: String = "models", key: String = "timeout_ms") = SuggestedChange(
+    private fun change(
+        section: String = "models",
+        key: String = "timeout_ms",
+        value: String = "60000",
+    ) = SuggestedChange(
         section = section,
         key = key,
         currentValue = "30000",
-        suggestedValue = "60000",
+        suggestedValue = value,
         rationale = "Longer timeout for large models",
     )
 
@@ -476,6 +482,46 @@ class AIRecommendationViewModelTest {
         assertEquals(0, configRepo.updateCallCount)
     }
 
+    @Test
+    fun `suggestions echoing the redaction placeholder never reach updateConfig`() = runTest {
+        val echoed = change("gateway", "auth.token", "[REDACTED]")
+        val echoedObject = change("gateway", "auth", """{"token":"[REDACTED]","x":1}""")
+        val configRepo = FakeAIConfigRepository()
+        val (vm, _) = makeVm(
+            service = FakeAIService(available = true, recommendation = recommendation(echoed, echoedObject)),
+            config = configRepo,
+        )
+        vm.submitQuery("query")
+        assertTrue((vm.state.value as AIRecommendationUiState.Ready).recommendation.suggestedChanges.isEmpty())
+
+        vm.toggleChange(echoed)
+        vm.toggleChange(echoedObject)
+        vm.applySelectedChanges()
+        vm.applySelectedChanges(securityConfirmed = true)
+
+        assertEquals(0, configRepo.updateCallCount)
+    }
+
+    @Test
+    fun `applySelectedChanges ignores a second tap while an apply is in flight`() = runTest {
+        val c = change()
+        val gate = CompletableDeferred<Unit>()
+        val configRepo = FakeAIConfigRepository().apply { this.gate = gate }
+        val (vm, _) = makeVm(
+            service = FakeAIService(available = true, recommendation = recommendation(c)),
+            config = configRepo,
+        )
+        vm.submitQuery("query")
+        vm.toggleChange(c)
+
+        vm.applySelectedChanges(securityConfirmed = true)
+        vm.applySelectedChanges(securityConfirmed = true)
+        gate.complete(Unit)
+        advanceUntilIdle()
+
+        assertEquals(1, configRepo.updateCallCount)
+    }
+
 }
 
 // ── Fakes ─────────────────────────────────────────────────────────────────────
@@ -511,10 +557,12 @@ private class FakeAIConfigRepository : ConfigRepository {
     var updateCallCount = 0
     var lastSectionUpdated: String? = null
     var updateError: Exception? = null
+    var gate: CompletableDeferred<Unit>? = null
 
     override suspend fun getConfig(): OpenClawConfig = OpenClawConfig(emptyMap())
 
     override suspend fun updateConfig(section: String, value: JsonElement) {
+        gate?.await()
         updateError?.let { throw it }
         updateCallCount++
         lastSectionUpdated = section

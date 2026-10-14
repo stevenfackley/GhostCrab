@@ -1,7 +1,11 @@
 package com.openclaw.ghostcrab.ui
 
 import com.openclaw.ghostcrab.domain.model.SuggestedChange
+import com.openclaw.ghostcrab.domain.util.REDACTED_PLACEHOLDER
+import com.openclaw.ghostcrab.ui.airecommend.displayValueFor
+import com.openclaw.ghostcrab.ui.airecommend.isApplicable
 import com.openclaw.ghostcrab.ui.airecommend.isSecurityAffecting
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -24,5 +28,49 @@ class SuggestedChangesTest {
         assertFalse(change("gateway", "http.port").isSecurityAffecting)
         assertFalse(change("models", "timeout_ms").isSecurityAffecting)
         assertFalse(change("gateway", "max_connections").isSecurityAffecting)
+    }
+
+    @Test
+    fun `keys inside an object value are checked against the security predicate`() {
+        assertTrue(change("gateway", "http", """{"host":"0.0.0.0"}""").isSecurityAffecting)
+        assertTrue(change("gateway", "http", """{"limits":{"cors":["*"]}}""").isSecurityAffecting)
+        assertFalse(change("gateway", "http", """{"port":18789}""").isSecurityAffecting)
+    }
+
+    @Test
+    fun `suggestions echoing the redaction placeholder are not applicable`() {
+        assertFalse(change("gateway", "auth.token", "[REDACTED]").isApplicable)
+        assertFalse(change("gateway", "auth.token", "\"[REDACTED]\"").isApplicable)
+        assertFalse(change("gateway", "auth", """{"token":"[REDACTED]","x":1}""").isApplicable)
+        assertFalse(change("gateway", "auth", """{"token":"[REDACTED]"}""").isApplicable)
+        assertTrue(change("models", "timeout_ms", "60000").isApplicable)
+    }
+
+    @Test
+    fun `displayValueFor masks the whole value when any path segment is a secret key`() {
+        assertEquals(REDACTED_PLACEHOLDER, displayValueFor("gateway.auth.token", "\"abc\""))
+        assertEquals(REDACTED_PLACEHOLDER, displayValueFor("providers.openai.api_key", "sk-live"))
+        assertEquals(REDACTED_PLACEHOLDER, displayValueFor("gateway.token.value", "\"abc\""))
+    }
+
+    @Test
+    fun `displayValueFor redacts secrets inside object values`() {
+        val shown = displayValueFor("gateway.auth", """{"mode":"bearer","token":"s3cr3t"}""")
+
+        assertFalse(shown.contains("s3cr3t"))
+        assertTrue(shown.contains("bearer"))
+        assertTrue(shown.contains(REDACTED_PLACEHOLDER))
+    }
+
+    @Test
+    fun `displayValueFor redacts a bare credential URL`() {
+        assertEquals(REDACTED_PLACEHOLDER, displayValueFor("gateway.upstream", "https://bob:hunter2@example.com"))
+    }
+
+    @Test
+    fun `displayValueFor leaves ordinary values exactly as suggested`() {
+        assertEquals("60000", displayValueFor("models.timeout_ms", "60000"))
+        assertEquals("\"gpt-4o\"", displayValueFor("models.default", "\"gpt-4o\""))
+        assertEquals("gpt-4o", displayValueFor("models.default", "gpt-4o"))
     }
 }

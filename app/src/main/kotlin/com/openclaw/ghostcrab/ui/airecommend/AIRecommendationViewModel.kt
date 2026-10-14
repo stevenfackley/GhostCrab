@@ -100,7 +100,10 @@ class AIRecommendationViewModel(
                 val recommendation = aiService.getRecommendation(trimmed, context)
                 _state.value = AIRecommendationUiState.Ready(
                     query = trimmed,
-                    recommendation = recommendation,
+                    // Never offer a suggestion that would write the redaction placeholder back.
+                    recommendation = recommendation.copy(
+                        suggestedChanges = recommendation.suggestedChanges.filter { it.isApplicable },
+                    ),
                     selectedChanges = emptySet(),
                 )
             } catch (e: AIServiceUnavailableException) {
@@ -151,18 +154,21 @@ class AIRecommendationViewModel(
      * written: [AIRecommendationUiState.Ready.confirmSecurityChanges] is set so the screen can ask
      * first. Call again with `securityConfirmed = true` after the user accepts.
      *
-     * No-op if state is not [AIRecommendationUiState.Ready] or nothing is selected.
+     * Suggestions that echo the redaction placeholder ([isApplicable] is `false`) are never written.
+     *
+     * No-op if state is not [AIRecommendationUiState.Ready], an apply is already in flight
+     * (guards a double tap), or nothing applicable is selected.
      *
      * @param securityConfirmed `true` once the user explicitly accepted security-affecting changes.
      */
     fun applySelectedChanges(securityConfirmed: Boolean = false) {
-        val snapshot = (_state.value as? AIRecommendationUiState.Ready)
-            ?.takeIf { it.selectedChanges.isNotEmpty() } ?: return
-        val risky = snapshot.selectedChanges.filter { it.isSecurityAffecting }
+        val snapshot = (_state.value as? AIRecommendationUiState.Ready)?.takeUnless { it.isApplying } ?: return
+        val changes = snapshot.selectedChanges.filter { it.isApplicable }.takeIf { it.isNotEmpty() } ?: return
+        val risky = changes.filter { it.isSecurityAffecting }
         if (risky.isNotEmpty() && !securityConfirmed) {
             _state.value = snapshot.copy(confirmSecurityChanges = risky)
         } else {
-            launchApply(snapshot)
+            launchApply(changes)
         }
     }
 
@@ -268,15 +274,16 @@ class AIRecommendationViewModel(
         }
     }
 
-    private fun launchApply(snapshot: AIRecommendationUiState.Ready) {
+    private fun launchApply(changes: List<SuggestedChange>) {
+        // Flip isApplying before launching so a second tap in the same frame is already rejected.
+        _state.update {
+            (it as? AIRecommendationUiState.Ready)
+                ?.copy(isApplying = true, applyError = null, confirmSecurityChanges = emptyList()) ?: it
+        }
         viewModelScope.launch {
-            _state.update {
-                (it as? AIRecommendationUiState.Ready)
-                    ?.copy(isApplying = true, applyError = null, confirmSecurityChanges = emptyList()) ?: it
-            }
             var appliedCount = 0
             try {
-                snapshot.selectedChanges.forEach { change ->
+                changes.forEach { change ->
                     val patch = buildJsonObject { put(change.key, parseSuggestedValue(change.suggestedValue)) }
                     configRepository.updateConfig(change.section, patch)
                     appliedCount++
@@ -285,7 +292,7 @@ class AIRecommendationViewModel(
                     (it as? AIRecommendationUiState.Ready)?.copy(isApplying = false, applySuccess = true) ?: it
                 }
             } catch (e: GatewayException) {
-                val total = snapshot.selectedChanges.size
+                val total = changes.size
                 val errorMsg = if (appliedCount > 0) {
                     "Applied $appliedCount of $total changes; " +
                         "stopped at change ${appliedCount + 1}: " + (e.message ?: "Unknown error")

@@ -32,8 +32,6 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import com.openclaw.ghostcrab.R
 import com.openclaw.ghostcrab.domain.model.SuggestedChange
-import com.openclaw.ghostcrab.domain.util.REDACTED_PLACEHOLDER
-import com.openclaw.ghostcrab.domain.util.isSecretKey
 import com.openclaw.ghostcrab.ui.theme.BrandTokens
 import com.openclaw.ghostcrab.ui.theme.MonoFontFamily
 import com.openclaw.ghostcrab.ui.theme.Spacing
@@ -198,7 +196,8 @@ private fun SuggestionRow(
             }
 
             Text(
-                text = stringResource(R.string.ai_sheet_after_label) + "   " + change.suggestedValue,
+                text = stringResource(R.string.ai_sheet_after_label) + "   " +
+                    displayValueFor("${change.section}.${change.key}", change.suggestedValue),
                 style = MaterialTheme.typography.bodySmall.copy(
                     fontFamily = MonoFontFamily,
                     color = BrandTokens.colorCyanPulse,
@@ -252,13 +251,9 @@ fun SecurityConfirmDialog(
             Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
                 Text(stringResource(R.string.ai_security_confirm_body), color = BrandTokens.colorTextPrimary)
                 changes.forEach { change ->
-                    val shown = if (isSecretKey(change.key.substringAfterLast('.'))) {
-                        REDACTED_PLACEHOLDER
-                    } else {
-                        change.suggestedValue
-                    }
+                    val path = "${change.section}.${change.key}"
                     Text(
-                        text = "${change.section}.${change.key} → $shown",
+                        text = "$path → ${displayValueFor(path, change.suggestedValue)}",
                         style = MaterialTheme.typography.bodySmall.copy(fontFamily = MonoFontFamily),
                         color = BrandTokens.colorCrimsonError,
                     )
