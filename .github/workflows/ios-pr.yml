@@ -77,9 +77,18 @@ jobs:
       - name: Summarise test failures
         if: failure()
         run: |
-          if [ -d "$RUNNER_TEMP/GhostCrab.xcresult" ]; then
-            xcrun xcresulttool get test-results summary --path "$RUNNER_TEMP/GhostCrab.xcresult" --compact || true
-          fi
+          XCRESULT="$RUNNER_TEMP/GhostCrab.xcresult"
+          [ -d "$XCRESULT" ] || exit 0
+          xcrun xcresulttool get test-results summary --path "$XCRESULT" --compact || true
+          # Crash reports (app or test runner died before reporting results).
+          DIAG="$RUNNER_TEMP/diagnostics"
+          xcrun xcresulttool export diagnostics --path "$XCRESULT" --output-path "$DIAG" >/dev/null 2>&1 || true
+          find "$DIAG" -type f \( -name '*.ips' -o -name '*.crash' \) 2>/dev/null | head -n 3 | while read -r f; do
+            echo "::group::$f"
+            head -c 8000 "$f"
+            echo
+            echo "::endgroup::"
+          done
 
       - name: Upload test results
         if: failure()
