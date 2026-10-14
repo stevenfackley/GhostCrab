@@ -14,7 +14,6 @@
     <ID>FunctionNaming:AIRecommendationScreen.kt$@Composable private fun ErrorContent(message: String, onRetry: () -&gt; Unit)</ID>
     <ID>FunctionNaming:AIRecommendationScreen.kt$@Composable private fun IdleContent()</ID>
     <ID>FunctionNaming:AIRecommendationScreen.kt$@Composable private fun QuerySection( query: String, onQueryChange: (String) -&gt; Unit, isLoading: Boolean, onSubmit: () -&gt; Unit, )</ID>
-    <ID>FunctionNaming:SkillUnavailableContent.kt$@Composable private fun SkillUnavailableContent()</ID>
     <ID>FunctionNaming:RecommendationReadyContent.kt$@OptIn(ExperimentalLayoutApi::class) @Composable internal fun RecommendationReadyContent( state: AIRecommendationUiState.Ready, onNewQuery: () -&gt; Unit, onApplySuggestions: () -&gt; Unit, )</ID>
     <ID>FunctionNaming:AIRecommendationScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun AIRecommendationScreen(onNavigateBack: () -&gt; Unit)</ID>
     <ID>FunctionNaming:ApplySuggestionsSheet.kt$@Composable private fun SuggestionRow( change: SuggestedChange, isSelected: Boolean, onToggle: () -&gt; Unit, )</ID>
@@ -27,13 +26,6 @@
     <ID>FunctionNaming:ConnectionPickerScreen.kt$@Composable private fun EmptyState( modifier: Modifier, onScanQr: () -&gt; Unit, onScanLan: () -&gt; Unit, onManualEntry: () -&gt; Unit, )</ID>
     <ID>FunctionNaming:ConnectionPickerScreen.kt$@Composable private fun ProfileCard( profile: ConnectionProfile, isConnecting: Boolean, onConnect: () -&gt; Unit, onDelete: () -&gt; Unit, )</ID>
     <ID>FunctionNaming:ConnectionPickerScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun ConnectionPickerScreen( onNavigateToManualEntry: () -&gt; Unit, onNavigateToScan: () -&gt; Unit, onNavigateToQrScan: () -&gt; Unit, onNavigateToDashboard: () -&gt; Unit, onNavigateToOnboarding: () -&gt; Unit = {}, viewModel: ConnectionPickerViewModel = koinViewModel(), )</ID>
-    <ID>FunctionNaming:ConnectionStatusBar.kt$@Composable fun ConnectionStatusBar( state: GatewayConnection, modifier: Modifier = Modifier, )</ID>
-    <ID>FunctionNaming:ConnectionStatusBar.kt$@Composable private fun AuthBadge(authRequirement: AuthRequirement)</ID>
-    <ID>FunctionNaming:ConnectionStatusBar.kt$@Composable private fun MonoText(text: String)</ID>
-    <ID>FunctionNaming:ConnectionStatusBar.kt$@Composable private fun Pill(label: String, color: Color)</ID>
-    <ID>FunctionNaming:ConnectionStatusBar.kt$@Composable private fun ProtocolBadge(isHttps: Boolean)</ID>
-    <ID>FunctionNaming:ConnectionStatusBar.kt$@Composable private fun StatusDot(color: Color)</ID>
-    <ID>FunctionNaming:ConnectionStatusBar.kt$@Composable private fun StatusRow(modifier: Modifier = Modifier, content: @Composable () -&gt; Unit)</ID>
     <ID>FunctionNaming:DashboardScreen.kt$@Composable private fun CapabilityChip(capability: String)</ID>
     <ID>FunctionNaming:DashboardScreen.kt$@Composable private fun DegradedContent( reason: String, onDisconnect: () -&gt; Unit, modifier: Modifier = Modifier, )</ID>
     <ID>FunctionNaming:DashboardScreen.kt$@Composable private fun HealthCard(health: HealthSnapshot)</ID>

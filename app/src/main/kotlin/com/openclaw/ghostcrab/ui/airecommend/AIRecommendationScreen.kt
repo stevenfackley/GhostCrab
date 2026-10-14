@@ -1,5 +1,3 @@
-@file:Suppress("TooManyFunctions") // Compose screen split into many small @Composable helpers by design.
-
 package com.openclaw.ghostcrab.ui.airecommend
 
 import androidx.compose.foundation.layout.Arrangement

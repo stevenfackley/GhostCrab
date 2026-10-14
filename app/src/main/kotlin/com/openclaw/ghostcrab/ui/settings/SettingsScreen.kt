@@ -1,4 +1,4 @@
-@file:Suppress("TooManyFunctions", "MatchingDeclarationName") // Helpers split by design.
+@file:Suppress("MatchingDeclarationName") // File is named for the screen; SettingsCallbacks is internal.
 
 package com.openclaw.ghostcrab.ui.settings
 
