@@ -195,9 +195,26 @@ class ConfigEditorViewModel(
         _state.update { (it as? ConfigEditorUiState.Ready)?.copy(saveError = null) ?: it }
     }
 
-    /** Dismisses the concurrent-edit warning dialog. */
-    fun dismissConcurrentEdit() {
-        _state.update { (it as? ConfigEditorUiState.Ready)?.copy(concurrentEditSection = null) ?: it }
+    /**
+     * Dismisses the concurrent-edit warning dialog.
+     *
+     * @param discardConflicting When `true` (the dialog's Reload), also drops the pending edit of the
+     *   conflicting section; the latest server config is already loaded and other sections' edits stay.
+     */
+    fun dismissConcurrentEdit(discardConflicting: Boolean = false) {
+        _state.update { state ->
+            val ready = state as? ConfigEditorUiState.Ready ?: return@update state
+            val section = ready.concurrentEditSection
+            val dismissed = ready.copy(concurrentEditSection = null)
+            if (discardConflicting && section != null) {
+                dismissed.copy(
+                    pendingChanges = dismissed.pendingChanges - section,
+                    fieldErrors = dismissed.fieldErrors.filterKeys { !it.startsWith("$section.") },
+                )
+            } else {
+                dismissed
+            }
+        }
     }
 }
 
