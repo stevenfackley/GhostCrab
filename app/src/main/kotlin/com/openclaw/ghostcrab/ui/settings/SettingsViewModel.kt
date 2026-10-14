@@ -6,6 +6,7 @@ import com.openclaw.ghostcrab.domain.model.ConnectionProfile
 import com.openclaw.ghostcrab.domain.repository.ConnectionProfileRepository
 import com.openclaw.ghostcrab.domain.repository.OnboardingRepository
 import com.openclaw.ghostcrab.domain.repository.SettingsRepository
+import com.openclaw.ghostcrab.domain.util.suspendRunCatching
 import com.openclaw.ghostcrab.ui.toUserMessage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -92,7 +93,7 @@ class SettingsViewModel(
         val profileId = (_state.value as? SettingsUiState.Ready)?.pendingDeleteProfileId ?: return
         withReady { it.copy(pendingDeleteProfileId = null) }
         viewModelScope.launch {
-            runCatching { profileRepository.deleteProfile(profileId) }
+            suspendRunCatching { profileRepository.deleteProfile(profileId) }
                 .onFailure { e -> withReady { s -> s.copy(errorMessage = e.toUserMessage()) } }
         }
     }
@@ -117,7 +118,7 @@ class SettingsViewModel(
         val current = (_state.value as? SettingsUiState.Ready)?.editingProfile ?: return
         withReady { it.copy(editingProfile = null) }
         viewModelScope.launch {
-            runCatching {
+            suspendRunCatching {
                 val tokenToSave = when {
                     newToken == null ->
                         if (current.hasToken) profileRepository.getToken(current.id) else null // unchanged
@@ -164,7 +165,7 @@ class SettingsViewModel(
         withReady { it.copy(showClearAllConfirmation = false) }
         viewModelScope.launch {
             profiles.forEach { profile ->
-                runCatching { profileRepository.deleteProfile(profile.id) }
+                suspendRunCatching { profileRepository.deleteProfile(profile.id) }
                     .onFailure { e -> withReady { s -> s.copy(errorMessage = e.toUserMessage()) } }
             }
         }
@@ -179,7 +180,7 @@ class SettingsViewModel(
      */
     fun replayWalkthrough() {
         viewModelScope.launch {
-            runCatching { onboardingRepository.reset() }
+            suspendRunCatching { onboardingRepository.reset() }
                 .onSuccess { withReady { it.copy(onboardingResetSuccess = true) } }
                 .onFailure { e -> withReady { s -> s.copy(errorMessage = e.toUserMessage()) } }
         }

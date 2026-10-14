@@ -6,6 +6,7 @@ import com.openclaw.ghostcrab.domain.model.GatewayConnection
 import com.openclaw.ghostcrab.domain.repository.GatewayConnectionManager
 import com.openclaw.ghostcrab.domain.repository.GatewayHealthChecker
 import com.openclaw.ghostcrab.domain.repository.ModelRepository
+import com.openclaw.ghostcrab.domain.util.suspendRunCatching
 import com.openclaw.ghostcrab.ui.toUserMessage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -68,7 +69,7 @@ class DashboardViewModel(
     private fun startDashboard(conn: GatewayConnection.Connected) {
         _state.value = DashboardUiState.Loading
         pollJob = viewModelScope.launch {
-            val models = try { modelRepository.getModels() } catch (_: Exception) { emptyList() }
+            val models = suspendRunCatching { modelRepository.getModels() }.getOrDefault(emptyList())
 
             // Emit Ready immediately — satisfies "renders within 1 s" acceptance criterion
             _state.value = DashboardUiState.Ready(

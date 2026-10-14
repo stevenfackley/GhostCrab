@@ -3,9 +3,11 @@ package com.openclaw.ghostcrab.ui.connection
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.openclaw.ghostcrab.domain.model.ConnectionProfile
+import com.openclaw.ghostcrab.domain.model.GatewayConnection
 import com.openclaw.ghostcrab.domain.repository.ConnectionProfileRepository
 import com.openclaw.ghostcrab.domain.repository.GatewayConnectionManager
 import com.openclaw.ghostcrab.domain.repository.OnboardingRepository
+import com.openclaw.ghostcrab.domain.util.suspendRunCatching
 import com.openclaw.ghostcrab.ui.toUserMessage
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -116,30 +118,35 @@ class ManualEntryViewModel(
         viewModelScope.launch {
             _uiState.value = ManualEntryUiState.Connecting
             val token = state.token.trim().takeIf { it.isNotEmpty() }
-            runCatching {
+            // Connect AND persist inside one guard: a Keystore/DataStore failure after a successful
+            // connect must surface as an error, not crash the app.
+            suspendRunCatching {
                 connectionManager.connect(url, token)
-            }.onSuccess {
-                val connected = connectionManager.connectionState.value
-                val displayName =
-                    (connected as? com.openclaw.ghostcrab.domain.model.GatewayConnection.Connected)
-                        ?.displayName ?: url
-                val existingId = profileRepository.getProfiles().first()
-                    .firstOrNull { it.url == url }?.id
-                val profile = ConnectionProfile(
-                    id = existingId ?: UUID.randomUUID().toString(),
-                    displayName = displayName,
-                    url = url,
-                    lastConnectedAt = System.currentTimeMillis(),
-                    hasToken = token != null,
-                )
-                profileRepository.saveProfile(profile, token)
+                saveConnectedProfile(url, token)
                 onboardingRepository.markCompleted()
+            }.onSuccess {
                 _uiState.value = ManualEntryUiState.Idle
                 _events.emit(ManualEntryEvent.NavigateToDashboard)
             }.onFailure { e ->
                 _uiState.value = ManualEntryUiState.Error(e.toUserMessage())
             }
         }
+    }
+
+    private suspend fun saveConnectedProfile(url: String, token: String?) {
+        val displayName = (connectionManager.connectionState.value as? GatewayConnection.Connected)
+            ?.displayName ?: url
+        val existingId = profileRepository.getProfiles().first().firstOrNull { it.url == url }?.id
+        profileRepository.saveProfile(
+            ConnectionProfile(
+                id = existingId ?: UUID.randomUUID().toString(),
+                displayName = displayName,
+                url = url,
+                lastConnectedAt = System.currentTimeMillis(),
+                hasToken = token != null,
+            ),
+            token,
+        )
     }
 
     @Suppress("ReturnCount")

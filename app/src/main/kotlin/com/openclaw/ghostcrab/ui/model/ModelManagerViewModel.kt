@@ -7,6 +7,7 @@ import com.openclaw.ghostcrab.domain.exception.GatewayException
 import com.openclaw.ghostcrab.domain.model.GatewayConnection
 import com.openclaw.ghostcrab.domain.repository.GatewayConnectionManager
 import com.openclaw.ghostcrab.domain.repository.ModelRepository
+import com.openclaw.ghostcrab.domain.util.suspendRunCatching
 import com.openclaw.ghostcrab.ui.toUserMessage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -113,11 +114,7 @@ public class ModelManagerViewModel(
                     swapSuccess = true,
                 )
             } catch (e: GatewayException) {
-                val recovered = try {
-                    modelRepository.getModels()
-                } catch (_: Exception) {
-                    current.models
-                }
+                val recovered = suspendRunCatching { modelRepository.getModels() }.getOrDefault(current.models)
                 _state.value = ModelManagerUiState.Ready(
                     models = recovered,
                     swapError = "Failed to swap model: ${e.toUserMessage()}",

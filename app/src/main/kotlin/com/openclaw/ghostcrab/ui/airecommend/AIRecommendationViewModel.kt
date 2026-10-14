@@ -18,6 +18,7 @@ import com.openclaw.ghostcrab.domain.repository.InstalledSkillRepository
 import com.openclaw.ghostcrab.domain.repository.ModelRepository
 import com.openclaw.ghostcrab.domain.repository.ScopeProbe
 import com.openclaw.ghostcrab.domain.repository.ScopeProbeResult
+import com.openclaw.ghostcrab.domain.util.suspendRunCatching
 import com.openclaw.ghostcrab.ui.toUserMessage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -350,7 +351,7 @@ private suspend fun ConfigRepository.reloadFailure(): GatewayException? = try {
 
 /**
  * Assembles context for an AI query. Config/model failures are non-fatal — the request proceeds
- * with an empty config or no model. [CancellationException] is always rethrown.
+ * with an empty config or no model. Uses [suspendRunCatching], so cancellation is always rethrown.
  */
 private suspend fun buildRecommendationContext(
     connectionManager: GatewayConnectionManager,
@@ -358,12 +359,8 @@ private suspend fun buildRecommendationContext(
     modelRepository: ModelRepository,
 ): RecommendationContext {
     val connState = connectionManager.connectionState.value as? GatewayConnection.Connected
-    val activeConfig = runCatching { configRepository.getConfig() }
-        .onFailure { if (it is CancellationException) throw it }
-        .getOrElse { OpenClawConfig(emptyMap()) }
-    val activeModelId = runCatching { modelRepository.getModels().firstOrNull { it.isActive }?.id }
-        .onFailure { if (it is CancellationException) throw it }
-        .getOrNull()
+    val activeConfig = suspendRunCatching { configRepository.getConfig() }.getOrElse { OpenClawConfig(emptyMap()) }
+    val activeModelId = suspendRunCatching { modelRepository.getModels().firstOrNull { it.isActive }?.id }.getOrNull()
     return RecommendationContext(
         activeConfig = activeConfig,
         hardwareInfo = connState?.hardwareInfo,

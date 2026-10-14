@@ -6,6 +6,7 @@ import com.openclaw.ghostcrab.domain.model.ConnectionProfile
 import com.openclaw.ghostcrab.domain.repository.ConnectionProfileRepository
 import com.openclaw.ghostcrab.domain.repository.GatewayConnectionManager
 import com.openclaw.ghostcrab.domain.repository.OnboardingRepository
+import com.openclaw.ghostcrab.domain.util.suspendRunCatching
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -75,7 +76,7 @@ public class ConnectionPickerViewModel(
      */
     public fun connect(profile: ConnectionProfile, onResult: (Result<Unit>) -> Unit) {
         viewModelScope.launch {
-            val result = runCatching {
+            val result = suspendRunCatching {
                 val token = if (profile.hasToken) profileRepository.getToken(profile.id) else null
                 connectionManager.connect(profile.url, token)
             }

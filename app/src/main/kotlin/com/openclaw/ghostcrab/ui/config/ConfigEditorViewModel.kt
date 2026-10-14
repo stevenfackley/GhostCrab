@@ -8,6 +8,7 @@ import com.openclaw.ghostcrab.domain.exception.GatewayException
 import com.openclaw.ghostcrab.domain.model.GatewayConnection
 import com.openclaw.ghostcrab.domain.repository.ConfigRepository
 import com.openclaw.ghostcrab.domain.repository.GatewayConnectionManager
+import com.openclaw.ghostcrab.domain.util.suspendRunCatching
 import com.openclaw.ghostcrab.ui.toUserMessage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -146,7 +147,7 @@ class ConfigEditorViewModel(
                 )
             } catch (e: GatewayApiException) {
                 if (e.statusCode == 412) {
-                    val reloaded = try { configRepository.getConfig() } catch (_: Exception) { null }
+                    val reloaded = suspendRunCatching { configRepository.getConfig() }.getOrNull()
                     _state.value = if (reloaded != null) {
                         ConfigEditorUiState.Ready(
                             config = reloaded,

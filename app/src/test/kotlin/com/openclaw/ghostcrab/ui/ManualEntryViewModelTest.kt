@@ -1,6 +1,7 @@
 package com.openclaw.ghostcrab.ui
 
 import app.cash.turbine.test
+import com.openclaw.ghostcrab.domain.exception.ProfileNeedsReauthException
 import com.openclaw.ghostcrab.domain.model.GatewayConnection
 import com.openclaw.ghostcrab.domain.repository.ConnectionProfileRepository
 import com.openclaw.ghostcrab.domain.repository.GatewayConnectionManager
@@ -215,5 +216,17 @@ class ManualEntryViewModelTest {
         assertTrue(!rendered.contains("hunter2-token"), rendered)
         assertTrue(rendered.contains("token=[REDACTED]"), rendered)
         assertTrue(ManualEntryFormState().toString().contains("token=,"))
+    }
+
+    @Test
+    fun `profile save failure after a successful connect sets Error instead of crashing`() = runTest {
+        coEvery { connectionManager.connect(any(), any()) } returns Unit
+        coEvery { profileRepository.saveProfile(any(), any()) } throws ProfileNeedsReauthException("p1")
+        vm.onHostChange("192.168.0.23")
+
+        vm.connect()
+
+        val state = vm.uiState.value as ManualEntryUiState.Error
+        assertTrue(state.message.contains("ProfileNeedsReauthException"))
     }
 }

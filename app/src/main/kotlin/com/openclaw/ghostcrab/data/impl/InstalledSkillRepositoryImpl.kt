@@ -6,6 +6,7 @@ import com.openclaw.ghostcrab.domain.model.SkillInstallError
 import com.openclaw.ghostcrab.domain.model.SkillInstallProgress
 import com.openclaw.ghostcrab.domain.model.SkillSource
 import com.openclaw.ghostcrab.domain.repository.InstalledSkillRepository
+import com.openclaw.ghostcrab.domain.util.suspendRunCatching
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.NonCancellable
@@ -54,7 +55,7 @@ class InstalledSkillRepositoryImpl(
      *
      * @return [Result] wrapping the refreshed list, or an exception on network failure.
      */
-    override suspend fun refreshFromGateway(): Result<List<InstalledSkill>> = runCatching {
+    override suspend fun refreshFromGateway(): Result<List<InstalledSkill>> = suspendRunCatching {
         wsFactory().use { ws ->
             val res = ws.request("skills.list", params = null).jsonObject
             val list = res["skills"]?.jsonArray.orEmpty().map { it.jsonObject.toInstalledSkill() }
@@ -140,7 +141,7 @@ class InstalledSkillRepositoryImpl(
      * @param slug The skill to remove.
      * @return [Result.success] on success, or a failure wrapping the exception.
      */
-    override suspend fun uninstall(slug: String): Result<Unit> = runCatching {
+    override suspend fun uninstall(slug: String): Result<Unit> = suspendRunCatching {
         wsFactory().use { ws ->
             ws.request("skills.uninstall", buildJsonObject { put("slug", JsonPrimitive(slug)) })
             installedFlow.value = installedFlow.value.filter { it.slug != slug }
