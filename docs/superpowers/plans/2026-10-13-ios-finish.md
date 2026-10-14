@@ -1662,7 +1662,7 @@ Expected: `ghostcrab`, then `** BUILD SUCCEEDED **`.
 - [ ] **Step 4: Open a link in the simulator** ⚠ manual (simulator with the app installed)
 
 ```bash
-P=$(printf '%s' '{"url":"http://192.168.1.20:18789","token":"tok_demo"}' | base64 | tr '+/' '-_' | tr -d '=\n')
+P=$(printf '%s' '{"v":1,"url":"http://192.168.1.20:18789","token":"tok_demo"}' | base64 | tr '+/' '-_' | tr -d '=\n')
 xcrun simctl openurl booted "ghostcrab://pair?p=$P"
 xcrun simctl openurl booted "ghostcrab://pair?p=!!!!"
 ```
