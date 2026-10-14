@@ -237,11 +237,11 @@ private struct QRScannerRepresentable: UIViewControllerRepresentable {
 
         // Camera permission can be requested up-front. VisionKit will refuse to
         // start otherwise; we forward the decision but don't block construction.
-        AVCaptureDevice.requestAccess(for: .video) { granted in
-            DispatchQueue.main.async {
-                guard granted else { return }
-                try? scanner.startScanning()
-            }
+        // A main-actor Task keeps the non-Sendable scanner on the main actor
+        // (the old completion-handler + DispatchQueue hop sent it across).
+        Task { @MainActor in
+            guard await AVCaptureDevice.requestAccess(for: .video) else { return }
+            try? scanner.startScanning()
         }
         return scanner
     }

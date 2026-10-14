@@ -465,6 +465,7 @@ private struct FindOnNetworkStepView: View {
 
 // MARK: - Shared shell-command block
 
+@MainActor
 @ViewBuilder
 private func shellBlock(_ code: String) -> some View {
     GlassSurface {
