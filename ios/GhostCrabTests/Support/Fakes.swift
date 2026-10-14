@@ -83,19 +83,26 @@ final class FakeGatewayConnectionManager: GatewayConnectionManager, @unchecked S
 final class FakeConnectionProfileRepository: ConnectionProfileRepository, @unchecked Sendable {
     private let lock = NSLock()
     private let deleteError: GatewayError?
+    private let clearAllError: GatewayError?
     private var profiles: [ConnectionProfile]
     private var tokens: [String: String]
     private var saveLog: [(profile: ConnectionProfile, token: String?)] = []
     private var deleteLog: [String] = []
+    private var clearAllCalls = 0
 
+    /// - Parameters:
+    ///   - deleteError: When set, every `deleteProfile(profileId:)` throws it and keeps the profile.
+    ///   - clearAllError: When set, every `clearAll()` throws it and keeps everything.
     init(
         profiles: [ConnectionProfile] = [],
         tokens: [String: String] = [:],
-        deleteError: GatewayError? = nil
+        deleteError: GatewayError? = nil,
+        clearAllError: GatewayError? = nil
     ) {
         self.profiles = profiles
         self.tokens = tokens
         self.deleteError = deleteError
+        self.clearAllError = clearAllError
     }
 
     static func profile(url: String = "http://192.168.1.20:18789", hasToken: Bool = false) -> ConnectionProfile {
@@ -105,6 +112,9 @@ final class FakeConnectionProfileRepository: ConnectionProfileRepository, @unche
     var savedProfiles: [ConnectionProfile] { lock.withLock { saveLog.map { $0.profile } } }
     var savedTokens: [String?] { lock.withLock { saveLog.map { $0.token } } }
     var deleteAttempts: [String] { lock.withLock { deleteLog } }
+    var clearAllCount: Int { lock.withLock { clearAllCalls } }
+    var storedProfileCount: Int { lock.withLock { profiles.count } }
+    var storedTokenCount: Int { lock.withLock { tokens.count } }
 
     func observeProfiles() -> AsyncStream<[ConnectionProfile]> {
         let snapshot = lock.withLock { profiles }
@@ -133,6 +143,15 @@ final class FakeConnectionProfileRepository: ConnectionProfileRepository, @unche
         lock.withLock {
             profiles.removeAll { $0.id.uuidString == profileId }
             tokens[profileId] = nil
+        }
+    }
+
+    func clearAll() async throws {
+        lock.withLock { clearAllCalls += 1 }
+        if let clearAllError { throw clearAllError }
+        lock.withLock {
+            profiles.removeAll()
+            tokens.removeAll()
         }
     }
 }

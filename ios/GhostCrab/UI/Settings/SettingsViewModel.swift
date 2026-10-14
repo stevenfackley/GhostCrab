@@ -4,12 +4,13 @@ import Observation
 /// ViewModel for the iOS Settings screen.
 ///
 /// Mirrors the Android `SettingsViewModel`, but trimmed to the wave-4-leaf scope:
-/// only the cleartext-IP toggle, onboarding replay, and (read-only) app info.
-/// Per-profile editing is owned by the Connection-Picker screen on iOS.
+/// the cleartext-IP toggle, "clear all saved gateways", onboarding replay, and
+/// (read-only) app info. Per-profile editing is owned by the Connection-Picker
+/// screen on iOS.
 ///
 /// Subscribes to ``SettingsRepository/allowCleartextPublicIPs()`` via an async
-/// stream launched from the view's `.task` modifier. Writes and the reset run
-/// in tracked tasks (``writeTask``, ``resetTask``).
+/// stream launched from the view's `.task` modifier. Writes, the clear-all and
+/// the reset run in tracked tasks (``writeTask``, ``clearAllTask``, ``resetTask``).
 @MainActor
 @Observable
 public final class SettingsViewModel {
@@ -24,10 +25,25 @@ public final class SettingsViewModel {
     /// The view clears it via ``acknowledgeOnboardingReset()`` once shown.
     public private(set) var onboardingResetSuccess: Bool = false
 
+    /// `true` while the "Clear all saved gateways?" confirmation is showing.
+    public private(set) var isConfirmingClearAll: Bool = false
+
+    /// `true` while ``confirmClearAllProfiles()`` is running; the button shows a spinner.
+    public private(set) var isClearingAll: Bool = false
+
+    /// Transient banner — set to `true` once every saved gateway and token was
+    /// removed. The view clears it via ``acknowledgeClearAll()`` once shown.
+    public private(set) var clearAllSuccess: Bool = false
+
+    /// Last failure, formatted for display (exception class + message).
+    /// `nil` when none is pending; the view clears it once shown.
+    public var lastError: String?
+
     // MARK: - Dependencies
 
     private let settings: any SettingsRepository
     private let onboarding: any OnboardingRepository
+    private let profiles: any ConnectionProfileRepository
 
     // MARK: - Tasks
 
@@ -37,17 +53,23 @@ public final class SettingsViewModel {
     /// In-flight onboarding reset. Read-only outside the VM so tests can await it.
     @ObservationIgnored private(set) var resetTask: Task<Void, Never>?
 
+    /// In-flight "clear all saved gateways". Read-only outside the VM so tests can await it.
+    @ObservationIgnored private(set) var clearAllTask: Task<Void, Never>?
+
     // MARK: - Init
 
     /// - Parameters:
     ///   - settings: Source of the cleartext-IP preference.
     ///   - onboarding: Used to clear the persisted completion flag when the user replays onboarding.
+    ///   - profiles: Wiped by ``confirmClearAllProfiles()``.
     public init(
         settings: any SettingsRepository,
-        onboarding: any OnboardingRepository
+        onboarding: any OnboardingRepository,
+        profiles: any ConnectionProfileRepository
     ) {
         self.settings = settings
         self.onboarding = onboarding
+        self.profiles = profiles
     }
 
     // MARK: - Observation
@@ -100,5 +122,46 @@ public final class SettingsViewModel {
     /// Clears ``onboardingResetSuccess`` after the view has consumed it.
     public func acknowledgeOnboardingReset() {
         onboardingResetSuccess = false
+    }
+
+    // MARK: - Clear all saved gateways
+
+    /// Shows the "Clear all saved gateways?" confirmation.
+    public func requestClearAllProfiles() {
+        isConfirmingClearAll = true
+    }
+
+    /// Dismisses the confirmation without clearing anything.
+    public func cancelClearAllProfiles() {
+        isConfirmingClearAll = false
+    }
+
+    /// Deletes every saved gateway and stored token, even when the stored list
+    /// is unreadable, via ``ConnectionProfileRepository/clearAll()``. Mirrors
+    /// Android's `SettingsViewModel.confirmClearAllProfiles`.
+    ///
+    /// Sets ``clearAllSuccess`` on success and ``lastError`` on failure.
+    /// Ignored while a clear is already in flight. An active gateway session
+    /// stays connected (as on Android); only the saved data goes.
+    public func confirmClearAllProfiles() {
+        isConfirmingClearAll = false
+        guard clearAllTask == nil else { return }
+        lastError = nil
+        isClearingAll = true
+        clearAllTask = Task { [weak self, profiles] in
+            do {
+                try await profiles.clearAll()
+                self?.clearAllSuccess = true
+            } catch {
+                self?.lastError = "Clearing saved gateways failed (\(type(of: error))): \(error.localizedDescription)"
+            }
+            self?.isClearingAll = false
+            self?.clearAllTask = nil
+        }
+    }
+
+    /// Clears ``clearAllSuccess`` after the view has consumed it.
+    public func acknowledgeClearAll() {
+        clearAllSuccess = false
     }
 }

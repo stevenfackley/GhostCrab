@@ -36,4 +36,13 @@ public protocol ConnectionProfileRepository: Sendable {
     ///
     /// - Parameter profileId: The `ConnectionProfile.id` to delete.
     func deleteProfile(profileId: String) async throws
+
+    /// Removes every saved profile and stored token, including a profile list
+    /// that can no longer be decoded.
+    ///
+    /// Additive (v1.1) — see docs/adr/0005-additive-repository-methods.md
+    ///
+    /// - Throws: An error if the token store cannot be wiped. Profile metadata
+    ///   is removed first, so none of it survives that failure.
+    func clearAll() async throws
 }

@@ -47,6 +47,7 @@ public struct SettingsScreen: View {
     private func content(vm: SettingsViewModel) -> some View {
         Form {
             securitySection(vm: vm)
+            savedGatewaysSection(vm: vm)
             onboardingSection(vm: vm)
             aboutSection
             supportSection
@@ -54,6 +55,50 @@ public struct SettingsScreen: View {
         .scrollContentBackground(.hidden)
         .background(DesignTokens.Color.abyss)
         .tint(DesignTokens.Color.cyanPrimary)
+        .confirmationDialog(
+            "Clear all saved gateways?",
+            isPresented: Binding(
+                get: { vm.isConfirmingClearAll },
+                set: { if !$0 { vm.cancelClearAllProfiles() } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Clear All", role: .destructive) {
+                vm.confirmClearAllProfiles()
+            }
+            Button("Cancel", role: .cancel) {
+                vm.cancelClearAllProfiles()
+            }
+        } message: {
+            Text("This permanently deletes all saved gateways and stored tokens. You will need to reconnect manually.")
+        }
+        .alert(
+            "Saved gateways cleared",
+            isPresented: Binding(
+                get: { vm.clearAllSuccess },
+                set: { _ in vm.acknowledgeClearAll() }
+            )
+        ) {
+            Button("OK", role: .cancel) {
+                vm.acknowledgeClearAll()
+            }
+        } message: {
+            Text("All saved gateways and their tokens were removed from this device.")
+        }
+        .alert(
+            "Could not clear saved gateways",
+            isPresented: Binding(
+                get: { vm.lastError != nil },
+                set: { if !$0 { vm.lastError = nil } }
+            ),
+            presenting: vm.lastError
+        ) { _ in
+            Button("OK", role: .cancel) {
+                vm.lastError = nil
+            }
+        } message: { message in
+            Text(message)
+        }
         .alert(
             "Onboarding reset",
             isPresented: Binding(
@@ -98,6 +143,40 @@ public struct SettingsScreen: View {
                 .foregroundStyle(DesignTokens.Color.cyanPrimary)
         } footer: {
             Text("Allows HTTP to public IP addresses; loopback, link-local and RFC-1918 ranges are always allowed. It cannot unlock HTTP to hostnames such as gw.example.com or *.ts.net: iOS App Transport Security blocks those regardless, so use HTTPS. Leave this off unless you knowingly connect to a public-IP gateway over HTTP.")
+                .font(AppFont.body(12))
+                .foregroundStyle(DesignTokens.Color.textSecondary)
+        }
+    }
+
+    // MARK: - Saved gateways section
+
+    @ViewBuilder
+    private func savedGatewaysSection(vm: SettingsViewModel) -> some View {
+        Section {
+            Button(role: .destructive) {
+                vm.requestClearAllProfiles()
+            } label: {
+                HStack {
+                    Text("Clear all saved gateways")
+                        .font(AppFont.body(15))
+                        .foregroundStyle(DesignTokens.Color.crimsonError)
+                    Spacer()
+                    if vm.isClearingAll {
+                        ProgressView().tint(DesignTokens.Color.crimsonError)
+                    } else {
+                        Image(systemName: "trash")
+                            .foregroundStyle(DesignTokens.Color.crimsonError)
+                    }
+                }
+            }
+            .disabled(vm.isClearingAll)
+            .listRowBackground(DesignTokens.Color.glass)
+        } header: {
+            Text("Saved gateways")
+                .font(AppFont.bodyBold(12))
+                .foregroundStyle(DesignTokens.Color.cyanPrimary)
+        } footer: {
+            Text("Removes every saved gateway and its token from this device, even a saved list that can no longer be read.")
                 .font(AppFont.body(12))
                 .foregroundStyle(DesignTokens.Color.textSecondary)
         }

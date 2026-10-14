@@ -59,4 +59,15 @@ struct ConnectionProfileRepositoryImplTests {
         #expect(await store.getAll().isEmpty)
         #expect(tokens.token(for: profile.id.uuidString) == "tok_123")
     }
+
+    @Test func clearAllRemovesEveryProfileAndToken() async throws {
+        let (repo, store, tokens) = try makeRepo()
+        try await repo.saveProfile(makeProfile(), token: "tok_1")
+        try await repo.saveProfile(makeProfile(), token: "tok_2")
+
+        try await repo.clearAll()
+
+        #expect(await store.getAll().isEmpty)
+        #expect(tokens.count == 0)
+    }
 }

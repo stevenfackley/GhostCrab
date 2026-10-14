@@ -139,11 +139,13 @@ public final class AppContainer {
         )
     }
 
-    /// Builds a fresh `SettingsViewModel` wired to the settings + onboarding repos.
+    /// Builds a fresh `SettingsViewModel` wired to the settings, onboarding
+    /// and profile repos (the last for "clear all saved gateways").
     public func makeSettingsVM() -> SettingsViewModel {
         SettingsViewModel(
             settings: settings,
-            onboarding: onboarding
+            onboarding: onboarding,
+            profiles: profiles
         )
     }
 

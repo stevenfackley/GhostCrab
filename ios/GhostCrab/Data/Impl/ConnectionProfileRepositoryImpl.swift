@@ -76,4 +76,15 @@ public final class ConnectionProfileRepositoryImpl: ConnectionProfileRepository,
     public func deleteProfile(profileId: String) async throws {
         try await store.delete(id: profileId)
     }
+
+    /// Removes every saved profile, any quarantined backup of an unreadable
+    /// list, and every stored token, even when the live list cannot be decoded.
+    ///
+    /// Additive (v1.1) — see docs/adr/0005-additive-repository-methods.md
+    ///
+    /// - Throws: ``KeychainError`` if the token wipe fails. Profile metadata is
+    ///   removed first, so none of it survives that failure.
+    public func clearAll() async throws {
+        try await store.clearAll()
+    }
 }
