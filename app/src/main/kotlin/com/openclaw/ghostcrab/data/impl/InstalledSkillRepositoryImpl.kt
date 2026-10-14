@@ -77,7 +77,7 @@ class InstalledSkillRepositoryImpl(
         wsFactory()
     } catch (e: CancellationException) {
         throw e
-    } catch (e: GatewayNotConnectedException) {
+    } catch (ignored: GatewayNotConnectedException) {
         // Not retryable as-is: the user must reconnect first, so no Retry button.
         send(SkillInstallProgress.Failed(SkillInstallError.NotConnected))
         null
@@ -133,15 +133,10 @@ class InstalledSkillRepositoryImpl(
             val skill = result.toInstalledSkill()
             installedFlow.value = (installedFlow.value.filter { it.slug != skill.slug } + skill)
             send(SkillInstallProgress.Succeeded(skill))
-        } catch (e: GatewayWsClient.WsRpcException) {
-            send(SkillInstallProgress.Failed(e.toInstallError()))
-        } catch (e: GatewayProtocolException) {
-            send(SkillInstallProgress.Failed(SkillInstallError.Protocol(rpcCode = 0, message = e.detail)))
-        } catch (e: GatewayException) {
-            // Timeout or socket closed mid-install: retryable transport failure.
-            send(SkillInstallProgress.Failed(SkillInstallError.Network(e.message ?: e::class.java.simpleName)))
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
-            send(SkillInstallProgress.Failed(SkillInstallError.Unknown(e.message ?: "unknown")))
+            send(SkillInstallProgress.Failed(e.toInstallError()))
         } finally {
             notifJob.cancel()
             withContext(NonCancellable) { ws.close() }
@@ -187,6 +182,15 @@ class InstalledSkillRepositoryImpl(
             },
             installedAt = this["installed_at"]?.jsonPrimitive?.longOrNull ?: 0L,
         )
+    }
+
+    /** Classifies a failed `skills.install` request; transport faults are retryable, protocol faults are not. */
+    private fun Exception.toInstallError(): SkillInstallError = when (this) {
+        is GatewayWsClient.WsRpcException -> toInstallError()
+        is GatewayProtocolException -> SkillInstallError.Protocol(rpcCode = 0, message = detail)
+        // Timeout or socket closed mid-install: retryable transport failure.
+        is GatewayException -> SkillInstallError.Network(message ?: this::class.java.simpleName)
+        else -> SkillInstallError.Unknown(message ?: "unknown")
     }
 
     private fun GatewayWsClient.WsRpcException.toInstallError(): SkillInstallError = when (code) {
