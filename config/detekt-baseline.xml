@@ -54,9 +54,9 @@
     <ID>FunctionNaming:ManualEntryScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun ManualEntryScreen( onNavigateBack: () -&gt; Unit, onNavigateToDashboard: () -&gt; Unit, prefillUrl: String? = null, viewModel: ManualEntryViewModel = koinViewModel(), )</ID>
     <ID>FunctionNaming:ModelDetailSheet.kt$@Composable private fun DetailRow( label: String, value: String, mono: Boolean = false, )</ID>
     <ID>FunctionNaming:ModelDetailSheet.kt$@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class) @Composable public fun ModelDetailSheet( model: ModelInfo, onSetActive: () -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
-    <ID>FunctionNaming:ModelManagerScreen.kt$@Composable private fun StatusPill(model: ModelInfo)</ID>
-    <ID>FunctionNaming:ModelManagerScreen.kt$@OptIn(ExperimentalLayoutApi::class) @Composable private fun ModelCard( model: ModelInfo, isSwapping: Boolean, onClick: () -&gt; Unit, onSetActive: () -&gt; Unit, )</ID>
-    <ID>FunctionNaming:ModelManagerScreen.kt$@OptIn(ExperimentalLayoutApi::class) @Composable private fun ReadyContent( state: ModelManagerUiState.Ready, onRetry: () -&gt; Unit, onRequestSwap: (String) -&gt; Unit, onCancelSwap: () -&gt; Unit, onConfirmSwap: (String) -&gt; Unit, )</ID>
+    <ID>FunctionNaming:ModelManagerContent.kt$@Composable private fun StatusPill(model: ModelInfo)</ID>
+    <ID>FunctionNaming:ModelManagerContent.kt$@OptIn(ExperimentalLayoutApi::class) @Composable private fun ModelCard( model: ModelInfo, isSwapping: Boolean, onClick: () -&gt; Unit, onSetActive: () -&gt; Unit, )</ID>
+    <ID>FunctionNaming:ModelManagerContent.kt$@OptIn(ExperimentalLayoutApi::class) @Composable internal fun ModelManagerReadyContent( state: ModelManagerUiState.Ready, onRetry: () -&gt; Unit, onRequestSwap: (String) -&gt; Unit, onCancelSwap: () -&gt; Unit, onConfirmSwap: (String) -&gt; Unit, )</ID>
     <ID>FunctionNaming:ModelManagerScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable public fun ModelManagerScreen(onNavigateBack: () -&gt; Unit)</ID>
     <ID>FunctionNaming:NavGraph.kt$@Composable fun NavGraph()</ID>
     <ID>FunctionNaming:OnboardingScaffold.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable public fun OnboardingScaffold( step: OnboardingStep, onBack: (() -&gt; Unit)?, onSkip: () -&gt; Unit, title: String, content: @Composable ColumnScope.() -&gt; Unit, )</ID>
@@ -77,11 +77,11 @@
     <ID>FunctionNaming:ScanScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun ScanScreen( onNavigateBack: () -&gt; Unit, onNavigateToManualEntry: (String) -&gt; Unit, onNavigateToDashboard: () -&gt; Unit, viewModel: ScanViewModel = koinViewModel(), )</ID>
     <ID>FunctionNaming:SecurityBanner.kt$@Composable fun HttpSecurityBanner(modifier: Modifier = Modifier)</ID>
     <ID>FunctionNaming:SecurityBanner.kt$@Composable fun NoAuthSecurityBanner(modifier: Modifier = Modifier)</ID>
-    <ID>FunctionNaming:SettingsScreen.kt$@Composable private fun AboutRow(label: String, value: String, mono: Boolean = false)</ID>
-    <ID>FunctionNaming:SettingsScreen.kt$@Composable private fun EditProfileDialog( profile: ConnectionProfile, onSave: (displayName: String, newToken: String?) -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
-    <ID>FunctionNaming:SettingsScreen.kt$@Composable private fun ProfileRow( profile: ConnectionProfile, onEdit: () -&gt; Unit, onDelete: () -&gt; Unit, )</ID>
+    <ID>FunctionNaming:SettingsSections.kt$@Composable private fun AboutRow(label: String, value: String, mono: Boolean = false)</ID>
+    <ID>FunctionNaming:SettingsDialogs.kt$@Composable private fun EditProfileDialog( profile: ConnectionProfile, onSave: (displayName: String, newToken: String?) -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
+    <ID>FunctionNaming:SettingsSections.kt$@Composable private fun ProfileRow( profile: ConnectionProfile, onEdit: () -&gt; Unit, onDelete: () -&gt; Unit, )</ID>
     <ID>FunctionNaming:SettingsScreen.kt$@Composable private fun ReadyContent( state: SettingsUiState.Ready, modifier: Modifier, onToggleCleartext: (Boolean) -&gt; Unit, onEditProfile: (ConnectionProfile) -&gt; Unit, onDeleteProfile: (ConnectionProfile) -&gt; Unit, onRequestClearAll: () -&gt; Unit, onReplayWalkthrough: () -&gt; Unit, )</ID>
-    <ID>FunctionNaming:SettingsScreen.kt$@Composable private fun SectionHeader(label: String)</ID>
+    <ID>FunctionNaming:SettingsSections.kt$@Composable private fun SectionHeader(label: String)</ID>
     <ID>FunctionNaming:SettingsScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun SettingsScreen(onNavigateBack: () -&gt; Unit)</ID>
     <ID>FunctionNaming:StartGatewayStep.kt$@Composable public fun StartGatewayStep(onNext: () -&gt; Unit)</ID>
     <ID>FunctionNaming:StringFieldRow.kt$@Composable fun StringFieldRow( label: String, value: String, onValueChange: (String) -&gt; Unit, modifier: Modifier = Modifier, mono: Boolean = false, singleLine: Boolean = true, error: String? = null, )</ID>
@@ -103,8 +103,8 @@
     <ID>LongMethod:InstallGatewayStep.kt$@Composable public fun InstallGatewayStep( snackbarHostState: SnackbarHostState, onNext: () -&gt; Unit, )</ID>
     <ID>LongMethod:ManualEntryScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun ManualEntryScreen( onNavigateBack: () -&gt; Unit, onNavigateToDashboard: () -&gt; Unit, prefillUrl: String? = null, viewModel: ManualEntryViewModel = koinViewModel(), )</ID>
     <ID>LongMethod:ModelDetailSheet.kt$@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class) @Composable public fun ModelDetailSheet( model: ModelInfo, onSetActive: () -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
-    <ID>LongMethod:ModelManagerScreen.kt$@OptIn(ExperimentalLayoutApi::class) @Composable private fun ModelCard( model: ModelInfo, isSwapping: Boolean, onClick: () -&gt; Unit, onSetActive: () -&gt; Unit, )</ID>
-    <ID>LongMethod:ModelManagerScreen.kt$@OptIn(ExperimentalLayoutApi::class) @Composable private fun ReadyContent( state: ModelManagerUiState.Ready, onRetry: () -&gt; Unit, onRequestSwap: (String) -&gt; Unit, onCancelSwap: () -&gt; Unit, onConfirmSwap: (String) -&gt; Unit, )</ID>
+    <ID>LongMethod:ModelManagerContent.kt$@OptIn(ExperimentalLayoutApi::class) @Composable private fun ModelCard( model: ModelInfo, isSwapping: Boolean, onClick: () -&gt; Unit, onSetActive: () -&gt; Unit, )</ID>
+    <ID>LongMethod:ModelManagerContent.kt$@OptIn(ExperimentalLayoutApi::class) @Composable internal fun ModelManagerReadyContent( state: ModelManagerUiState.Ready, onRetry: () -&gt; Unit, onRequestSwap: (String) -&gt; Unit, onCancelSwap: () -&gt; Unit, onConfirmSwap: (String) -&gt; Unit, )</ID>
     <ID>LongMethod:ModelManagerScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable public fun ModelManagerScreen( onNavigateBack: () -&gt; Unit, viewModel: ModelManagerViewModel = koinViewModel(), )</ID>
     <ID>LongMethod:NavGraph.kt$@Composable fun NavGraph()</ID>
     <ID>LongMethod:OnboardingScaffold.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable public fun OnboardingScaffold( step: OnboardingStep, onBack: (() -&gt; Unit)?, onSkip: () -&gt; Unit, title: String, content: @Composable ColumnScope.() -&gt; Unit, )</ID>
@@ -112,7 +112,7 @@
     <ID>LongMethod:PendingChangesDiffSheet.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun PendingChangesDiffSheet( sectionKey: String, oldValue: JsonElement, newValue: JsonElement, onConfirm: () -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
     <ID>LongMethod:QrScanScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun QrScanScreen( onNavigateToManualEntry: (String) -&gt; Unit, onNavigateBack: () -&gt; Unit, viewModel: QrScanViewModel = koinViewModel(), )</ID>
     <ID>LongMethod:ScanScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun ScanScreen( onNavigateBack: () -&gt; Unit, onNavigateToManualEntry: (String) -&gt; Unit, onNavigateToDashboard: () -&gt; Unit, viewModel: ScanViewModel = koinViewModel(), )</ID>
-    <ID>LongMethod:SettingsScreen.kt$@Composable private fun EditProfileDialog( profile: ConnectionProfile, onSave: (displayName: String, newToken: String?) -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
+    <ID>LongMethod:SettingsDialogs.kt$@Composable private fun EditProfileDialog( profile: ConnectionProfile, onSave: (displayName: String, newToken: String?) -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
     <ID>LongMethod:SettingsScreen.kt$@Composable private fun ReadyContent( state: SettingsUiState.Ready, modifier: Modifier, onToggleCleartext: (Boolean) -&gt; Unit, onEditProfile: (ConnectionProfile) -&gt; Unit, onDeleteProfile: (ConnectionProfile) -&gt; Unit, onRequestClearAll: () -&gt; Unit, onReplayWalkthrough: () -&gt; Unit, )</ID>
     <ID>LongMethod:SettingsScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun SettingsScreen(onNavigateBack: () -&gt; Unit)</ID>
     <ID>LongMethod:StartGatewayStep.kt$@Composable public fun StartGatewayStep(onNext: () -&gt; Unit)</ID>
