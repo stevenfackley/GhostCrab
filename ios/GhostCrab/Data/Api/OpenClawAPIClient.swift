@@ -9,10 +9,29 @@ import os
 ///
 /// **Authorization headers are never logged.** Verify with Console.app.
 ///
-/// Timeouts: connect = 15s, request = 30s.
+/// Timeouts: see ``Timeouts``. Each request sets its own idle timeout: 15 s for
+/// short calls, 120 s for skill install / AI recommend. 180 s caps any transfer.
 ///
 /// Direct port of `OpenClawApiClient.kt`.
 public actor OpenClawAPIClient {
+
+    /// Request timeout policy.
+    ///
+    /// URLSession has no separate TCP-connect timeout. `URLRequest.timeoutInterval`
+    /// is an idle timeout (the longest gap between bytes, including the wait for
+    /// the first byte, so it covers connection setup), and
+    /// `timeoutIntervalForResource` caps a whole transfer. So a dead or
+    /// black-holed host fails after ``standard`` seconds on every short call
+    /// (Android's 15 s connect timeout), while slow gateway-side work gets
+    /// ``longOperation``.
+    enum Timeouts {
+        /// Probe, `/health`, `/status`, config, models, whoami, uninstall.
+        static let standard: TimeInterval = 15
+        /// Skill install and AI recommendation: the gateway works before it answers.
+        static let longOperation: TimeInterval = 120
+        /// Upper bound for any single transfer.
+        static let resource: TimeInterval = 180
+    }
 
     // MARK: - State
 
@@ -44,19 +63,12 @@ public actor OpenClawAPIClient {
         CleartextPublicIPGuard.configure { allowCleartextPublicIPs }
 
         let config = URLSessionConfiguration.ephemeral
-        config.timeoutIntervalForRequest = 30      // request + socket idle
-        config.timeoutIntervalForResource = 30
+        // Ceiling only: `send(_:timeout:)` sets every request's own timeoutInterval.
+        config.timeoutIntervalForRequest = Timeouts.longOperation
+        config.timeoutIntervalForResource = Timeouts.resource
         config.waitsForConnectivity = false
         config.requestCachePolicy = .reloadIgnoringLocalCacheData
         config.protocolClasses = [CleartextPublicIPGuard.self] + additionalProtocolClasses + (config.protocolClasses ?? [])
-
-        // 15s connect timeout via the connection-establishment knob.
-        config.connectionProxyDictionary = nil
-        if #available(iOS 13, macOS 10.15, *) {
-            // URLSession lumps "connect" into timeoutIntervalForRequest; we
-            // approximate the 15s connect window by setting a tight
-            // first-byte timeout on a per-request basis below.
-        }
 
         self.session = URLSession(configuration: config)
 
@@ -303,7 +315,7 @@ public actor OpenClawAPIClient {
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
             req.httpBody = try self.encoder.encode(request)
 
-            let (data, response) = try await self.send(req)
+            let (data, response) = try await self.send(req, timeout: Timeouts.longOperation)
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             switch status {
             case 200:
@@ -390,7 +402,7 @@ public actor OpenClawAPIClient {
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
             req.httpBody = try JSONSerialization.data(withJSONObject: body)
 
-            let (data, response) = try await self.send(req)
+            let (data, response) = try await self.send(req, timeout: Timeouts.longOperation)
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             switch status {
             case 200, 201:
@@ -564,8 +576,16 @@ public actor OpenClawAPIClient {
 
     /// Sends a request with the Authorization header injected when a token is present.
     /// Logs at debug level with the Authorization header stripped.
-    private func send(_ request: URLRequest) async throws -> (Data, URLResponse) {
+    ///
+    /// - Parameters:
+    ///   - request: The request to send.
+    ///   - timeout: Idle timeout for this request. Defaults to ``Timeouts/standard``.
+    private func send(
+        _ request: URLRequest,
+        timeout: TimeInterval = Timeouts.standard
+    ) async throws -> (Data, URLResponse) {
         var req = request
+        req.timeoutInterval = timeout
         if let token {
             req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
