@@ -24,6 +24,20 @@ public struct ModelManagerScreen: View {
         .toolbarColorScheme(.dark, for: .navigationBar)
         #endif
         .task { await vm.load() }
+        .confirmationDialog(
+            "Activate model?",
+            isPresented: Binding(
+                get: { vm.pendingActivation != nil },
+                set: { if !$0 { vm.cancelActivation() } }
+            ),
+            titleVisibility: .visible,
+            presenting: vm.pendingActivation
+        ) { model in
+            Button("Activate \(model.displayName)") { vm.confirmActivation(model) }
+            Button("Cancel", role: .cancel) { vm.cancelActivation() }
+        } message: { model in
+            Text("New requests on this gateway will use \(model.displayName) (\(model.provider)).")
+        }
     }
 
     // MARK: - Content
@@ -78,7 +92,7 @@ public struct ModelManagerScreen: View {
                         .listRowSeparatorTint(DesignTokens.Color.outline)
                         .contentShape(Rectangle())
                         .onTapGesture {
-                            Task { await vm.setActive(model.id) }
+                            vm.requestActivation(model.id)
                         }
                 }
             }
