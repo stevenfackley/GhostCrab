@@ -104,7 +104,7 @@ class AIRecommendationViewModel(
                 _state.value = AIRecommendationUiState.Ready(
                     query = trimmed,
                     recommendation = recommendation,
-                    selectedChanges = recommendation.suggestedChanges.toSet(),
+                    selectedChanges = emptySet(),
                 )
             } catch (e: AIServiceUnavailableException) {
                 val missingScope = if (scopeProbe != null) {

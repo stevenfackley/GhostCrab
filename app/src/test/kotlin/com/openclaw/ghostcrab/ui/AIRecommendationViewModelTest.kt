@@ -128,7 +128,7 @@ class AIRecommendationViewModelTest {
     }
 
     @Test
-    fun `submitQuery transitions to Loading then Ready`() = runTest {
+    fun `submitQuery transitions to Loading then Ready with nothing selected`() = runTest {
         val rec = recommendation(change())
         val service = FakeAIService(available = true, recommendation = rec)
         val (vm, _) = makeVm(service = service)
@@ -138,8 +138,7 @@ class AIRecommendationViewModelTest {
         val state = assertInstanceOf(AIRecommendationUiState.Ready::class.java, vm.state.value)
         assertEquals(rec.recommendation, state.recommendation.recommendation)
         assertEquals(1, state.recommendation.suggestedChanges.size)
-        // All changes selected by default
-        assertEquals(state.recommendation.suggestedChanges.toSet(), state.selectedChanges)
+        assertTrue(state.selectedChanges.isEmpty())
     }
 
     @Test
@@ -181,43 +180,32 @@ class AIRecommendationViewModelTest {
     }
 
     @Test
-    fun `toggleChange removes a selected change then re-adds it`() = runTest {
+    fun `toggleChange selects an unselected change then deselects it`() = runTest {
         val c = change()
-        val rec = recommendation(c)
-        val service = FakeAIService(available = true, recommendation = rec)
-        val (vm, _) = makeVm(service = service)
-
+        val (vm, _) = makeVm(service = FakeAIService(available = true, recommendation = recommendation(c)))
         vm.submitQuery("query")
 
-        // Change starts selected
-        val readyBefore = vm.state.value as AIRecommendationUiState.Ready
-        assertTrue(c in readyBefore.selectedChanges)
-
-        // Toggle off
         vm.toggleChange(c)
-        val readyAfterRemove = vm.state.value as AIRecommendationUiState.Ready
-        assertFalse(c in readyAfterRemove.selectedChanges)
+        assertTrue(c in (vm.state.value as AIRecommendationUiState.Ready).selectedChanges)
 
-        // Toggle back on
         vm.toggleChange(c)
-        val readyAfterAdd = vm.state.value as AIRecommendationUiState.Ready
-        assertTrue(c in readyAfterAdd.selectedChanges)
+        assertFalse(c in (vm.state.value as AIRecommendationUiState.Ready).selectedChanges)
     }
 
     @Test
     fun `applySelectedChanges calls updateConfig for each selected change`() = runTest {
         val c1 = change("models", "timeout_ms")
         val c2 = change("gateway", "max_connections")
-        val rec = recommendation(c1, c2)
-        val service = FakeAIService(available = true, recommendation = rec)
+        val service = FakeAIService(available = true, recommendation = recommendation(c1, c2))
         val configRepo = FakeAIConfigRepository()
         val (vm, _) = makeVm(service = service, config = configRepo)
 
         vm.submitQuery("query")
+        vm.toggleChange(c1)
+        vm.toggleChange(c2)
         vm.applySelectedChanges()
 
-        val state = vm.state.value as AIRecommendationUiState.Ready
-        assertTrue(state.applySuccess)
+        assertTrue((vm.state.value as AIRecommendationUiState.Ready).applySuccess)
         assertEquals(2, configRepo.updateCallCount)
     }
 
@@ -225,14 +213,12 @@ class AIRecommendationViewModelTest {
     fun `applySelectedChanges with only one change selected applies only that one`() = runTest {
         val c1 = change("models", "timeout_ms")
         val c2 = change("gateway", "max_connections")
-        val rec = recommendation(c1, c2)
-        val service = FakeAIService(available = true, recommendation = rec)
+        val service = FakeAIService(available = true, recommendation = recommendation(c1, c2))
         val configRepo = FakeAIConfigRepository()
         val (vm, _) = makeVm(service = service, config = configRepo)
 
         vm.submitQuery("query")
-        // Deselect c2
-        vm.toggleChange(c2)
+        vm.toggleChange(c1)
         vm.applySelectedChanges()
 
         assertEquals(1, configRepo.updateCallCount)
@@ -260,6 +246,7 @@ class AIRecommendationViewModelTest {
         val (vm, _) = makeVm(service = service)
 
         vm.submitQuery("query")
+        vm.toggleChange(c)
         vm.applySelectedChanges()
 
         val stateWithSuccess = vm.state.value as AIRecommendationUiState.Ready
@@ -279,8 +266,6 @@ class AIRecommendationViewModelTest {
         val (vm, _) = makeVm(service = service, config = configRepo)
 
         vm.submitQuery("query")
-        // Deselect the only change
-        vm.toggleChange(c)
         vm.applySelectedChanges()
 
         assertEquals(0, configRepo.updateCallCount)
