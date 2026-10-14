@@ -59,6 +59,7 @@ import com.openclaw.ghostcrab.ui.components.GlassSurface
 import com.openclaw.ghostcrab.ui.theme.BrandTokens
 import com.openclaw.ghostcrab.ui.theme.MonoFontFamily
 import com.openclaw.ghostcrab.ui.theme.Spacing
+import com.openclaw.ghostcrab.ui.toUserMessage
 import kotlinx.coroutines.launch
 import org.koin.androidx.compose.koinViewModel
 
@@ -160,7 +161,7 @@ fun ConnectionPickerScreen(
                                     .onFailure { e ->
                                         scope.launch {
                                             snackbarHostState.showSnackbar(
-                                                e.message ?: "Connection failed"
+                                                e.toUserMessage()
                                             )
                                         }
                                     }

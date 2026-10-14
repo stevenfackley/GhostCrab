@@ -7,6 +7,7 @@ import com.openclaw.ghostcrab.domain.exception.GatewayException
 import com.openclaw.ghostcrab.domain.model.GatewayConnection
 import com.openclaw.ghostcrab.domain.repository.GatewayConnectionManager
 import com.openclaw.ghostcrab.domain.repository.ModelRepository
+import com.openclaw.ghostcrab.ui.toUserMessage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -60,10 +61,10 @@ public class ModelManagerViewModel(
                 _state.value = if (e.statusCode == 404) {
                     ModelManagerUiState.NotSupported
                 } else {
-                    ModelManagerUiState.Error(e.message ?: "Unknown error")
+                    ModelManagerUiState.Error(e.toUserMessage())
                 }
             } catch (e: GatewayException) {
-                _state.value = ModelManagerUiState.Error(e.message ?: "Unknown error")
+                _state.value = ModelManagerUiState.Error(e.toUserMessage())
             }
         }
     }
@@ -119,7 +120,7 @@ public class ModelManagerViewModel(
                 }
                 _state.value = ModelManagerUiState.Ready(
                     models = recovered,
-                    swapError = "Failed to swap model: ${e.message}",
+                    swapError = "Failed to swap model: ${e.toUserMessage()}",
                 )
             }
         }

@@ -18,6 +18,7 @@ import com.openclaw.ghostcrab.domain.repository.InstalledSkillRepository
 import com.openclaw.ghostcrab.domain.repository.ModelRepository
 import com.openclaw.ghostcrab.domain.repository.ScopeProbe
 import com.openclaw.ghostcrab.domain.repository.ScopeProbeResult
+import com.openclaw.ghostcrab.ui.toUserMessage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -118,10 +119,10 @@ class AIRecommendationViewModel(
                 )
             } catch (e: AIQuotaExceededException) {
                 _state.value = AIRecommendationUiState.Error(
-                    "AI rate limit exceeded at ${e.url}. Please wait before retrying.",
+                    "AI rate limit reached — wait before retrying. ${e.toUserMessage()}",
                 )
             } catch (e: GatewayException) {
-                _state.value = AIRecommendationUiState.Error(e.message ?: "Unknown gateway error")
+                _state.value = AIRecommendationUiState.Error(e.toUserMessage())
             }
         }
     }
@@ -313,7 +314,7 @@ private suspend fun applyChanges(configRepository: ConfigRepository, changes: Li
     val patches = try {
         sectionPatches(changes)
     } catch (e: IllegalArgumentException) {
-        return ApplyOutcome(allWritten = false, message = "Cannot apply suggestions: ${e.message}")
+        return ApplyOutcome(allWritten = false, message = "Cannot apply suggestions: ${e.toUserMessage()}")
     }
     var written = 0
     var reloadError: GatewayException? = null
@@ -325,13 +326,15 @@ private suspend fun applyChanges(configRepository: ConfigRepository, changes: Li
         }
         ApplyOutcome(
             allWritten = true,
-            message = reloadError?.let { "All $written sections applied; reloading config failed: ${it.reason()}" },
+            message = reloadError?.let {
+                "All $written sections applied; reloading config failed: ${it.toUserMessage()}"
+            },
         )
     } catch (e: GatewayException) {
         val message = if (written > 0) {
-            "Applied $written of ${patches.size} sections; stopped at section ${written + 1}: ${e.reason()}"
+            "Applied $written of ${patches.size} sections; stopped at section ${written + 1}: ${e.toUserMessage()}"
         } else {
-            e.message ?: "Failed to apply changes"
+            e.toUserMessage()
         }
         ApplyOutcome(allWritten = false, message = message)
     }
@@ -344,8 +347,6 @@ private suspend fun ConfigRepository.reloadFailure(): GatewayException? = try {
 } catch (e: GatewayException) {
     e
 }
-
-private fun GatewayException.reason(): String = message ?: this::class.simpleName.orEmpty()
 
 /**
  * Assembles context for an AI query. Config/model failures are non-fatal — the request proceeds

@@ -6,6 +6,7 @@ import com.openclaw.ghostcrab.domain.model.ConnectionProfile
 import com.openclaw.ghostcrab.domain.repository.ConnectionProfileRepository
 import com.openclaw.ghostcrab.domain.repository.OnboardingRepository
 import com.openclaw.ghostcrab.domain.repository.SettingsRepository
+import com.openclaw.ghostcrab.ui.toUserMessage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -92,7 +93,7 @@ class SettingsViewModel(
         withReady { it.copy(pendingDeleteProfileId = null) }
         viewModelScope.launch {
             runCatching { profileRepository.deleteProfile(profileId) }
-                .onFailure { e -> withReady { s -> s.copy(errorMessage = e.message) } }
+                .onFailure { e -> withReady { s -> s.copy(errorMessage = e.toUserMessage()) } }
         }
     }
 
@@ -128,7 +129,7 @@ class SettingsViewModel(
                     hasToken = tokenToSave != null,
                 )
                 profileRepository.saveProfile(updated, tokenToSave)
-            }.onFailure { e -> withReady { s -> s.copy(errorMessage = e.message) } }
+            }.onFailure { e -> withReady { s -> s.copy(errorMessage = e.toUserMessage()) } }
         }
     }
 
@@ -164,7 +165,7 @@ class SettingsViewModel(
         viewModelScope.launch {
             profiles.forEach { profile ->
                 runCatching { profileRepository.deleteProfile(profile.id) }
-                    .onFailure { e -> withReady { s -> s.copy(errorMessage = e.message) } }
+                    .onFailure { e -> withReady { s -> s.copy(errorMessage = e.toUserMessage()) } }
             }
         }
     }
@@ -180,7 +181,7 @@ class SettingsViewModel(
         viewModelScope.launch {
             runCatching { onboardingRepository.reset() }
                 .onSuccess { withReady { it.copy(onboardingResetSuccess = true) } }
-                .onFailure { e -> withReady { s -> s.copy(errorMessage = e.message) } }
+                .onFailure { e -> withReady { s -> s.copy(errorMessage = e.toUserMessage()) } }
         }
     }
 

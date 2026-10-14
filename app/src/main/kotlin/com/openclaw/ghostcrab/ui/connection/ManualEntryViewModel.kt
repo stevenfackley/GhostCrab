@@ -6,6 +6,7 @@ import com.openclaw.ghostcrab.domain.model.ConnectionProfile
 import com.openclaw.ghostcrab.domain.repository.ConnectionProfileRepository
 import com.openclaw.ghostcrab.domain.repository.GatewayConnectionManager
 import com.openclaw.ghostcrab.domain.repository.OnboardingRepository
+import com.openclaw.ghostcrab.ui.toUserMessage
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -136,7 +137,7 @@ class ManualEntryViewModel(
                 _uiState.value = ManualEntryUiState.Idle
                 _events.emit(ManualEntryEvent.NavigateToDashboard)
             }.onFailure { e ->
-                _uiState.value = ManualEntryUiState.Error(e.message ?: "Unknown error")
+                _uiState.value = ManualEntryUiState.Error(e.toUserMessage())
             }
         }
     }

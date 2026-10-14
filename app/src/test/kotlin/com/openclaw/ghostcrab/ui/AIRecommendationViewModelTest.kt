@@ -575,7 +575,10 @@ class AIRecommendationViewModelTest {
 
         val ready = vm.state.value as AIRecommendationUiState.Ready
         assertFalse(ready.applySuccess)
-        assertEquals(error.message, ready.applyError)
+        assertEquals(
+            "Gateway API error at $gatewayUrl/config/models: HTTP 503 (GatewayApiException)",
+            ready.applyError,
+        )
     }
 
     @Test
@@ -598,7 +601,11 @@ class AIRecommendationViewModelTest {
         val ready = vm.state.value as AIRecommendationUiState.Ready
         assertEquals(listOf("gateway", "models"), configRepo.updatedSections)
         assertTrue(ready.applySuccess)
-        assertEquals("All 2 sections applied; reloading config failed: ${error.message}", ready.applyError)
+        assertEquals(
+            "All 2 sections applied; reloading config failed: " +
+                "Gateway API error at $gatewayUrl/config: HTTP 503 (GatewayApiException)",
+            ready.applyError,
+        )
     }
 
     @Test

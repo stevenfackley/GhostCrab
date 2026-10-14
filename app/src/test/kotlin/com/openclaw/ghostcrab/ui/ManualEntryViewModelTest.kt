@@ -195,7 +195,7 @@ class ManualEntryViewModelTest {
         vm.connect()
 
         assertInstanceOf(ManualEntryUiState.Error::class.java, vm.uiState.value)
-        assertEquals("refused", (vm.uiState.value as ManualEntryUiState.Error).message)
+        assertEquals("refused (RuntimeException)", (vm.uiState.value as ManualEntryUiState.Error).message)
     }
 
     @Test

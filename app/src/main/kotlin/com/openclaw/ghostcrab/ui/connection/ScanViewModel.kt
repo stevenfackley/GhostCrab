@@ -7,6 +7,7 @@ import com.openclaw.ghostcrab.domain.model.DiscoveredGateway
 import com.openclaw.ghostcrab.domain.repository.ConnectionProfileRepository
 import com.openclaw.ghostcrab.domain.repository.DiscoveryService
 import com.openclaw.ghostcrab.domain.repository.GatewayConnectionManager
+import com.openclaw.ghostcrab.ui.toUserMessage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -126,7 +127,7 @@ class ScanViewModel(
                 throw e // propagate so the Job hierarchy can cancel cleanly
             } catch (e: Exception) {
                 timeoutJob.cancel()
-                _state.value = ScanState.Error(e.message ?: "Discovery failed")
+                _state.value = ScanState.Error(e.toUserMessage())
             }
         }
     }
@@ -170,7 +171,7 @@ class ScanViewModel(
                 } catch (e: GatewayException) {
                     // connect() and getToken() both report failures as GatewayException
                     // (ProfileNeedsReauthException after a Keystore reset).
-                    _state.value = ScanState.Error(e.message ?: "Connection failed")
+                    _state.value = ScanState.Error(e.toUserMessage())
                 }
             } else {
                 _events.emit(ScanEvent.NavigateToManualEntry(gateway.url))

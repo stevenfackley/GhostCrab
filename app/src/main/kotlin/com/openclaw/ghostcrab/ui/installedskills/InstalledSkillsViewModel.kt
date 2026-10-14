@@ -3,6 +3,7 @@ package com.openclaw.ghostcrab.ui.installedskills
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.openclaw.ghostcrab.domain.repository.InstalledSkillRepository
+import com.openclaw.ghostcrab.ui.toUserMessage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -59,10 +60,10 @@ class InstalledSkillsViewModel(
                     // Failed to load with no cached list — surface empty + error
                     _state.value = InstalledSkillsUiState.Ready(
                         skills = emptyList(),
-                        errorMessage = e.message ?: "unknown",
+                        errorMessage = e.toUserMessage(),
                     )
                 } else {
-                    withReady { s -> s.copy(isRefreshing = false, errorMessage = e.message) }
+                    withReady { s -> s.copy(isRefreshing = false, errorMessage = e.toUserMessage()) }
                 }
             }
         }
@@ -92,7 +93,7 @@ class InstalledSkillsViewModel(
                     withReady { s -> s.copy(uninstallingSlug = null, uninstallSuccessSlug = slug) }
                 }
                 .onFailure { e ->
-                    withReady { s -> s.copy(uninstallingSlug = null, errorMessage = e.message) }
+                    withReady { s -> s.copy(uninstallingSlug = null, errorMessage = e.toUserMessage()) }
                 }
         }
     }

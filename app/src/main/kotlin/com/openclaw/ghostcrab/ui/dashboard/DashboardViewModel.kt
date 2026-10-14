@@ -6,6 +6,7 @@ import com.openclaw.ghostcrab.domain.model.GatewayConnection
 import com.openclaw.ghostcrab.domain.repository.GatewayConnectionManager
 import com.openclaw.ghostcrab.domain.repository.GatewayHealthChecker
 import com.openclaw.ghostcrab.domain.repository.ModelRepository
+import com.openclaw.ghostcrab.ui.toUserMessage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -100,14 +101,14 @@ class DashboardViewModel(
                         if (it is DashboardUiState.Ready) it.copy(
                             health = HealthSnapshot(
                                 lastOkMs = it.health.lastOkMs,
-                                lastError = e.message,
+                                lastError = e.toUserMessage(),
                                 isStale = it.health.lastOkMs != null &&
                                     (nowMs - it.health.lastOkMs > HealthSnapshot.STALE_THRESHOLD_MS),
                             ),
                         ) else it
                     }
                     if (consecutiveFailures >= DEGRADED_FAILURE_THRESHOLD) {
-                        _state.value = DashboardUiState.Degraded(e.message ?: "Health check failed")
+                        _state.value = DashboardUiState.Degraded(e.toUserMessage())
                         break  // degraded break exits without waiting for the next delay
                     }
                 }

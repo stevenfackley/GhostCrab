@@ -8,6 +8,7 @@ import com.openclaw.ghostcrab.domain.exception.GatewayException
 import com.openclaw.ghostcrab.domain.model.GatewayConnection
 import com.openclaw.ghostcrab.domain.repository.ConfigRepository
 import com.openclaw.ghostcrab.domain.repository.GatewayConnectionManager
+import com.openclaw.ghostcrab.ui.toUserMessage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -65,7 +66,7 @@ class ConfigEditorViewModel(
                     ConfigEditorUiState.Ready(config = config)
                 }
             } catch (e: GatewayException) {
-                _state.value = ConfigEditorUiState.Error(e.message ?: "Unknown error")
+                _state.value = ConfigEditorUiState.Error(e.toUserMessage())
             }
         }
     }
@@ -153,11 +154,11 @@ class ConfigEditorViewModel(
                         )
                     } else {
                         ConfigEditorUiState.Error(
-                            "Concurrent edit detected and reload failed: ${e.message}",
+                            "Concurrent edit detected and reload failed: ${e.toUserMessage()}",
                         )
                     }
                 } else {
-                    _state.value = ConfigEditorUiState.Error("Save failed: ${e.message}")
+                    _state.value = ConfigEditorUiState.Error("Save failed: ${e.toUserMessage()}")
                 }
             } catch (e: ConfigValidationException) {
                 val current2 = _state.value as? ConfigEditorUiState.Ready
@@ -166,10 +167,10 @@ class ConfigEditorViewModel(
                         fieldErrors = current2.fieldErrors + (e.field to e.reason),
                     )
                 } else {
-                    _state.value = ConfigEditorUiState.Error("Validation error: ${e.message}")
+                    _state.value = ConfigEditorUiState.Error("Validation error: ${e.toUserMessage()}")
                 }
             } catch (e: GatewayException) {
-                _state.value = ConfigEditorUiState.Error("Save failed: ${e.message}")
+                _state.value = ConfigEditorUiState.Error("Save failed: ${e.toUserMessage()}")
             }
         }
     }
