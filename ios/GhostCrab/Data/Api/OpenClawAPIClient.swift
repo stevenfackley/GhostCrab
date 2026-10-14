@@ -161,13 +161,18 @@ public actor OpenClawAPIClient {
     /// - Throws: `GatewayError.auth` if auth is required and no/invalid token is present.
     /// - Throws: `GatewayError.unreachable` if the host cannot be reached.
     /// - Throws: `GatewayError.timeout` if the request times out.
+    /// - Throws: `GatewayError.api` (the response's HTTP status, body
+    ///   "Response deserialization failed (DecodingError.…)") when the body is
+    ///   labelled JSON but is not a JSON object.
     public func status() async throws -> StatusResponse {
         let url = endpoint("/status")
         return try await safe(url: url) {
             let (data, response) = try await self.send(.init(url: url))
             try self.mapErrors(url: url, response: response)
+            // Non-JSON (upstream HTML admin page): lenient defaults, documented above.
             guard self.contentTypeIsJSON(response) else { return StatusResponse() }
-            return (try? self.decoder.decode(StatusResponse.self, from: data)) ?? StatusResponse()
+            // Labelled JSON but undecodable: a broken gateway, not an empty one.
+            return try self.decodeJSON(StatusResponse.self, from: data, url: url, response: response)
         }
     }
 
@@ -241,13 +246,17 @@ public actor OpenClawAPIClient {
     /// - Throws: `GatewayError.api` on unexpected HTTP errors.
     /// - Throws: `GatewayError.unreachable` if the host cannot be reached.
     /// - Throws: `GatewayError.timeout` if the request times out.
+    /// - Throws: `GatewayError.api` (the response's HTTP status, body
+    ///   "Response deserialization failed (DecodingError.…)") when the body is
+    ///   labelled JSON but is not an array of models. An empty list therefore
+    ///   always means the gateway reported no models (or served non-JSON).
     public func getModels() async throws -> [ModelDTO] {
         let url = endpoint("/api/models/status")
         return try await safe(url: url) {
             let (data, response) = try await self.send(.init(url: url))
             try self.mapErrors(url: url, response: response)
             guard self.contentTypeIsJSON(response) else { return [] }
-            return (try? self.decoder.decode([ModelDTO].self, from: data)) ?? []
+            return try self.decodeJSON([ModelDTO].self, from: data, url: url, response: response)
         }
     }
 
@@ -298,7 +307,7 @@ public actor OpenClawAPIClient {
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             switch status {
             case 200:
-                return try self.decoder.decode(AIRecommendationResponseDTO.self, from: data)
+                return try self.decodeJSON(AIRecommendationResponseDTO.self, from: data, url: url, response: response)
             case 404:
                 throw GatewayError.aiServiceUnavailable(url: url.absoluteString)
             case 429:
@@ -385,7 +394,7 @@ public actor OpenClawAPIClient {
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             switch status {
             case 200, 201:
-                return try self.decoder.decode(InstalledSkillDTO.self, from: data)
+                return try self.decodeJSON(InstalledSkillDTO.self, from: data, url: url, response: response)
             case 401, 403:
                 throw GatewayError.auth(url: url.absoluteString, statusCode: status)
             default:
@@ -499,6 +508,60 @@ public actor OpenClawAPIClient {
         return ct.lowercased().contains("json")
     }
 
+    /// Decodes a body the gateway labelled JSON. A body that does not match
+    /// `type` means a broken gateway, so this throws instead of defaulting.
+    ///
+    /// - Parameters:
+    ///   - type: Expected wire type.
+    ///   - data: Response body.
+    ///   - url: Request URL, carried into the error.
+    ///   - response: The response; its HTTP status is carried into the error.
+    /// - Returns: The decoded value.
+    /// - Throws: `GatewayError.api` with the URL, the response's HTTP status and
+    ///   a body naming the decoding error ("Response deserialization failed
+    ///   (DecodingError.typeMismatch): …").
+    private func decodeJSON<T: Decodable>(
+        _ type: T.Type,
+        from data: Data,
+        url: URL,
+        response: URLResponse
+    ) throws -> T {
+        do {
+            return try decoder.decode(type, from: data)
+        } catch let error as DecodingError {
+            throw GatewayError.api(
+                url: url.absoluteString,
+                statusCode: (response as? HTTPURLResponse)?.statusCode ?? 0,
+                body: Self.deserializationFailure(error)
+            )
+        }
+    }
+
+    /// Formats a decoding failure as
+    /// "Response deserialization failed (DecodingError.<kind>): <detail>".
+    nonisolated private static func deserializationFailure(_ error: DecodingError) -> String {
+        let kind: String
+        let detail: String
+        switch error {
+        case .typeMismatch(_, let context):
+            kind = "typeMismatch"
+            detail = context.debugDescription
+        case .valueNotFound(_, let context):
+            kind = "valueNotFound"
+            detail = context.debugDescription
+        case .keyNotFound(let key, let context):
+            kind = "keyNotFound"
+            detail = "\(key.stringValue): \(context.debugDescription)"
+        case .dataCorrupted(let context):
+            kind = "dataCorrupted"
+            detail = context.debugDescription
+        @unknown default:
+            kind = "unknown"
+            detail = String(describing: error)
+        }
+        return "Response deserialization failed (DecodingError.\(kind)): \(detail)"
+    }
+
     /// Sends a request with the Authorization header injected when a token is present.
     /// Logs at debug level with the Authorization header stripped.
     private func send(_ request: URLRequest) async throws -> (Data, URLResponse) {
@@ -557,10 +620,12 @@ public actor OpenClawAPIClient {
                 throw GatewayError.unreachable(url: url.absoluteString, underlying: e)
             }
         } catch let e as DecodingError {
+            // Fallback only: decodes that know their response go through
+            // decodeJSON, which reports the real HTTP status.
             throw GatewayError.api(
                 url: url.absoluteString,
                 statusCode: 0,
-                body: "Response deserialization failed: \(e)"
+                body: Self.deserializationFailure(e)
             )
         } catch is CancellationError {
             throw CancellationError()
