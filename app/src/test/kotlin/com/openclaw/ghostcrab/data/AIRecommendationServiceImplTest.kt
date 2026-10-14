@@ -1,6 +1,7 @@
 package com.openclaw.ghostcrab.data
 
 import com.openclaw.ghostcrab.data.api.OpenClawApiClient
+import com.openclaw.ghostcrab.data.api.dto.AIRecommendationRequestDto
 import com.openclaw.ghostcrab.data.api.dto.AIRecommendationResponseDto
 import com.openclaw.ghostcrab.data.api.dto.SuggestedChangeDto
 import com.openclaw.ghostcrab.data.impl.AIRecommendationServiceImpl
@@ -15,8 +16,10 @@ import com.openclaw.ghostcrab.domain.model.RecommendationContext
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.slot
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -132,5 +135,24 @@ class AIRecommendationServiceImplTest {
     @Test fun `getRecommendation throws IllegalStateException when not connected`() = runTest {
         every { manager.requireClient() } throws IllegalStateException("No active gateway connection")
         assertThrows<IllegalStateException> { service.getRecommendation("q", context) }
+    }
+
+    @Test fun `getRecommendation never sends secrets in the config context`() = runTest {
+        val sent = slot<AIRecommendationRequestDto>()
+        coEvery { client.getAIRecommendation(capture(sent)) } returns
+            AIRecommendationResponseDto(recommendation = "ok", suggestedChanges = emptyList())
+        val secretContext = RecommendationContext(
+            activeConfig = OpenClawConfig(
+                mapOf("gateway" to Json.parseToJsonElement("""{"auth":{"mode":"bearer","token":"s3cr3t"}}""")),
+            ),
+            hardwareInfo = null,
+            activeModelId = null,
+        )
+
+        service.getRecommendation("q", secretContext)
+
+        val sentConfig = sent.captured.context.activeConfig.toString()
+        assertFalse(sentConfig.contains("s3cr3t"))
+        assertTrue(sentConfig.contains("bearer"))
     }
 }

@@ -1,0 +1,39 @@
+package com.openclaw.ghostcrab.domain.util
+
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+
+/** Placeholder written in place of any secret value. */
+const val REDACTED_PLACEHOLDER = "[REDACTED]"
+
+private val SECRET_KEY = Regex("(?i)(token|secret|password|passwd|api[_-]?key|private[_-]?key|credential)")
+
+/**
+ * `true` when [key] names a value that must never leave the device or be shown in clear.
+ *
+ * Case-insensitive substring match on `token`, `secret`, `password`, `passwd`,
+ * `api_key` / `api-key` / `apikey`, `private_key` and `credential`.
+ *
+ * @param key A single JSON object key (not a dotted path).
+ * @return Whether the value stored under [key] is a secret.
+ */
+fun isSecretKey(key: String): Boolean = SECRET_KEY.containsMatchIn(key)
+
+/**
+ * Deep copy of this element in which every value whose key satisfies [isSecretKey] is replaced by
+ * [REDACTED_PLACEHOLDER]. Objects and arrays are traversed; primitives are returned unchanged.
+ * A secret key holding an object or array is replaced wholesale.
+ *
+ * @return The redacted element; the receiver is not modified.
+ */
+fun JsonElement.redactSecrets(): JsonElement = when (this) {
+    is JsonObject -> JsonObject(
+        mapValues { (key, value) ->
+            if (isSecretKey(key)) JsonPrimitive(REDACTED_PLACEHOLDER) else value.redactSecrets()
+        },
+    )
+    is JsonArray -> JsonArray(map { it.redactSecrets() })
+    else -> this
+}

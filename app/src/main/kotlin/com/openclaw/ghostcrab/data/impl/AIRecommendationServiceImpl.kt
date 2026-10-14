@@ -10,7 +10,9 @@ import com.openclaw.ghostcrab.domain.model.GatewayConnection
 import com.openclaw.ghostcrab.domain.model.RecommendationContext
 import com.openclaw.ghostcrab.domain.model.SuggestedChange
 import com.openclaw.ghostcrab.domain.repository.AIRecommendationService
+import com.openclaw.ghostcrab.domain.util.redactSecrets
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonObject
 
 /**
  * Ktor-backed [AIRecommendationService] that proxies queries to the gateway's AI skill.
@@ -57,7 +59,8 @@ class AIRecommendationServiceImpl(
         val request = AIRecommendationRequestDto(
             query = query,
             context = AIContextDto(
-                activeConfig = JsonObject(context.activeConfig.sections),
+                // ADR-0004: the AI skill may forward context to an external LLM — never ship secrets.
+                activeConfig = JsonObject(context.activeConfig.sections).redactSecrets().jsonObject,
                 hardwareInfo = context.hardwareInfo,
                 activeModelId = context.activeModelId,
             ),
