@@ -111,4 +111,63 @@ struct ManualEntryViewModelTests {
 
         #expect(profiles.savedProfiles.map(\.displayName) == ["Fake Gateway"])
     }
+
+    // MARK: - IPv6 hosts
+
+    @Test func bracketedIPv6LiteralConnects() async {
+        let gateway = FakeGatewayConnectionManager()
+        let vm = makeVM(handoff: PairingHandoff(), gateway: gateway)
+        vm.setHost("[::1]")
+
+        vm.connect()
+        #expect(vm.hostError == nil)
+        await vm.connectTask?.value
+
+        #expect(gateway.connectURLs == ["http://[::1]:18789"])
+    }
+
+    @Test func ipv6ZoneIdIsDroppedFromTheURL() async {
+        let gateway = FakeGatewayConnectionManager()
+        let vm = makeVM(handoff: PairingHandoff(), gateway: gateway)
+        vm.setHost("fe80::1%en0")
+        #expect(vm.assembledURL == "http://[fe80::1]:18789")
+
+        vm.connect()
+        #expect(vm.hostError == nil)
+        await vm.connectTask?.value
+
+        #expect(gateway.connectURLs == ["http://[fe80::1]:18789"])
+    }
+
+    @Test func ipv6PairingPrefillConnects() async throws {
+        let gateway = FakeGatewayConnectionManager()
+        let vm = makeVM(handoff: PairingHandoff(), gateway: gateway)
+        vm.setPrefillURL(try #require(URL(string: "http://[fe80::1]:18789")))
+
+        vm.connect()
+        #expect(vm.hostError == nil)
+        await vm.connectTask?.value
+
+        #expect(gateway.connectURLs == ["http://[fe80::1]:18789"])
+    }
+
+    @Test(arguments: ["gw:8080", "192.168.1.20:18789"])
+    func hostWithAPortIsRejected(host: String) {
+        let gateway = FakeGatewayConnectionManager()
+        let vm = makeVM(handoff: PairingHandoff(), gateway: gateway)
+        vm.setHost(host)
+
+        vm.connect()
+
+        #expect(vm.hostError == "Port goes in the Port field, not the Host field")
+        #expect(vm.connectTask == nil)
+        #expect(gateway.connectURLs.isEmpty)
+    }
+
+    @Test func zoneIdOnANonIPv6HostIsRejected() {
+        let vm = makeVM(handoff: PairingHandoff())
+        vm.setHost("gateway%en0")
+        vm.connect()
+        #expect(vm.hostError == "Host must not contain '%' (IPv6 zone ids only)")
+    }
 }

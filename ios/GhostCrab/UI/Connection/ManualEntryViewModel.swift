@@ -71,8 +71,12 @@ public final class ManualEntryViewModel {
     public var scheme: String { useHttps ? "https" : "http" }
 
     /// `scheme://host:port` — exact URL that will be hit, shown beneath the inputs.
+    /// An IPv6 literal is bracketed and loses its zone id (`fe80::1%en0` →
+    /// `http://[fe80::1]:18789`), like Android's `GatewayUrl`.
     public var assembledURL: String {
-        "\(scheme)://\(host.trimmingCharacters(in: .whitespaces)):\(port.trimmingCharacters(in: .whitespaces))"
+        let urlHost = Self.urlHost(host)
+        let hostPart = urlHost.contains(":") ? "[\(urlHost)]" : urlHost
+        return "\(scheme)://\(hostPart):\(port.trimmingCharacters(in: .whitespaces))"
     }
 
     /// `true` when HTTPS is off and iOS ATS will refuse plain HTTP to ``host``
@@ -195,9 +199,52 @@ public final class ManualEntryViewModel {
         if trimmed.isEmpty { return "Host is required" }
         if trimmed.contains("://") { return "Remove scheme — use the HTTPS toggle instead" }
         if trimmed.contains("/") { return "Host must not contain '/'" }
+        // IPv6 literal, bare or bracketed (LAN discovery, a QR code, or typed).
+        let bare = Self.unbracketed(trimmed)
+        if Self.isIPv6Literal(bare) { return nil }
+        // Zone ids (fe80::1%en0) are IPv6-only; assembledURL drops them.
+        if trimmed.contains("%") {
+            return Self.isIPv6WithZone(bare) ? nil : "Host must not contain '%' (IPv6 zone ids only)"
+        }
         if trimmed.contains(":") { return "Port goes in the Port field, not the Host field" }
+        if trimmed.contains("[") || trimmed.contains("]") { return "Brackets are only allowed around an IPv6 address" }
         if trimmed.contains(where: { $0.isWhitespace }) { return "Host must not contain whitespace" }
+        // '@' would smuggle userinfo into the assembled URL; '?' and '#' would truncate the host.
+        if trimmed.contains(where: { "@?#\\".contains($0) }) { return "Host must not contain '@', '?', '#' or '\\'" }
         return nil
+    }
+
+    // MARK: - IPv6 host helpers (mirror Android's validateHost / GatewayUrl)
+
+    /// `host` as it goes into the URL: trimmed, surrounding brackets removed,
+    /// and an IPv6 zone id (`%en0`, not valid in a URL authority) dropped.
+    private static func urlHost(_ host: String) -> String {
+        let bare = unbracketed(host.trimmingCharacters(in: .whitespaces))
+        if let percent = bare.firstIndex(of: "%"), isIPv6Literal(String(bare[..<percent])) {
+            return String(bare[..<percent])
+        }
+        return bare
+    }
+
+    /// `[…]` → `…`; anything else unchanged.
+    private static func unbracketed(_ host: String) -> String {
+        guard host.count >= 2, host.hasPrefix("["), host.hasSuffix("]") else { return host }
+        return String(host.dropFirst().dropLast())
+    }
+
+    /// Hex digits, dots and at least two colons, no brackets.
+    private static func isIPv6Literal(_ host: String) -> Bool {
+        host.filter { $0 == ":" }.count >= 2
+            && host.allSatisfy { $0 == ":" || $0 == "." || ($0.isASCII && $0.isHexDigit) }
+    }
+
+    /// An IPv6 literal followed by `%` and a non-empty zone of letters, digits, `-`, `_` or `.`.
+    private static func isIPv6WithZone(_ host: String) -> Bool {
+        guard let percent = host.firstIndex(of: "%") else { return false }
+        let zone = host[host.index(after: percent)...]
+        return isIPv6Literal(String(host[..<percent]))
+            && !zone.isEmpty
+            && zone.allSatisfy { ($0.isASCII && ($0.isLetter || $0.isNumber)) || "-_.".contains($0) }
     }
 
     private func validatePort(_ port: String) -> String? {
