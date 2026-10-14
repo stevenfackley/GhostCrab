@@ -78,4 +78,37 @@ struct ManualEntryViewModelTests {
         vm.setHost("192.168.1.20")
         #expect(!vm.cleartextBlockedByATS)
     }
+
+    @Test func pairedNameBecomesTheSavedProfileName() async throws {
+        let handoff = PairingHandoff()
+        let profiles = FakeConnectionProfileRepository()
+        let url = try #require(URL(string: "http://192.168.1.20:18789"))
+        handoff.stash(token: "tok_123", displayName: "  Basement GW \n", for: url)
+        let vm = makeVM(handoff: handoff, profiles: profiles)
+
+        vm.setPrefillURL(url)
+        #expect(vm.pairedName == "Basement GW")
+
+        vm.connect()
+        await vm.connectTask?.value
+
+        #expect(profiles.savedProfiles.map(\.displayName) == ["Basement GW"])
+        #expect(profiles.savedTokens == ["tok_123"])
+    }
+
+    @Test func blankPairedNameFallsBackToTheGatewayName() async throws {
+        let handoff = PairingHandoff()
+        let profiles = FakeConnectionProfileRepository()
+        let url = try #require(URL(string: "http://192.168.1.20:18789"))
+        handoff.stash(token: nil, displayName: "   ", for: url)
+        let vm = makeVM(handoff: handoff, profiles: profiles)
+
+        vm.setPrefillURL(url)
+        #expect(vm.pairedName == nil)
+
+        vm.connect()
+        await vm.connectTask?.value
+
+        #expect(profiles.savedProfiles.map(\.displayName) == ["Fake Gateway"])
+    }
 }

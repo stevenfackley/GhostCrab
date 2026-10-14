@@ -39,6 +39,14 @@ public final class ManualEntryViewModel {
     /// Flipped to `true` after a successful connect + profile save; host pushes `.dashboard`.
     public private(set) var navigateToDashboard: Bool = false
 
+    /// Profile name suggested by a pairing link (trimmed, non-blank), or `nil`.
+    /// Saved as the profile's display name instead of the gateway's own name.
+    /// Mirrors Android's `pairedName`.
+    public private(set) var pairedName: String?
+
+    /// In-flight connect, if any. Read-only outside the VM so tests can await it.
+    @ObservationIgnored private(set) var connectTask: Task<Void, Never>?
+
     // MARK: - Init
 
     /// - Parameters:
@@ -93,10 +101,11 @@ public final class ManualEntryViewModel {
 
     /// Parses a URL and populates scheme/host/port (e.g. from a QR scan or LAN result).
     ///
-    /// If a pairing token was stashed for this URL's origin (QR or deep link),
-    /// it is moved into ``token``. The hand-off is one-shot, so later calls
-    /// (the screen calls this on every appear) leave ``token`` alone. Never
-    /// connects: the user still reviews the form and taps Connect.
+    /// If a pairing link was stashed for this URL's origin (QR or deep link),
+    /// its token is moved into ``token`` and its suggested name into
+    /// ``pairedName``. The hand-off is one-shot, so later calls (the screen
+    /// calls this on every appear) leave both alone. Never connects: the user
+    /// still reviews the form and taps Connect.
     ///
     /// - Parameter url: Gateway base URL.
     public func setPrefillURL(_ url: URL) {
@@ -108,8 +117,12 @@ public final class ManualEntryViewModel {
         self.port = parsedPort
         self.hostError = nil
         self.portError = nil
-        if let pairedToken = pairingHandoff.take(for: url) {
-            self.token = pairedToken
+        if let paired = pairingHandoff.takePairing(for: url) {
+            if let pairedToken = paired.token {
+                self.token = pairedToken
+            }
+            let name = paired.displayName?.trimmingCharacters(in: .whitespacesAndNewlines)
+            self.pairedName = (name?.isEmpty ?? true) ? nil : name
         }
     }
 
@@ -133,17 +146,21 @@ public final class ManualEntryViewModel {
         self.isConnecting = true
         self.lastError = nil
 
-        Task {
+        connectTask = Task {
+            defer { self.connectTask = nil }
             do {
                 try await self.connectionManager.connect(url: url, token: tokenValue)
 
-                // Read display name from current state if connected.
-                let displayName: String = {
-                    if case let .connected(_, name, _, _, _, _, _, _) = self.connectionManager.currentState {
-                        return name
-                    }
-                    return url
-                }()
+                // A pairing link's suggested name wins; otherwise the name the
+                // gateway reports once connected; otherwise the URL.
+                let displayName: String
+                if let pairedName = self.pairedName {
+                    displayName = pairedName
+                } else if case let .connected(_, name, _, _, _, _, _, _) = self.connectionManager.currentState {
+                    displayName = name
+                } else {
+                    displayName = url
+                }
 
                 // Look up any existing profile with this URL to preserve its id.
                 let existingId: UUID? = await self.firstProfileId(matching: url)

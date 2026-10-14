@@ -75,6 +75,29 @@ struct PairingHandoffTests {
         #expect(handoff.take(for: url) == nil)
     }
 
+    @Test func pairingRequestHandsOverTokenAndName() throws {
+        let handoff = PairingHandoff()
+        let url = try #require(URL(string: "http://192.168.1.20:18789"))
+        handoff.stash(PairingRequest(gatewayURL: url, token: "tok_123", displayName: "Basement"))
+        #expect(handoff.takePairing(for: url) == PairedGateway(token: "tok_123", displayName: "Basement"))
+        #expect(handoff.takePairing(for: url) == nil)
+    }
+
+    @Test func nameWithoutTokenIsStillHandedOver() throws {
+        let handoff = PairingHandoff()
+        let url = try #require(URL(string: "http://192.168.1.20:18789"))
+        handoff.stash(PairingRequest(gatewayURL: url, token: nil, displayName: "Basement"))
+        #expect(handoff.takePairing(for: url) == PairedGateway(token: nil, displayName: "Basement"))
+    }
+
+    @Test func requestWithNothingToHandOverClearsTheStash() throws {
+        let handoff = PairingHandoff()
+        let url = try #require(URL(string: "http://192.168.1.20:18789"))
+        handoff.stash(token: "tok_old", for: url)
+        handoff.stash(PairingRequest(gatewayURL: url, token: nil, displayName: nil))
+        #expect(handoff.takePairing(for: url) == nil)
+    }
+
     @Test func defaultTTLIsTwoMinutes() {
         #expect(PairingHandoff.defaultTTL == .seconds(120))
     }

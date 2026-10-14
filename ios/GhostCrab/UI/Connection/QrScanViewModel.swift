@@ -8,8 +8,8 @@ import Observation
 /// 1. **Raw URL**: `http://…` / `https://…`, validated by ``PairingLink/gatewayURL(from:)``
 ///    (host required, no userinfo, port in 1–65535) and used as the manual-entry prefill.
 /// 2. **Pairing link**: `ghostcrab://pair?p=<base64url JSON>`, decoded by ``PairingLink``.
-///    The gateway URL becomes the prefill. The bearer token (if any) is stashed
-///    in ``PairingHandoff`` and is never passed to navigation, because `Route`
+///    The gateway URL becomes the prefill. The bearer token and suggested name (if any) are stashed
+///    in ``PairingHandoff`` and are never passed to navigation, because `Route`
 ///    is `Hashable` and lives in `NavigationPath` / state restoration.
 ///
 /// Input over ``PairingLink/maxLength`` is rejected before any parsing. A scan
@@ -54,7 +54,7 @@ public final class QrScanViewModel {
 
     /// Validates a payload decoded by the scanner.
     ///
-    /// On success: stashes any pairing token, sets ``lastDecoded`` and invokes ``onNavigate``.
+    /// On success: stashes any pairing token and name, sets ``lastDecoded`` and invokes ``onNavigate``.
     /// On failure: sets ``error`` so the screen can surface it.
     ///
     /// - Parameter payload: Raw QR-decoded string.
@@ -72,9 +72,7 @@ public final class QrScanViewModel {
         if PairingLink.isPairingLink(trimmed) {
             do {
                 let request = try PairingLink.decode(trimmed)
-                if let token = request.token {
-                    pairingHandoff.stash(token: token, for: request.gatewayURL)
-                }
+                pairingHandoff.stash(request)
                 accept(request.gatewayURL)
             } catch {
                 self.error = "Pairing QR code is malformed: \(error.localizedDescription)"
