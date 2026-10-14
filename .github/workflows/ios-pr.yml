@@ -51,21 +51,32 @@ jobs:
 
       - name: Pick an iPhone simulator
         id: sim
+        working-directory: ios
         run: |
-          # Last iPhone listed under the newest iOS runtime. Resolved at runtime so
-          # an Xcode upgrade on the runner (iPhone 16 -> iPhone 17) needs no edit here.
-          LINE=$(xcrun simctl list devices available | awk '
-            /^-- iOS / { ios = 1; next }
-            /^-- /     { ios = 0; next }
-            ios && /^[[:space:]]+iPhone/ { pick = $0 }
-            END { print pick }')
-          UDID=$(printf '%s' "$LINE" | sed -nE 's/.*\(([0-9A-Fa-f-]{36})\).*/\1/p')
+          # First iPhone simulator xcodebuild itself lists as an eligible
+          # destination for the scheme, so the pick is one the test step accepts.
+          # Resolved at runtime: an Xcode upgrade on the runner needs no edit here.
+          LINE=$(xcodebuild -showdestinations -project GhostCrab.xcodeproj -scheme GhostCrab 2>/dev/null \
+            | sed -n '/Available destinations/,/Ineligible destinations/p' \
+            | grep 'platform:iOS Simulator' | grep 'name:iPhone' \
+            | grep -E 'id:[0-9A-Fa-f-]{36}' | head -n 1 || true)
+          UDID=$(printf '%s' "$LINE" | sed -nE 's/.*id:([0-9A-Fa-f-]{36}).*/\1/p')
+          if [ -z "$UDID" ]; then
+            # Fallback: last iPhone listed under the newest iOS runtime in simctl.
+            echo "::warning::No iPhone simulator parsed from xcodebuild -showdestinations; falling back to simctl"
+            LINE=$(xcrun simctl list devices available | awk '
+              /^-- iOS / { ios = 1; next }
+              /^-- /     { ios = 0; next }
+              ios && /^[[:space:]]+iPhone/ { pick = $0 }
+              END { print pick }')
+            UDID=$(printf '%s' "$LINE" | sed -nE 's/.*\(([0-9A-Fa-f-]{36})\).*/\1/p')
+          fi
           if [ -z "$UDID" ]; then
             echo "::error::No available iPhone simulator on this runner"
             xcrun simctl list devices available
             exit 1
           fi
-          echo "Using simulator:$LINE"
+          echo "Using simulator: $LINE"
           echo "udid=$UDID" >> "$GITHUB_OUTPUT"
 
       - name: Test
@@ -107,3 +118,45 @@ jobs:
           path: ${{ runner.temp }}/GhostCrab.xcresult
           if-no-files-found: ignore
           retention-days: 7
+
+  catalyst:
+    name: ios-pr-catalyst
+    # Same fork guard and runner as ios-pr. With one runner the two jobs queue
+    # one after the other; neither waits on the other's result.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, macOS, ARM64]
+    timeout-minutes: 30
+    env:
+      DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install xcodegen if missing
+        run: |
+          if ! command -v xcodegen >/dev/null 2>&1; then
+            brew install xcodegen
+          fi
+          xcodegen --version
+
+      - name: Generate Xcode project
+        working-directory: ios
+        run: xcodegen generate
+
+      - name: Build (Mac Catalyst)
+        working-directory: ios
+        run: |
+          # Compile check only: no tests, no signing. ios-release.yml archives the
+          # Catalyst slice for TestFlight; this catches iOS-only APIs before then.
+          xcodebuild build \
+            -project GhostCrab.xcodeproj \
+            -scheme GhostCrab \
+            -destination "platform=macOS,variant=Mac Catalyst" \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData-catalyst" \
+            -skipPackagePluginValidation \
+            -skipMacroValidation \
+            -quiet \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGN_IDENTITY=""
