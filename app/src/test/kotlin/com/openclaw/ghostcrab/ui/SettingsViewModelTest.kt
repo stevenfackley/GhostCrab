@@ -2,6 +2,7 @@ package com.openclaw.ghostcrab.ui
 
 import com.openclaw.ghostcrab.domain.exception.GatewayException
 import com.openclaw.ghostcrab.domain.exception.ProfileNeedsReauthException
+import com.openclaw.ghostcrab.domain.exception.TokenWipeFailedException
 import com.openclaw.ghostcrab.domain.model.ConnectionProfile
 import com.openclaw.ghostcrab.domain.model.OnboardingStep
 import com.openclaw.ghostcrab.domain.repository.ConnectionProfileRepository
@@ -124,6 +125,19 @@ class SettingsViewModelTest {
         vm.confirmClearAllProfiles()
 
         assertEquals(1, profileRepo.clearAllCalls)
+    }
+
+    @Test
+    fun `a failed token wipe during clear-all is surfaced as an error`() = runTest {
+        val profileRepo = FakeSettingsProfileRepository(listOf(profile("a")))
+        profileRepo.clearAllError = TokenWipeFailedException(IllegalStateException("keystore gone"))
+        val vm = makeVm(profileRepo = profileRepo)
+
+        vm.requestClearAllProfiles()
+        vm.confirmClearAllProfiles()
+
+        val message = (vm.state.value as SettingsUiState.Ready).errorMessage
+        assertTrue(message!!.contains("TokenWipeFailedException"))
     }
 
     @Test
@@ -290,8 +304,11 @@ private class FakeSettingsProfileRepository(
         flow.value = flow.value.filter { it.id != profileId }
     }
 
+    var clearAllError: GatewayException? = null
+
     override suspend fun clearAll() {
         clearAllCalls++
+        clearAllError?.let { throw it }
         flow.value = emptyList()
     }
 }

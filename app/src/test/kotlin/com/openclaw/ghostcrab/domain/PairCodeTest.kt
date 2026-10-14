@@ -75,4 +75,27 @@ class PairCodeTest {
         val result = decodePairCode("ghostcrab://pair")
         assertFalse((result as PairCodeResult.Invalid).reason.contains("QR"))
     }
+
+    @Test fun `a quoted version is rejected, not coerced`() {
+        val result = decodePairCode(pairUri("""{"v":"1","url":"http://192.168.0.23:18789"}"""))
+        assertInstanceOf(PairCodeResult.Invalid::class.java, result)
+    }
+
+    // Standard base64 uses '+' and '/'; the JSON below encodes to a payload containing both.
+    private val plusSlashJson = """{"v":1,"url":"http://192.168.0.23:18789","name":"??>>??>>"}"""
+
+    @Test fun `standard base64 payload with plus and slash is accepted`() {
+        val std = Base64.getEncoder().encodeToString(plusSlashJson.toByteArray())
+        assertTrue(std.contains('+') || std.contains('/'))
+        val bundle = (decodePairCode("ghostcrab://pair?p=$std") as PairCodeResult.Bundle).bundle
+        assertEquals("??>>??>>", bundle.name)
+    }
+
+    @Test fun `url-safe and standard encodings of the same payload decode identically`() {
+        val urlSafe = (decodePairCode(pairUri(plusSlashJson)) as PairCodeResult.Bundle).bundle
+        val std = Base64.getEncoder().encodeToString(plusSlashJson.toByteArray())
+        val standard = (decodePairCode("ghostcrab://pair?p=$std") as PairCodeResult.Bundle).bundle
+        assertEquals(urlSafe.url.toString(), standard.url.toString())
+        assertEquals(urlSafe.name, standard.name)
+    }
 }

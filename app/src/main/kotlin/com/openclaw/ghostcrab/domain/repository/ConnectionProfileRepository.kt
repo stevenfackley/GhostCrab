@@ -54,6 +54,8 @@ interface ConnectionProfileRepository {
      * Additive (v1.1): see ADR-0005.
      *
      * @throws java.io.IOException if the underlying DataStore cannot be written.
+     * @throws com.openclaw.ghostcrab.domain.exception.TokenWipeFailedException if the profiles were
+     *   removed but the encrypted token store could not be wiped.
      */
     suspend fun clearAll()
 }
