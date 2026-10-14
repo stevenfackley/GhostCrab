@@ -21,6 +21,8 @@ sealed interface QrScanUiState {
     data object PermissionDenied : QrScanUiState
     /** A QR was decoded but its content is not a valid gateway URL. */
     data class InvalidQr(val message: String) : QrScanUiState
+    /** A valid code was accepted; further frames are ignored until [QrScanViewModel.onScanAgain]. */
+    data object Decoded : QrScanUiState
 }
 
 sealed interface QrScanEvent {
@@ -66,15 +68,15 @@ class QrScanViewModel : ViewModel() {
      * @param raw Raw string decoded from the QR code.
      */
     fun onQrDecoded(raw: String) {
+        if (_uiState.value == QrScanUiState.Decoded) return
         val url = raw.trim()
-        if (url.isBlank() || (!url.startsWith("http://") && !url.startsWith("https://"))) {
+        val valid = (url.startsWith("http://") || url.startsWith("https://")) &&
+            runCatching { java.net.URI(url) }.isSuccess
+        if (!valid) {
             _uiState.value = QrScanUiState.InvalidQr("QR code doesn't contain a valid gateway URL")
             return
         }
-        runCatching { java.net.URI(url) }.onFailure {
-            _uiState.value = QrScanUiState.InvalidQr("QR code doesn't contain a valid gateway URL")
-            return
-        }
+        _uiState.value = QrScanUiState.Decoded
         viewModelScope.launch { _events.emit(QrScanEvent.NavigateToManualEntry(url)) }
     }
 

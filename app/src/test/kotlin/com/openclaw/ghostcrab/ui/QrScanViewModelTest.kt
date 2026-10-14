@@ -86,4 +86,18 @@ class QrScanViewModelTest {
         vm.onScanAgain()
         assertInstanceOf(QrScanUiState.Scanning::class.java, vm.uiState.value)
     }
+
+    @Test
+    fun `second decode after a valid one emits no second navigation`() = runTest {
+        val vm = QrScanViewModel()
+        vm.onPermissionGranted()
+
+        vm.events.test {
+            vm.onQrDecoded("http://192.168.1.50:18789")
+            vm.onQrDecoded("http://192.168.1.50:18789")
+            awaitItem()
+            expectNoEvents()
+        }
+        assertEquals(QrScanUiState.Decoded, vm.uiState.value)
+    }
 }
