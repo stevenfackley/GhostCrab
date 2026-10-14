@@ -7,6 +7,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.consumeAsFlow
+import kotlinx.coroutines.test.currentTime
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -108,13 +109,36 @@ class GatewayWsClientTest {
         val failure = assertInstanceOf(GatewayUnreachableException::class.java, call.await().exceptionOrNull())
         assertInstanceOf(IOException::class.java, failure.cause)
     }
+
+    @Test
+    fun `request after the socket closed fails fast with GatewayUnreachableException`() = runTest {
+        val session = ClosingWsSession()
+        val client = GatewayWsClient.forTesting(session)
+        session.closeFromServer()
+
+        assertThrows<GatewayUnreachableException> { client.request("skills.list", null) }
+        assertEquals(0L, currentTime)
+    }
+
+    @Test
+    fun `send failure surfaces as GatewayUnreachableException with the cause`() = runTest {
+        val session = ClosingWsSession().apply { sendError = IOException("broken pipe") }
+        val client = GatewayWsClient.forTesting(session)
+
+        val failure = assertThrows<GatewayUnreachableException> { client.request("skills.list", null) }
+        assertInstanceOf(IOException::class.java, failure.cause)
+    }
 }
 
 /** Session whose inbound stream can be completed, like a server closing the socket. */
 private class ClosingWsSession : WsSession {
     private val inbound = Channel<String>(Channel.UNLIMITED)
     val sent = Channel<String>(Channel.UNLIMITED)
-    override suspend fun send(text: String) { sent.send(text) }
+    var sendError: IOException? = null
+    override suspend fun send(text: String) {
+        sendError?.let { throw it }
+        sent.send(text)
+    }
     override fun incoming(): Flow<String> = inbound.consumeAsFlow()
     override suspend fun close() = Unit
     fun closeFromServer(cause: Throwable? = null) { inbound.close(cause) }

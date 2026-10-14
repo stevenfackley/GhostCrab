@@ -52,6 +52,9 @@ class GatewayWsClient private constructor(
     private val pending = ConcurrentHashMap<Long, CompletableDeferred<JsonRpcResponse>>()
     private val _notifications = MutableSharedFlow<JsonRpcNotification>(extraBufferCapacity = 64)
 
+    /** Set once the socket has ended, before parked requests are failed, so later requests fail fast. */
+    @Volatile private var closedCause: GatewayUnreachableException? = null
+
     /** Hot flow of server-pushed notifications (no `id`). */
     val notifications: Flow<JsonRpcNotification> = _notifications
 
@@ -67,7 +70,9 @@ class GatewayWsClient private constructor(
             transportError = e
         } finally {
             // Socket closed (or client closed): nobody will ever answer the parked requests.
-            failPending(GatewayUnreachableException(endpoint, transportError))
+            val cause = GatewayUnreachableException(endpoint, transportError)
+            closedCause = cause
+            failPending(cause)
         }
     }
 
@@ -97,15 +102,17 @@ class GatewayWsClient private constructor(
      * @return The `result` field of the response, or an empty [JsonObject] if absent.
      * @throws WsRpcException if the response carries an `error` object.
      * @throws GatewayTimeoutException if no response arrives within the request timeout.
-     * @throws GatewayUnreachableException if the socket closed before the response arrived.
+     * @throws GatewayUnreachableException if the request could not be sent, or the socket closed
+     *   before the response arrived (immediately when it had already closed).
      */
     suspend fun request(method: String, params: JsonElement?): JsonElement {
         val id = nextId.getAndIncrement()
         val deferred = CompletableDeferred<JsonRpcResponse>()
         pending[id] = deferred
-        val req = JsonRpcRequest(id = id, method = method, params = params)
+        // Registered after the reader failed the parked requests: fail now instead of timing out.
+        closedCause?.let { deferred.completeExceptionally(it) }
         val res = try {
-            session.send(json.encodeToString(JsonRpcRequest.serializer(), req))
+            if (!deferred.isCompleted) sendRequest(JsonRpcRequest(id = id, method = method, params = params))
             withTimeout(requestTimeoutMs) { deferred.await() }
         } catch (e: TimeoutCancellationException) {
             throw GatewayTimeoutException("$endpoint#$method", e)
@@ -114,6 +121,16 @@ class GatewayWsClient private constructor(
         }
         res.error?.let { throw WsRpcException(code = it.code, message = it.message) }
         return res.result ?: JsonObject(emptyMap())
+    }
+
+    private suspend fun sendRequest(req: JsonRpcRequest) {
+        try {
+            session.send(json.encodeToString(JsonRpcRequest.serializer(), req))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (@Suppress("TooGenericExceptionCaught") e: Exception) {
+            throw GatewayUnreachableException(endpoint, e)
+        }
     }
 
     /** Cancels the reader loop and the scope, then closes the underlying session. */

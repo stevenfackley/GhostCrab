@@ -2234,11 +2234,11 @@ Expected: FAIL — `Unresolved reference: GatewayNotConnectedException`.
 ```kotlin
 /**
  * An operation needed the active gateway session but none exists (never connected, or the
- * connection dropped mid-flight). Reconnect and retry.
+ * connection dropped mid-flight). Not retryable as-is: the user must reconnect first.
  */
 class GatewayNotConnectedException :
     GatewayException("No active gateway connection. Reconnect and try again.") {
-    override val isRetryable: Boolean = true
+    override val isRetryable: Boolean = false
 }
 ```
 

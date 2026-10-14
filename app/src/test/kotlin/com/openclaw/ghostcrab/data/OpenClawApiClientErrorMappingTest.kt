@@ -5,7 +5,6 @@ import com.openclaw.ghostcrab.data.api.OpenClawApiClient
 import com.openclaw.ghostcrab.data.api.dto.AIContextDto
 import com.openclaw.ghostcrab.data.api.dto.AIRecommendationRequestDto
 import com.openclaw.ghostcrab.domain.exception.CleartextBlockedException
-import com.openclaw.ghostcrab.domain.exception.GatewayException
 import com.openclaw.ghostcrab.domain.exception.GatewayProtocolException
 import com.openclaw.ghostcrab.domain.exception.GatewayTimeoutException
 import com.openclaw.ghostcrab.domain.exception.GatewayTlsException
@@ -13,6 +12,7 @@ import com.openclaw.ghostcrab.domain.exception.GatewayUnreachableException
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
+import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.plugins.websocket.WebSockets
 import io.ktor.http.HttpHeaders
@@ -81,11 +81,22 @@ class OpenClawApiClientErrorMappingTest {
         assertEquals("ok", dto.recommendation)
     }
 
-    @Test fun `openWebSocket failures surface as GatewayException`() = runTest {
+    @Test fun `openWebSocket refused upgrade request maps to GatewayUnreachableException`() = runTest {
         val client = OpenClawApiClient.forTest(
             ERR_BASE,
             HttpClient(MockEngine { throw ConnectException("refused") }) { install(WebSockets) },
         )
-        assertThrows<GatewayException> { client.openWebSocket() }
+        val ex = assertThrows<GatewayUnreachableException> { client.openWebSocket() }
+        assertTrue(ex.cause is ConnectException)
+    }
+
+    @Test fun `openWebSocket to a refusing port maps to GatewayUnreachableException`() = runTest {
+        // Loopback port 1 refuses at once; real OkHttp so the upgrade really goes out.
+        val client = OpenClawApiClient.forTest("http://127.0.0.1:1", HttpClient(OkHttp) { install(WebSockets) })
+        try {
+            assertThrows<GatewayUnreachableException> { client.openWebSocket() }
+        } finally {
+            client.close()
+        }
     }
 }
