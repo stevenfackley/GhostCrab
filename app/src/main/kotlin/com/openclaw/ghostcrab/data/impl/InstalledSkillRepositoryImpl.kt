@@ -9,6 +9,7 @@ import com.openclaw.ghostcrab.domain.repository.InstalledSkillRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.channels.ProducerScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -63,6 +64,20 @@ class InstalledSkillRepositoryImpl(
     }
 
     /**
+     * Opens the live session for an install. On failure (disconnected, WS upgrade error)
+     * emits [SkillInstallProgress.Failed] with [SkillInstallError.Network] and returns `null`
+     * so the collector never sees the exception.
+     */
+    private suspend fun ProducerScope<SkillInstallProgress>.openSessionOrReport(): GatewayWsClient? = try {
+        wsFactory()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        send(SkillInstallProgress.Failed(SkillInstallError.Network(e.message ?: e::class.java.simpleName)))
+        null
+    }
+
+    /**
      * Starts an install via `skills.install`. The returned flow emits:
      * - [SkillInstallProgress.Connecting] immediately,
      * - zero or more intermediate progress notifications,
@@ -75,15 +90,7 @@ class InstalledSkillRepositoryImpl(
     @Suppress("LongMethod")
     override fun install(slug: String, version: String?): Flow<SkillInstallProgress> = channelFlow {
         send(SkillInstallProgress.Connecting(slug))
-        val ws = try {
-            wsFactory()
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            // No live session (disconnected) or the WS upgrade failed: report, never crash the collector.
-            send(SkillInstallProgress.Failed(SkillInstallError.Network(e.message ?: e::class.java.simpleName)))
-            return@channelFlow
-        }
+        val ws = openSessionOrReport() ?: return@channelFlow
 
         val notifJob = ws.notifications
             .filter { it.method == "skills.install.progress" }
