@@ -31,16 +31,23 @@ struct PairingDeepLinkTests {
 
     @Test func otherSchemesAreIgnored() throws {
         let handoff = PairingHandoff()
+        let sentinelURL = try #require(URL(string: "http://192.168.1.99:18789"))
+        handoff.stash(token: "tok_sentinel", for: sentinelURL)
         let encoded = PairingLinkFixture.link(json: #"{"v":1,"url":"http://192.168.1.20:18789","token":"tok_123"}"#)
             .replacingOccurrences(of: "ghostcrab://pair", with: "https://gw.example.com/pair")
         let link = try #require(URL(string: encoded))
 
         #expect(try PairingDeepLink.route(for: link, handoff: handoff) == nil)
-        #expect(handoff.take(for: try #require(URL(string: "http://192.168.1.20:18789"))) == nil)
+        // Untouched sentinel: the ignored link never reached the hand-off.
+        #expect(handoff.take(for: sentinelURL) == "tok_sentinel")
     }
 
     @Test func invalidLinkThrowsAndStashesNothing() throws {
         let handoff = PairingHandoff()
+        // Every stash replaces the pending entry, so a sentinel that survives
+        // proves the rejected link stashed nothing (and cleared nothing).
+        let sentinelURL = try #require(URL(string: "http://192.168.1.99:18789"))
+        handoff.stash(token: "tok_sentinel", for: sentinelURL)
         let link = try #require(URL(string: PairingLinkFixture.link(
             json: #"{"v":1,"url":"ftp://192.168.1.20","token":"tok_123"}"#
         )))
@@ -52,7 +59,7 @@ struct PairingDeepLinkTests {
             thrown = error
         }
         #expect(thrown == PairingLinkError.invalidGatewayURL)
-        #expect(handoff.take(for: try #require(URL(string: "ftp://192.168.1.20"))) == nil)
+        #expect(handoff.take(for: sentinelURL) == "tok_sentinel")
     }
 
     @Test func rejectionMessageNeverEchoesThePayload() throws {

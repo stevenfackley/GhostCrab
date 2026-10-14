@@ -98,6 +98,13 @@ struct PairingLinkTests {
         }
     }
 
+    @Test func stringVersionIsRejected() {
+        // `v` must be a JSON integer; "1" is not coerced.
+        #expect(throws: PairingLinkError.invalidJSON) {
+            try PairingLink.decode(PairingLinkFixture.link(json: #"{"v":"1","url":"http://192.168.1.20:18789"}"#))
+        }
+    }
+
     // MARK: - Malformed payloads
 
     @Test func badBase64IsRejected() {
