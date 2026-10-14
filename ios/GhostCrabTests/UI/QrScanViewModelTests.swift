@@ -30,7 +30,7 @@ struct QrScanViewModelTests {
         #expect(!url.absoluteString.contains("tok_123"))
         #expect(vm.lastDecoded == url)
         #expect(vm.error == nil)
-        #expect(handoff.take(for: url) == "tok_123")
+        #expect(handoff.takePairing(for: url)?.token == "tok_123")
     }
 
     @Test func pairingLinkWithoutTokenStashesNothing() throws {
@@ -40,7 +40,7 @@ struct QrScanViewModelTests {
         vm.onCodeScanned(PairingLinkFixture.link(json: #"{"v":1,"url":"http://192.168.1.20:18789"}"#))
 
         let url = try #require(recorder.urls.first)
-        #expect(handoff.take(for: url) == nil)
+        #expect(handoff.takePairing(for: url) == nil)
     }
 
     @Test func rawGatewayURLNavigates() {
@@ -96,7 +96,7 @@ struct QrScanViewModelTests {
         #expect(recorder.urls.isEmpty)
         let message = try #require(vm.error)
         #expect(!message.contains("tok_123"))
-        #expect(handoff.take(for: try #require(URL(string: "http://192.168.1.20:18789"))) == nil)
+        #expect(handoff.takePairing(for: try #require(URL(string: "http://192.168.1.20:18789"))) == nil)
     }
 
     @Test func oversizedPayloadIsRejectedBeforeDecoding() {

@@ -19,7 +19,7 @@ struct PairingDeepLinkTests {
         let gateway = try #require(URL(string: "http://192.168.1.20:18789"))
         #expect(route == Route.manualEntry(prefillURL: gateway))
         #expect(!String(describing: route).contains("tok_123"))
-        #expect(handoff.take(for: gateway) == "tok_123")
+        #expect(handoff.takePairing(for: gateway)?.token == "tok_123")
     }
 
     @Test func uppercaseSchemeIsHandled() throws {
@@ -39,7 +39,7 @@ struct PairingDeepLinkTests {
 
         #expect(try PairingDeepLink.route(for: link, handoff: handoff) == nil)
         // Untouched sentinel: the ignored link never reached the hand-off.
-        #expect(handoff.take(for: sentinelURL) == "tok_sentinel")
+        #expect(handoff.takePairing(for: sentinelURL)?.token == "tok_sentinel")
     }
 
     @Test func invalidLinkThrowsAndStashesNothing() throws {
@@ -59,7 +59,7 @@ struct PairingDeepLinkTests {
             thrown = error
         }
         #expect(thrown == PairingLinkError.invalidGatewayURL)
-        #expect(handoff.take(for: sentinelURL) == "tok_sentinel")
+        #expect(handoff.takePairing(for: sentinelURL)?.token == "tok_sentinel")
     }
 
     @Test func rejectionMessageNeverEchoesThePayload() throws {

@@ -18,14 +18,24 @@ import Foundation
 final class FakeGatewayConnectionManager: GatewayConnectionManager, @unchecked Sendable {
     private let lock = NSLock()
     private let connectError: GatewayError?
+    private let probeResult: Result<AuthRequirement, GatewayError>
     private var state: GatewayConnection = .disconnected
     private var connectLog: [(url: String, token: String?)] = []
+    private var probeLog: [String] = []
     private var disconnects = 0
 
-    init(connectError: GatewayError? = nil) {
+    /// - Parameters:
+    ///   - connectError: When set, every `connect(url:token:)` throws it.
+    ///   - probeResult: What every `probeAuth(url:)` returns or throws.
+    init(
+        connectError: GatewayError? = nil,
+        probeResult: Result<AuthRequirement, GatewayError> = .success(AuthRequirement.none)
+    ) {
         self.connectError = connectError
+        self.probeResult = probeResult
     }
 
+    var probedURLs: [String] { lock.withLock { probeLog } }
     var connectURLs: [String] { lock.withLock { connectLog.map { $0.url } } }
     var connectTokens: [String?] { lock.withLock { connectLog.map { $0.token } } }
     var disconnectCount: Int { lock.withLock { disconnects } }
@@ -41,7 +51,8 @@ final class FakeGatewayConnectionManager: GatewayConnectionManager, @unchecked S
     }
 
     func probeAuth(url: String) async throws -> AuthRequirement {
-        AuthRequirement.none
+        lock.withLock { probeLog.append(url) }
+        return try probeResult.get()
     }
 
     func connect(url: String, token: String?) async throws {

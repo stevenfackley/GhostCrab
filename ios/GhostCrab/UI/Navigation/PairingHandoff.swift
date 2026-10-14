@@ -47,8 +47,8 @@ extension PairedGateway: CustomStringConvertible, CustomDebugStringConvertible, 
 /// Why not `Route.manualEntry(prefillURL:token:)`: `Route` is `Hashable` and
 /// lives in `NavigationPath`, which SwiftUI may encode for state restoration,
 /// so a token there could be written to disk. Here it lives only in memory,
-/// is cleared by the first ``takePairing(for:)`` / ``take(for:)`` (matching or
-/// not) and expires after ``defaultTTL`` (or the injected `ttl`), so an
+/// is cleared by the first ``takePairing(for:)`` (matching or not) and
+/// expires after ``defaultTTL`` (or the injected `ttl`), so an
 /// unconsumed token never fills a later, unrelated visit. It reaches
 /// persistent storage only through the normal connect,
 /// `ConnectionProfileRepository.saveProfile`, Keychain path.
@@ -128,14 +128,6 @@ public final class PairingHandoff {
             return nil
         }
         return taken.paired
-    }
-
-    /// Token-only form of ``takePairing(for:)``; clears the stash the same way.
-    ///
-    /// - Parameter url: The URL the manual-entry form was pre-filled with.
-    /// - Returns: The token, or `nil` if none (unexpired) was stashed for that origin.
-    public func take(for url: URL) -> String? {
-        takePairing(for: url)?.token
     }
 
     /// Scheme, host (case-insensitive) and port equality. Ports must match

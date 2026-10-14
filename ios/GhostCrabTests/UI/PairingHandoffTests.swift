@@ -20,32 +20,32 @@ struct PairingHandoffTests {
         let handoff = PairingHandoff()
         let url = try #require(URL(string: "http://192.168.1.20:18789"))
         handoff.stash(token: "tok_123", for: url)
-        #expect(handoff.take(for: url) == "tok_123")
-        #expect(handoff.take(for: url) == nil)
+        #expect(handoff.takePairing(for: url)?.token == "tok_123")
+        #expect(handoff.takePairing(for: url) == nil)
     }
 
     @Test func hostComparisonIgnoresCase() throws {
         let handoff = PairingHandoff()
         handoff.stash(token: "tok_123", for: try #require(URL(string: "http://Gateway.LOCAL:18789")))
-        #expect(handoff.take(for: try #require(URL(string: "http://gateway.local:18789"))) == "tok_123")
+        #expect(handoff.takePairing(for: try #require(URL(string: "http://gateway.local:18789")))?.token == "tok_123")
     }
 
     @Test func mismatchedOriginGetsNothingAndBurnsTheStash() throws {
         let handoff = PairingHandoff()
         let paired = try #require(URL(string: "http://192.168.1.20:18789"))
         handoff.stash(token: "tok_123", for: paired)
-        #expect(handoff.take(for: try #require(URL(string: "http://192.168.1.99:18789"))) == nil)
-        #expect(handoff.take(for: paired) == nil)
+        #expect(handoff.takePairing(for: try #require(URL(string: "http://192.168.1.99:18789"))) == nil)
+        #expect(handoff.takePairing(for: paired) == nil)
     }
 
     @Test func schemeAndPortArePartOfTheOrigin() throws {
         let handoff = PairingHandoff()
         let paired = try #require(URL(string: "http://192.168.1.20:18789"))
         handoff.stash(token: "tok_123", for: paired)
-        #expect(handoff.take(for: try #require(URL(string: "https://192.168.1.20:18789"))) == nil)
+        #expect(handoff.takePairing(for: try #require(URL(string: "https://192.168.1.20:18789"))) == nil)
 
         handoff.stash(token: "tok_123", for: paired)
-        #expect(handoff.take(for: try #require(URL(string: "http://192.168.1.20:18790"))) == nil)
+        #expect(handoff.takePairing(for: try #require(URL(string: "http://192.168.1.20:18790"))) == nil)
     }
 
     @Test func laterStashReplacesTheEarlierOne() throws {
@@ -53,7 +53,7 @@ struct PairingHandoffTests {
         let url = try #require(URL(string: "http://192.168.1.20:18789"))
         handoff.stash(token: "tok_old", for: url)
         handoff.stash(token: "tok_new", for: url)
-        #expect(handoff.take(for: url) == "tok_new")
+        #expect(handoff.takePairing(for: url)?.token == "tok_new")
     }
 
     @Test func tokenWithinTheTTLIsReturned() throws {
@@ -62,7 +62,7 @@ struct PairingHandoffTests {
         let url = try #require(URL(string: "http://192.168.1.20:18789"))
         handoff.stash(token: "tok_123", for: url)
         clock.advance(by: .seconds(120) - .milliseconds(1))
-        #expect(handoff.take(for: url) == "tok_123")
+        #expect(handoff.takePairing(for: url)?.token == "tok_123")
     }
 
     @Test func tokenOlderThanTheTTLIsDroppedOnRead() throws {
@@ -71,8 +71,8 @@ struct PairingHandoffTests {
         let url = try #require(URL(string: "http://192.168.1.20:18789"))
         handoff.stash(token: "tok_123", for: url)
         clock.advance(by: .seconds(120) + .milliseconds(1))
-        #expect(handoff.take(for: url) == nil)
-        #expect(handoff.take(for: url) == nil)
+        #expect(handoff.takePairing(for: url) == nil)
+        #expect(handoff.takePairing(for: url) == nil)
     }
 
     @Test func pairingRequestHandsOverTokenAndName() throws {

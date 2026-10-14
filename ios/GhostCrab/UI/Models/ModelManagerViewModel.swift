@@ -110,8 +110,11 @@ public final class ModelManagerViewModel {
     /// the gateway's state. On failure the list is reloaded first and the
     /// error is set afterwards, because `load()` clears ``lastError`` on success.
     ///
+    /// Private: the only way in is ``requestActivation(_:)`` then
+    /// ``confirmActivation(_:)``, so no caller can skip the confirmation.
+    ///
     /// - Parameter id: The `ModelInfo.id` of the model to activate.
-    public func setActive(_ id: String) async {
+    private func setActive(_ id: String) async {
         guard activatingId == nil else { return }
         guard let target = models_.first(where: { $0.id == id }) else { return }
         if target.isActive { return }
