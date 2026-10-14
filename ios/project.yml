@@ -27,10 +27,12 @@ targets:
         excludes:
           - "**/.DS_Store"
     preBuildScripts:
+      # BuildInfo.swift is an output only: listing it as an input too makes the
+      # phase mutate its own input, which Xcode rejects as a dependency cycle.
+      # Runs every build so the SHA tracks HEAD across commits.
       - script: ${SRCROOT}/Scripts/inject-build-info.sh
         name: "Inject build info (Git SHA)"
-        inputFiles:
-          - $(SRCROOT)/GhostCrab/App/BuildInfo.swift
+        basedOnDependencyAnalysis: false
         outputFiles:
           - $(SRCROOT)/GhostCrab/App/BuildInfo.swift
     info:
@@ -64,6 +66,9 @@ targets:
           - "$(AppIdentifierPrefix)com.qavren.ghostcrab"
     settings:
       base:
+        # The build-info script reads .git and rewrites a source file in place;
+        # the user-script sandbox denies both.
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
         TARGETED_DEVICE_FAMILY: "1,2,6"  # iPhone + iPad + Mac (Catalyst)
         SUPPORTS_MACCATALYST: YES
         DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER: NO  # same bundle id on Mac
