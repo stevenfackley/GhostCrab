@@ -6,6 +6,7 @@ import com.openclaw.ghostcrab.domain.model.config.GatewayHttpSection
 import com.openclaw.ghostcrab.domain.model.config.GatewayMdnsSection
 import com.openclaw.ghostcrab.domain.model.config.GatewaySection
 import com.openclaw.ghostcrab.domain.model.config.toGatewaySection
+import com.openclaw.ghostcrab.domain.model.config.toGatewaySectionOrNull
 import com.openclaw.ghostcrab.domain.model.config.toJsonElement
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -83,5 +84,15 @@ class GatewaySectionTest {
     @Test fun `toJsonElement produces JsonObject`() {
         val element = GatewaySection().toJsonElement()
         assertTrue(element is JsonObject)
+    }
+
+    @Test fun `toGatewaySectionOrNull returns null for an auth mode the model does not know`() {
+        val json = Json.parseToJsonElement("""{"auth":{"mode":"oauth"}}""")
+        assertNull(json.toGatewaySectionOrNull())
+    }
+
+    @Test fun `toGatewaySectionOrNull decodes a known section`() {
+        val json = Json.parseToJsonElement("""{"http":{"host":"127.0.0.1","port":9000}}""")
+        assertEquals(9000, json.toGatewaySectionOrNull()?.http?.port)
     }
 }
