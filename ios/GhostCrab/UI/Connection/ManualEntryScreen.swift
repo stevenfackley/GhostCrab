@@ -210,6 +210,9 @@ public struct ManualEntryScreen: View {
         .onAppear {
             if let prefill = prefillURL { vm.setPrefillURL(prefill) }
         }
+        .onDisappear {
+            vm.cancelConnect()
+        }
         .onChange(of: vm.navigateToDashboard) { _, ready in
             if ready {
                 navigate.toDashboard()

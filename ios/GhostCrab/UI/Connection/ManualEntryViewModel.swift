@@ -185,7 +185,11 @@ public final class ManualEntryViewModel {
 
     // MARK: - Connect
 
+    /// Validates the form, connects, saves the profile + token, marks onboarding
+    /// completed, then flips ``navigateToDashboard``. Ignored while a connect is
+    /// already in flight, so a double tap connects once.
     public func connect() {
+        guard connectTask == nil else { return }
         let hostError = validateHost(host)
         let portError = validatePort(port)
         if hostError != nil || portError != nil {
@@ -204,9 +208,12 @@ public final class ManualEntryViewModel {
         self.lastError = nil
 
         connectTask = Task {
-            defer { self.connectTask = nil }
+            // A cancelled task leaves `connectTask` alone: `cancelConnect()` already cleared it.
+            defer { if !Task.isCancelled { self.connectTask = nil } }
             do {
                 try await self.connectionManager.connect(url: url, token: tokenValue)
+                // Left the screen while connecting: save nothing, navigate nowhere.
+                try Task.checkCancellation()
 
                 // A pairing link's suggested name wins; otherwise the name the
                 // gateway reports once connected; otherwise the URL.
@@ -230,15 +237,29 @@ public final class ManualEntryViewModel {
                 )
                 try await self.profileRepository.saveProfile(profile, token: tokenValue)
                 await self.onboardingRepository.markCompleted()
+                guard !Task.isCancelled else { return }
 
                 self.isConnecting = false
                 self.navigateToDashboard = true
             } catch {
+                guard !Task.isCancelled else { return }
                 self.isConnecting = false
                 self.lastError = (error as? LocalizedError)?.errorDescription
                     ?? "Connect failed: \(String(describing: error))"
             }
         }
+    }
+
+    /// Abandons an in-flight connect. Call from the screen's `.onDisappear`
+    /// (Back while connecting), like Android cancelling the attempt with the
+    /// ViewModel's scope: no error is shown, no navigation follows, and the
+    /// profile is not saved unless its save had already started.
+    /// No-op when nothing is in flight.
+    public func cancelConnect() {
+        guard let task = connectTask else { return }
+        task.cancel()
+        connectTask = nil
+        isConnecting = false
     }
 
     public func consumeNavigation() {

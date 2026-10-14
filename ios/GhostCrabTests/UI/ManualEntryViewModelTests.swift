@@ -243,4 +243,71 @@ struct ManualEntryViewModelTests {
         vm.connect()
         #expect(vm.hostError == "Host must not contain '%' (IPv6 zone ids only)")
     }
+
+    // MARK: - In-flight guard
+
+    @Test func doubleTapConnectsOnceAndSavesProfileWithToken() async {
+        let gateway = FakeGatewayConnectionManager()
+        let profiles = FakeConnectionProfileRepository()
+        let onboarding = FakeOnboardingRepository()
+        let vm = makeVM(handoff: PairingHandoff(), gateway: gateway, profiles: profiles, onboarding: onboarding)
+        vm.setHost("192.168.1.20")
+        vm.token = "tok_123"
+
+        vm.connect()
+        vm.connect()
+        await vm.connectTask?.value
+
+        #expect(gateway.connectURLs == ["http://192.168.1.20:18789"])
+        #expect(profiles.savedTokens == ["tok_123"])
+        #expect(profiles.savedProfiles.first?.displayName == "Fake Gateway")
+        #expect(onboarding.markCompletedCount == 1)
+        #expect(vm.navigateToDashboard)
+        #expect(!vm.isConnecting)
+        #expect(vm.connectTask == nil)
+    }
+
+    @Test func invalidHostNeverReachesTheGateway() {
+        let gateway = FakeGatewayConnectionManager()
+        let vm = makeVM(handoff: PairingHandoff(), gateway: gateway)
+        vm.setHost("http://192.168.1.20")
+
+        vm.connect()
+
+        #expect(vm.hostError == "Remove scheme — use the HTTPS toggle instead")
+        #expect(vm.connectTask == nil)
+        #expect(gateway.connectURLs.isEmpty)
+    }
+
+    @Test func leavingTheScreenAbandonsTheConnect() async {
+        let profiles = FakeConnectionProfileRepository()
+        let onboarding = FakeOnboardingRepository()
+        let vm = makeVM(handoff: PairingHandoff(), profiles: profiles, onboarding: onboarding)
+        vm.setHost("192.168.1.20")
+
+        vm.connect()
+        let task = vm.connectTask
+        vm.cancelConnect()
+        await task?.value
+
+        #expect(vm.connectTask == nil)
+        #expect(!vm.isConnecting)
+        #expect(vm.lastError == nil)
+        #expect(!vm.navigateToDashboard)
+        #expect(profiles.savedProfiles.isEmpty)
+        #expect(onboarding.markCompletedCount == 0)
+    }
+
+    @Test func cancelWithNothingInFlightIsANoOp() async {
+        let gateway = FakeGatewayConnectionManager()
+        let vm = makeVM(handoff: PairingHandoff(), gateway: gateway)
+        vm.setHost("192.168.1.20")
+
+        vm.cancelConnect()
+        vm.connect()
+        await vm.connectTask?.value
+
+        #expect(gateway.connectURLs == ["http://192.168.1.20:18789"])
+        #expect(vm.navigateToDashboard)
+    }
 }

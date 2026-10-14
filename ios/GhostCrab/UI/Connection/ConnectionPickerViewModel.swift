@@ -39,6 +39,15 @@ public final class ConnectionPickerViewModel {
     @ObservationIgnored
     private var stateTask: Task<Void, Never>?
 
+    /// In-flight connect, if any. Read-only outside the VM so tests can await it.
+    @ObservationIgnored private(set) var connectTask: Task<Void, Never>?
+
+    /// Most recent delete. Read-only outside the VM so tests can await it.
+    @ObservationIgnored private(set) var deleteTask: Task<Void, Never>?
+
+    /// Profile ids with a delete in flight; a second swipe on the same row is ignored.
+    @ObservationIgnored private var pendingDeletes: Set<UUID> = []
+
     // MARK: - Init
 
     public init(
@@ -81,11 +90,14 @@ public final class ConnectionPickerViewModel {
     // MARK: - Actions
 
     /// Attempts to connect to the given saved profile. On success, flips
-    /// `navigateToDashboard` so the view can push `.dashboard`.
+    /// `navigateToDashboard` so the view can push `.dashboard`. Ignored while a
+    /// connect is already in flight, so a double tap connects once.
     public func connect(_ profile: ConnectionProfile) {
+        guard connectTask == nil else { return }
         self.connectingId = profile.id
         self.lastError = nil
-        Task {
+        connectTask = Task {
+            defer { self.connectTask = nil }
             do {
                 let token = profile.hasToken
                     ? try await self.profileRepository.getToken(profileId: profile.id.uuidString)
@@ -106,9 +118,12 @@ public final class ConnectionPickerViewModel {
         self.navigateToDashboard = false
     }
 
-    /// Deletes a saved profile and its associated keychain token.
+    /// Deletes a saved profile and its associated keychain token. A repeat
+    /// delete of the same profile while the first is in flight is ignored.
     public func delete(_ profileId: UUID) {
-        Task {
+        guard pendingDeletes.insert(profileId).inserted else { return }
+        deleteTask = Task {
+            defer { self.pendingDeletes.remove(profileId) }
             do {
                 try await self.profileRepository.deleteProfile(profileId: profileId.uuidString)
             } catch {
