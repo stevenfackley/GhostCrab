@@ -1,3 +1,5 @@
+> Status: Shipped in v0.1.0 (Phase 11) — see CHANGELOG
+
 # Phase 11 Design: Cloudflare Tunnel + QR Connect + Logo + Animated Splash
 
 **Date:** 2026-04-15  

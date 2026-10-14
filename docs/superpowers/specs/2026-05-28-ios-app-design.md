@@ -1,3 +1,5 @@
+> Status: Superseded by docs/superpowers/plans/2026-10-13-finish-development-roadmap.md (iOS work now tracked in docs/superpowers/plans/2026-10-13-ios-finish.md); this spec remains the design reference
+
 # iOS App Design: GhostCrab for iOS — Full Feature Parity
 
 **Date:** 2026-05-28
