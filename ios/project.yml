@@ -80,6 +80,8 @@ targets:
       - target: GhostCrab
     settings:
       base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.qavren.ghostcrab.tests
         BUNDLE_LOADER: "$(TEST_HOST)"
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/GhostCrab.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/GhostCrab"
 
@@ -91,6 +93,8 @@ targets:
       - target: GhostCrab
     settings:
       base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.qavren.ghostcrab.uitests
         TEST_TARGET_NAME: GhostCrab
 
 schemes:
