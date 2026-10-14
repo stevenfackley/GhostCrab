@@ -242,6 +242,27 @@ class ConfigEditorViewModelTest {
     }
 
     @Test
+    fun `resolving a 412 by dropping the conflicting section keeps other sections' edits`() =
+        runTest(testDispatcher) {
+            val repo = FakeConfigRepository(configToReturn = twoSections)
+            val (vm, _) = makeVm(initialConnection = connectedState, repo = repo)
+            advanceUntilIdle()
+            repo.updateError = GatewayApiException("http://192.168.1.50:18789/config/gateway", 412)
+            vm.editSection("gateway", sampleEdit)
+            vm.editSection("models", modelsEdit)
+            vm.confirmSave("gateway")
+            advanceUntilIdle()
+
+            // What the dialog's Reload button does.
+            vm.dismissConcurrentEdit()
+            vm.discardSection("gateway")
+
+            val state = vm.state.value as ConfigEditorUiState.Ready
+            assertNull(state.concurrentEditSection)
+            assertEquals(mapOf("models" to modelsEdit), state.pendingChanges)
+        }
+
+    @Test
     fun `confirmSave failure stays Ready with saveError and keeps every pending edit`() = runTest(testDispatcher) {
         val repo = FakeConfigRepository(configToReturn = twoSections)
         val (vm, _) = makeVm(initialConnection = connectedState, repo = repo)

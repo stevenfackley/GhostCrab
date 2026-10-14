@@ -227,8 +227,10 @@ fun ConfigEditorScreen(
                             },
                             confirmButton = {
                                 TextButton(onClick = {
+                                    // The config was already reloaded by the failed save; drop only the
+                                    // conflicting section's edit and keep every other section's.
                                     viewModel.dismissConcurrentEdit()
-                                    viewModel.loadConfig()
+                                    viewModel.discardSection(concurrentSection)
                                 }) {
                                     Text(
                                         "Reload",
