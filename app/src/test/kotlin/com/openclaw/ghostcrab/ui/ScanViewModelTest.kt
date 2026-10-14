@@ -235,6 +235,16 @@ class ScanViewModelTest {
         }
         assertEquals(0, repo.getTokenCalls)
     }
+
+    @Test
+    fun `navigation event sent while nobody collects is delivered later`() = runTest {
+        val vm = makeVm()
+        vm.onGatewaySelected(gateway()) // no collector attached, e.g. mid-rotation
+
+        vm.events.test {
+            assertInstanceOf(ScanEvent.NavigateToManualEntry::class.java, awaitItem())
+        }
+    }
 }
 
 // ── Fakes ─────────────────────────────────────────────────────────────────────

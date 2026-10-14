@@ -3,12 +3,12 @@ package com.openclaw.ghostcrab.ui.connection
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.openclaw.ghostcrab.domain.util.GatewayUrl
-import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
 
 sealed interface QrScanUiState {
@@ -42,8 +42,9 @@ class QrScanViewModel : ViewModel() {
     private val _uiState = MutableStateFlow<QrScanUiState>(QrScanUiState.Idle)
     val uiState: StateFlow<QrScanUiState> = _uiState.asStateFlow()
 
-    private val _events = MutableSharedFlow<QrScanEvent>()
-    val events: SharedFlow<QrScanEvent> = _events.asSharedFlow()
+    private val _events = Channel<QrScanEvent>(Channel.BUFFERED)
+    /** One-shot navigation events, buffered so an event sent during rotation is delivered once a collector returns. */
+    val events: Flow<QrScanEvent> = _events.receiveAsFlow()
 
     /** Call when the system grants camera permission. */
     fun onPermissionGranted() {
@@ -77,7 +78,7 @@ class QrScanViewModel : ViewModel() {
             return
         }
         _uiState.value = QrScanUiState.Decoded
-        viewModelScope.launch { _events.emit(QrScanEvent.NavigateToManualEntry(url)) }
+        viewModelScope.launch { _events.send(QrScanEvent.NavigateToManualEntry(url)) }
     }
 
     /** Re-activate the scanner after a [QrScanUiState.InvalidQr] state. */

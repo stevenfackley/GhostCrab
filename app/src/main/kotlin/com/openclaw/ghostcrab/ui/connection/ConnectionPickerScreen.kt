@@ -42,10 +42,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -59,8 +56,6 @@ import com.openclaw.ghostcrab.ui.components.GlassSurface
 import com.openclaw.ghostcrab.ui.theme.BrandTokens
 import com.openclaw.ghostcrab.ui.theme.MonoFontFamily
 import com.openclaw.ghostcrab.ui.theme.Spacing
-import com.openclaw.ghostcrab.ui.toUserMessage
-import kotlinx.coroutines.launch
 import org.koin.androidx.compose.koinViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -74,9 +69,21 @@ fun ConnectionPickerScreen(
     viewModel: ConnectionPickerViewModel = koinViewModel(),
 ) {
     val profiles by viewModel.profiles.collectAsState()
+    val pickerState by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
-    val scope = rememberCoroutineScope()
-    var connectingId by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(viewModel) {
+        viewModel.events.collect { event ->
+            when (event) {
+                ConnectionPickerEvent.NavigateToDashboard -> onNavigateToDashboard()
+            }
+        }
+    }
+    LaunchedEffect(pickerState.errorMessage) {
+        val message = pickerState.errorMessage ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(message)
+        viewModel.clearError()
+    }
 
     val showOnboarding by viewModel.showOnboarding.collectAsState()
     LaunchedEffect(showOnboarding) {
@@ -152,21 +159,8 @@ fun ConnectionPickerScreen(
                 items(profiles, key = { it.id }) { profile ->
                     ProfileCard(
                         profile = profile,
-                        isConnecting = connectingId == profile.id,
-                        onConnect = {
-                            connectingId = profile.id
-                            viewModel.connect(profile) { result ->
-                                connectingId = null
-                                result.onSuccess { onNavigateToDashboard() }
-                                    .onFailure { e ->
-                                        scope.launch {
-                                            snackbarHostState.showSnackbar(
-                                                e.toUserMessage()
-                                            )
-                                        }
-                                    }
-                            }
-                        },
+                        isConnecting = pickerState.connectingProfileId == profile.id,
+                        onConnect = { viewModel.connect(profile) },
                         onDelete = { viewModel.delete(profile.id) },
                     )
                 }

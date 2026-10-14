@@ -11,13 +11,13 @@ import com.openclaw.ghostcrab.domain.util.DEFAULT_GATEWAY_PORT
 import com.openclaw.ghostcrab.domain.util.GatewayUrl
 import com.openclaw.ghostcrab.domain.util.suspendRunCatching
 import com.openclaw.ghostcrab.ui.toUserMessage
-import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.util.UUID
@@ -67,8 +67,9 @@ class ManualEntryViewModel(
     private val _uiState = MutableStateFlow<ManualEntryUiState>(ManualEntryUiState.Idle)
     val uiState: StateFlow<ManualEntryUiState> = _uiState.asStateFlow()
 
-    private val _events = MutableSharedFlow<ManualEntryEvent>()
-    val events: SharedFlow<ManualEntryEvent> = _events.asSharedFlow()
+    private val _events = Channel<ManualEntryEvent>(Channel.BUFFERED)
+    /** One-shot navigation events, buffered so an event sent during rotation is delivered once a collector returns. */
+    val events: Flow<ManualEntryEvent> = _events.receiveAsFlow()
 
     fun onHostChange(value: String) {
         _form.update { it.copy(host = value, hostError = null) }
@@ -126,7 +127,7 @@ class ManualEntryViewModel(
                 onboardingRepository.markCompleted()
             }.onSuccess {
                 _uiState.value = ManualEntryUiState.Idle
-                _events.emit(ManualEntryEvent.NavigateToDashboard)
+                _events.send(ManualEntryEvent.NavigateToDashboard)
             }.onFailure { e ->
                 _uiState.value = ManualEntryUiState.Error(e.toUserMessage())
             }
