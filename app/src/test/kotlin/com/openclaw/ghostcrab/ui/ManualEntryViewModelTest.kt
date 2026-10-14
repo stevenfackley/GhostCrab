@@ -6,7 +6,7 @@ import com.openclaw.ghostcrab.domain.model.GatewayConnection
 import com.openclaw.ghostcrab.domain.repository.ConnectionProfileRepository
 import com.openclaw.ghostcrab.domain.repository.GatewayConnectionManager
 import com.openclaw.ghostcrab.domain.repository.OnboardingRepository
-import com.openclaw.ghostcrab.ui.connection.DEFAULT_GATEWAY_PORT
+import com.openclaw.ghostcrab.domain.util.DEFAULT_GATEWAY_PORT
 import com.openclaw.ghostcrab.ui.connection.ManualEntryEvent
 import com.openclaw.ghostcrab.ui.connection.ManualEntryFormState
 import com.openclaw.ghostcrab.ui.connection.ManualEntryUiState
@@ -63,7 +63,7 @@ class ManualEntryViewModelTest {
         val form = vm.form.value
         assertFalse(form.useHttps)
         assertEquals("http", form.scheme)
-        assertEquals(DEFAULT_GATEWAY_PORT, form.port)
+        assertEquals(DEFAULT_GATEWAY_PORT.toString(), form.port)
         assertEquals("", form.host)
     }
 
@@ -117,7 +117,7 @@ class ManualEntryViewModelTest {
     @Test
     fun `setPrefillUrl with no port falls back to default`() {
         vm.setPrefillUrl("http://host.local")
-        assertEquals(DEFAULT_GATEWAY_PORT, vm.form.value.port)
+        assertEquals(DEFAULT_GATEWAY_PORT.toString(), vm.form.value.port)
     }
 
     // ── Validation ────────────────────────────────────────────────────────────
@@ -228,5 +228,29 @@ class ManualEntryViewModelTest {
 
         val state = vm.uiState.value as ManualEntryUiState.Error
         assertTrue(state.message.contains("ProfileNeedsReauthException"))
+    }
+
+    @Test
+    fun `IPv6 prefill keeps the bare host and assembles a bracketed URL`() {
+        vm.setPrefillUrl("http://[fe80::1]:18789")
+        assertEquals("fe80::1", vm.form.value.host)
+        assertEquals("http://[fe80::1]:18789", vm.form.value.assembledUrl)
+    }
+
+    @Test
+    fun `IPv6 literal host passes validation and connects`() = runTest {
+        coEvery { connectionManager.connect(any(), any()) } returns Unit
+        vm.setPrefillUrl("http://[fe80::1]:18789")
+
+        vm.connect()
+
+        assertNull(vm.form.value.hostError)
+        coVerify { connectionManager.connect("http://[fe80::1]:18789", null) }
+    }
+
+    @Test
+    fun `https prefill without port defaults to 443`() {
+        vm.setPrefillUrl("https://abc-xyz.trycloudflare.com")
+        assertEquals("443", vm.form.value.port)
     }
 }

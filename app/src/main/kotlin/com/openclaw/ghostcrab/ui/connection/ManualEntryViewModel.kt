@@ -7,6 +7,8 @@ import com.openclaw.ghostcrab.domain.model.GatewayConnection
 import com.openclaw.ghostcrab.domain.repository.ConnectionProfileRepository
 import com.openclaw.ghostcrab.domain.repository.GatewayConnectionManager
 import com.openclaw.ghostcrab.domain.repository.OnboardingRepository
+import com.openclaw.ghostcrab.domain.util.DEFAULT_GATEWAY_PORT
+import com.openclaw.ghostcrab.domain.util.GatewayUrl
 import com.openclaw.ghostcrab.domain.util.suspendRunCatching
 import com.openclaw.ghostcrab.ui.toUserMessage
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -18,22 +20,23 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import java.net.URI
 import java.util.UUID
-
-const val DEFAULT_GATEWAY_PORT = "18789"
 
 data class ManualEntryFormState(
     val useHttps: Boolean = false,
     val host: String = "",
-    val port: String = DEFAULT_GATEWAY_PORT,
+    val port: String = DEFAULT_GATEWAY_PORT.toString(),
     val token: String = "",
     val tokenVisible: Boolean = false,
     val hostError: String? = null,
     val portError: String? = null,
 ) {
     val scheme: String get() = if (useHttps) "https" else "http"
-    val assembledUrl: String get() = "$scheme://${host.trim()}:${port.trim()}"
+    val assembledUrl: String
+        get() {
+            val h = host.trim()
+            return "$scheme://${if (h.contains(':')) "[$h]" else h}:${port.trim()}"
+        }
 
     /** Redacts [token] so form state can be logged or dumped without leaking a bearer. */
     override fun toString(): String =
@@ -80,17 +83,14 @@ class ManualEntryViewModel(
         _form.update { it.copy(useHttps = useHttps) }
     }
 
-    /** Parses a full URL from LAN scan and populates scheme/host/port individually. */
+    /** Parses a full URL (LAN scan, QR) and populates scheme/host/port individually. */
     fun setPrefillUrl(url: String) {
-        val uri = runCatching { URI(url.trim()) }.getOrNull()
-        val scheme = uri?.scheme?.lowercase()
-        val host = uri?.host.orEmpty()
-        val port = uri?.port?.takeIf { it > 0 }?.toString() ?: DEFAULT_GATEWAY_PORT
+        val parsed = GatewayUrl.parse(url)
         _form.update {
             it.copy(
-                useHttps = scheme == "https",
-                host = host,
-                port = port,
+                useHttps = parsed?.scheme == "https",
+                host = parsed?.host.orEmpty(),
+                port = (parsed?.port ?: DEFAULT_GATEWAY_PORT).toString(),
                 hostError = null,
                 portError = null,
             )
@@ -148,26 +148,31 @@ class ManualEntryViewModel(
             token,
         )
     }
+}
 
-    @Suppress("ReturnCount")
-    private fun validateHost(host: String): String? {
-        val trimmed = host.trim()
-        if (trimmed.isEmpty()) return "Host is required"
-        if (trimmed.contains("://")) return "Remove scheme — use the HTTPS toggle instead"
-        if (trimmed.contains('/')) return "Host must not contain '/'"
-        if (trimmed.contains(':')) return "Port goes in the Port field, not the Host field"
-        if (trimmed.any { it.isWhitespace() }) return "Host must not contain whitespace"
-        // '@' would smuggle userinfo into the assembled URL; '?' and '#' would truncate the host.
-        if (trimmed.any { it in "@?#\\" }) return "Host must not contain '@', '?', '#' or '\\'"
-        return null
-    }
+@Suppress("ReturnCount")
+private fun validateHost(host: String): String? {
+    val trimmed = host.trim()
+    if (trimmed.isEmpty()) return "Host is required"
+    if (trimmed.contains("://")) return "Remove scheme — use the HTTPS toggle instead"
+    if (trimmed.contains('/')) return "Host must not contain '/'"
+    // IPv6 literal (from LAN discovery or QR): hex digits, dots and at least two colons, no brackets.
+    if (isIpv6Literal(trimmed)) return null
+    if (trimmed.contains(':')) return "Port goes in the Port field, not the Host field"
+    if (trimmed.any { it.isWhitespace() }) return "Host must not contain whitespace"
+    // '@' would smuggle userinfo into the assembled URL; '?' and '#' would truncate the host.
+    if (trimmed.any { it in "@?#\\" }) return "Host must not contain '@', '?', '#' or '\\'"
+    return null
+}
 
-    @Suppress("ReturnCount")
-    private fun validatePort(port: String): String? {
-        val trimmed = port.trim()
-        if (trimmed.isEmpty()) return "Port is required"
-        val n = trimmed.toIntOrNull() ?: return "Port must be a number"
-        if (n < 1 || n > 65535) return "Port must be between 1 and 65535"
-        return null
-    }
+private fun isIpv6Literal(host: String): Boolean =
+    host.count { it == ':' } >= 2 && host.all { it.isLetterOrDigit() || it == ':' || it == '.' }
+
+@Suppress("ReturnCount")
+private fun validatePort(port: String): String? {
+    val trimmed = port.trim()
+    if (trimmed.isEmpty()) return "Port is required"
+    val n = trimmed.toIntOrNull() ?: return "Port must be a number"
+    if (n < 1 || n > 65535) return "Port must be between 1 and 65535"
+    return null
 }

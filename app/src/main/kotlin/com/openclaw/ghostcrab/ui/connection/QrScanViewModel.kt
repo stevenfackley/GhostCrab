@@ -2,6 +2,7 @@ package com.openclaw.ghostcrab.ui.connection
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.openclaw.ghostcrab.domain.util.GatewayUrl
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -70,8 +71,7 @@ class QrScanViewModel : ViewModel() {
     fun onQrDecoded(raw: String) {
         if (_uiState.value == QrScanUiState.Decoded) return
         val url = raw.trim()
-        val valid = (url.startsWith("http://") || url.startsWith("https://")) &&
-            runCatching { java.net.URI(url) }.isSuccess
+        val valid = GatewayUrl.parse(url) != null
         if (!valid) {
             _uiState.value = QrScanUiState.InvalidQr("QR code doesn't contain a valid gateway URL")
             return
