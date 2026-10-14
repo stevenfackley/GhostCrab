@@ -19,12 +19,15 @@ import kotlinx.serialization.json.doubleOrNull
  *
  * Checks the change's own path and, when the suggested value is an object, every nested key joined
  * to that path — so `gateway.http = {"host":"0.0.0.0"}` is caught like `gateway.http.host`.
+ * A JSON `null` anywhere in the value is an RFC 7396 merge-patch delete, and deleting config
+ * always needs confirmation, whatever the path.
  */
 internal val SuggestedChange.isSecurityAffecting: Boolean
     get() {
         val path = "$section.$key"
-        return isSecurityAffectingConfigPath(path) ||
-            parseSuggestedValue(suggestedValue).nestedKeyPaths(path).any(::isSecurityAffectingConfigPath)
+        val value = parseSuggestedValue(suggestedValue)
+        return value.anyPrimitive { it is JsonNull } || isSecurityAffectingConfigPath(path) ||
+            value.nestedKeyPaths(path).any(::isSecurityAffectingConfigPath)
     }
 
 /**
@@ -35,7 +38,7 @@ internal val SuggestedChange.isSecurityAffecting: Boolean
  */
 internal val SuggestedChange.isApplicable: Boolean
     get() = REDACTED_PLACEHOLDER !in suggestedValue &&
-        !parseSuggestedValue(suggestedValue).containsRedactedPlaceholder()
+        !parseSuggestedValue(suggestedValue).anyPrimitive { it.isString && REDACTED_PLACEHOLDER in it.content }
 
 /**
  * Parses an AI-suggested value as JSON, falling back to a JSON string so a malformed suggestion
@@ -84,8 +87,9 @@ private fun JsonElement.nestedKeyPaths(prefix: String): List<String> = when (thi
     is JsonPrimitive -> emptyList()
 }
 
-private fun JsonElement.containsRedactedPlaceholder(): Boolean = when (this) {
-    is JsonObject -> values.any { it.containsRedactedPlaceholder() }
-    is JsonArray -> any { it.containsRedactedPlaceholder() }
-    is JsonPrimitive -> isString && REDACTED_PLACEHOLDER in content
+/** `true` if any primitive leaf (`null` included) of this element satisfies [predicate]. */
+private fun JsonElement.anyPrimitive(predicate: (JsonPrimitive) -> Boolean): Boolean = when (this) {
+    is JsonObject -> values.any { it.anyPrimitive(predicate) }
+    is JsonArray -> any { it.anyPrimitive(predicate) }
+    is JsonPrimitive -> predicate(this)
 }

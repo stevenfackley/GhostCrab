@@ -26,6 +26,7 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
@@ -45,6 +46,8 @@ import com.openclaw.ghostcrab.ui.theme.Spacing
  * @param changes All suggested changes from the AI response.
  * @param selectedChanges Set of changes the user has toggled on.
  * @param isApplying `true` while the apply coroutine is running — disables the button.
+ * @param droppedCount Suggestions removed because they echoed a redacted value; a one-line note
+ *   is shown when > 0.
  * @param onToggle Called when the user taps a change row's checkbox.
  * @param onApply Called when the user taps "Apply N Selected".
  * @param onDismiss Called when the sheet is dismissed without applying.
@@ -55,6 +58,7 @@ fun ApplySuggestionsSheet(
     changes: List<SuggestedChange>,
     selectedChanges: Set<SuggestedChange>,
     isApplying: Boolean,
+    droppedCount: Int,
     onToggle: (SuggestedChange) -> Unit,
     onApply: () -> Unit,
     onDismiss: () -> Unit,
@@ -73,23 +77,7 @@ fun ApplySuggestionsSheet(
                 .navigationBarsPadding()
                 .padding(Spacing.md),
         ) {
-            // Header
-            Text(
-                text = stringResource(R.string.ai_sheet_title),
-                style = MaterialTheme.typography.titleMedium.copy(
-                    color = BrandTokens.colorTextPrimary,
-                    fontWeight = FontWeight.Bold,
-                ),
-            )
-
-            Spacer(Modifier.height(Spacing.xs))
-
-            Text(
-                text = stringResource(R.string.ai_sheet_subtitle, changes.size),
-                style = MaterialTheme.typography.bodySmall.copy(
-                    color = BrandTokens.colorTextSecondary,
-                ),
-            )
+            SheetHeader(changeCount = changes.size, droppedCount = droppedCount)
 
             Spacer(Modifier.height(Spacing.md))
             HorizontalDivider(color = BrandTokens.colorOutline)
@@ -118,29 +106,62 @@ fun ApplySuggestionsSheet(
 
             Spacer(Modifier.height(Spacing.md))
 
-            // Apply button
-            val count = selectedChanges.size
-            Button(
-                onClick = onApply,
-                enabled = count > 0 && !isApplying,
-                modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = BrandTokens.colorCyanPrimary,
-                    contentColor = BrandTokens.colorAbyss,
-                    disabledContainerColor = BrandTokens.colorCyanPrimary.copy(alpha = 0.35f),
-                    disabledContentColor = BrandTokens.colorAbyss.copy(alpha = 0.5f),
-                ),
-            ) {
-                Text(
-                    text = if (count > 0) {
-                        stringResource(R.string.ai_sheet_apply_button, count)
-                    } else {
-                        stringResource(R.string.ai_sheet_apply_none)
-                    },
-                    fontWeight = FontWeight.Bold,
-                )
-            }
+            ApplyButton(count = selectedChanges.size, isApplying = isApplying, onApply = onApply)
         }
+    }
+}
+
+// ── Header + apply button ─────────────────────────────────────────────────────
+
+@Composable
+private fun SheetHeader(changeCount: Int, droppedCount: Int) {
+    Text(
+        text = stringResource(R.string.ai_sheet_title),
+        style = MaterialTheme.typography.titleMedium.copy(
+            color = BrandTokens.colorTextPrimary,
+            fontWeight = FontWeight.Bold,
+        ),
+    )
+
+    Spacer(Modifier.height(Spacing.xs))
+
+    Text(
+        text = stringResource(R.string.ai_sheet_subtitle, changeCount),
+        style = MaterialTheme.typography.bodySmall.copy(
+            color = BrandTokens.colorTextSecondary,
+        ),
+    )
+
+    if (droppedCount > 0) {
+        Spacer(Modifier.height(Spacing.xs))
+        Text(
+            text = pluralStringResource(R.plurals.ai_sheet_dropped_redacted, droppedCount, droppedCount),
+            style = MaterialTheme.typography.bodySmall.copy(color = BrandTokens.colorAmberWarn),
+        )
+    }
+}
+
+@Composable
+private fun ApplyButton(count: Int, isApplying: Boolean, onApply: () -> Unit) {
+    Button(
+        onClick = onApply,
+        enabled = count > 0 && !isApplying,
+        modifier = Modifier.fillMaxWidth(),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = BrandTokens.colorCyanPrimary,
+            contentColor = BrandTokens.colorAbyss,
+            disabledContainerColor = BrandTokens.colorCyanPrimary.copy(alpha = 0.35f),
+            disabledContentColor = BrandTokens.colorAbyss.copy(alpha = 0.5f),
+        ),
+    ) {
+        Text(
+            text = if (count > 0) {
+                stringResource(R.string.ai_sheet_apply_button, count)
+            } else {
+                stringResource(R.string.ai_sheet_apply_none)
+            },
+            fontWeight = FontWeight.Bold,
+        )
     }
 }
 

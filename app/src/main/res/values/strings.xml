@@ -104,6 +104,10 @@
     <string name="ai_sheet_apply_button">Apply %1$d Selected</string>
     <string name="ai_sheet_apply_none">No changes selected</string>
     <string name="ai_sheet_security_badge">Security-sensitive</string>
+    <plurals name="ai_sheet_dropped_redacted">
+        <item quantity="one">%1$d suggestion skipped: it referenced redacted values.</item>
+        <item quantity="other">%1$d suggestions skipped: they referenced redacted values.</item>
+    </plurals>
     <string name="ai_security_confirm_title">Security-sensitive changes</string>
     <string name="ai_security_confirm_body">These changes affect authentication, credentials, TLS or network exposure. Apply them anyway?</string>
     <string name="ai_security_confirm_apply">Apply anyway</string>

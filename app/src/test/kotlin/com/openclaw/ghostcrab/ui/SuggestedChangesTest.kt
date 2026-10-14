@@ -38,6 +38,15 @@ class SuggestedChangesTest {
     }
 
     @Test
+    fun `a null value deletes config and is always security affecting`() {
+        assertTrue(change("gateway", "http", "null").isSecurityAffecting)
+        assertTrue(change("models", "default", "null").isSecurityAffecting)
+        assertTrue(change("models", "default", " null ").isSecurityAffecting)
+        assertTrue(change("models", "limits", """{"timeout_ms":null}""").isSecurityAffecting)
+        assertFalse(change("models", "default", "\"null\"").isSecurityAffecting)
+    }
+
+    @Test
     fun `suggestions echoing the redaction placeholder are not applicable`() {
         assertFalse(change("gateway", "auth.token", "[REDACTED]").isApplicable)
         assertFalse(change("gateway", "auth.token", "\"[REDACTED]\"").isApplicable)

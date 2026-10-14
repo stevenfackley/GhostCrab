@@ -98,13 +98,13 @@ class AIRecommendationViewModel(
             try {
                 val context = buildRecommendationContext(connectionManager, configRepository, modelRepository)
                 val recommendation = aiService.getRecommendation(trimmed, context)
+                // Never offer a suggestion that would write the redaction placeholder back.
+                val applicable = recommendation.suggestedChanges.filter { it.isApplicable }
                 _state.value = AIRecommendationUiState.Ready(
                     query = trimmed,
-                    // Never offer a suggestion that would write the redaction placeholder back.
-                    recommendation = recommendation.copy(
-                        suggestedChanges = recommendation.suggestedChanges.filter { it.isApplicable },
-                    ),
+                    recommendation = recommendation.copy(suggestedChanges = applicable),
                     selectedChanges = emptySet(),
+                    droppedSuggestionCount = recommendation.suggestedChanges.size - applicable.size,
                 )
             } catch (e: AIServiceUnavailableException) {
                 val missingScope = if (scopeProbe != null) {

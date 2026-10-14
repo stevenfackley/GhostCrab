@@ -503,6 +503,21 @@ class AIRecommendationViewModelTest {
     }
 
     @Test
+    fun `submitQuery counts suggestions dropped for echoing the placeholder`() = runTest {
+        val echoed = change("gateway", "auth.token", "[REDACTED]")
+        val safe = change()
+        val (vm, _) = makeVm(
+            service = FakeAIService(available = true, recommendation = recommendation(echoed, safe)),
+        )
+
+        vm.submitQuery("query")
+
+        val ready = vm.state.value as AIRecommendationUiState.Ready
+        assertEquals(listOf(safe), ready.recommendation.suggestedChanges)
+        assertEquals(1, ready.droppedSuggestionCount)
+    }
+
+    @Test
     fun `applySelectedChanges ignores a second tap while an apply is in flight`() = runTest {
         val c = change()
         val gate = CompletableDeferred<Unit>()

@@ -49,6 +49,8 @@ sealed interface AIRecommendationUiState {
      *   Cleared by [AIRecommendationViewModel.clearApplyFlags].
      * @param confirmSecurityChanges Non-empty while the UI must ask the user to confirm these
      *   security-affecting changes before anything is written.
+     * @param droppedSuggestionCount How many AI suggestions were removed from [recommendation]
+     *   because they echoed a redacted value (see [isApplicable]); the sheet tells the user.
      */
     data class Ready(
         val query: String,
@@ -58,6 +60,7 @@ sealed interface AIRecommendationUiState {
         val applySuccess: Boolean = false,
         val applyError: String? = null,
         val confirmSecurityChanges: List<SuggestedChange> = emptyList(),
+        val droppedSuggestionCount: Int = 0,
     ) : AIRecommendationUiState
 
     /**

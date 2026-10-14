@@ -227,6 +227,7 @@ fun AIRecommendationScreen(onNavigateBack: () -> Unit) {
                     changes = allChanges,
                     selectedChanges = readyState.selectedChanges,
                     isApplying = readyState.isApplying,
+                    droppedCount = readyState.droppedSuggestionCount,
                     onToggle = { viewModel.toggleChange(it) },
                     onApply = { viewModel.applySelectedChanges() },
                     onDismiss = { showApplySheet = false },

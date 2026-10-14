@@ -48,6 +48,22 @@ class ConfigSensitivityTest {
     }
 
     @Test
+    fun `token-count and tokenizer keys are not secrets but real tokens still are`() {
+        listOf("max_tokens", "maxTokens", "contextTokens", "tokenizer", "token_limit", "tokensPerMinute")
+            .forEach { assertFalse(isSecretKey(it), it) }
+        listOf("token", "auth_token", "authToken", "access-token", "tokenizer_api_key")
+            .forEach { assertTrue(isSecretKey(it), it) }
+    }
+
+    @Test
+    fun `token-count values stay visible to the AI`() {
+        val redacted = Json.parseToJsonElement("""{"max_tokens":4096,"token":"s3cr3t"}""").redactSecrets().toString()
+
+        assertTrue(redacted.contains("4096"))
+        assertFalse(redacted.contains("s3cr3t"))
+    }
+
+    @Test
     fun `redacts URLs with embedded credentials regardless of key name`() {
         val config = Json.parseToJsonElement(
             """{"upstream":"https://bob:hunter2@example.com/v1","mirrors":["redis://:s3cr3t@cache:6379"],""" +
