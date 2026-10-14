@@ -115,7 +115,7 @@ class SettingsViewModelTest {
     }
 
     @Test
-    fun `confirmClearAllProfiles deletes all profiles`() = runTest {
+    fun `confirmClearAllProfiles clears the whole store in one call`() = runTest {
         val profiles = listOf(profile("a"), profile("b"), profile("c"))
         val profileRepo = FakeSettingsProfileRepository(profiles)
         val vm = makeVm(profileRepo = profileRepo)
@@ -123,7 +123,7 @@ class SettingsViewModelTest {
         vm.requestClearAllProfiles()
         vm.confirmClearAllProfiles()
 
-        assertEquals(3, profileRepo.deletedIds.size)
+        assertEquals(1, profileRepo.clearAllCalls)
     }
 
     @Test
@@ -265,6 +265,7 @@ private class FakeSettingsProfileRepository(
 
     private val flow = MutableStateFlow(initial)
     val deletedIds = mutableListOf<String>()
+    var clearAllCalls = 0
     val savedProfiles = mutableListOf<Pair<ConnectionProfile, String?>>()
 
     override fun getProfiles(): Flow<List<ConnectionProfile>> = flow
@@ -287,6 +288,11 @@ private class FakeSettingsProfileRepository(
     override suspend fun deleteProfile(profileId: String) {
         deletedIds += profileId
         flow.value = flow.value.filter { it.id != profileId }
+    }
+
+    override suspend fun clearAll() {
+        clearAllCalls++
+        flow.value = emptyList()
     }
 }
 

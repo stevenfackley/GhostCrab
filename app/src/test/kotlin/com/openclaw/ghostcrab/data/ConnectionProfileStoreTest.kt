@@ -2,7 +2,12 @@ package com.openclaw.ghostcrab.data
 
 import android.content.Context
 import android.content.SharedPreferences
+import androidx.datastore.preferences.core.mutablePreferencesOf
 import com.openclaw.ghostcrab.data.storage.ConnectionProfileStore
+import com.openclaw.ghostcrab.data.storage.KEY_PROFILES
+import com.openclaw.ghostcrab.data.storage.KEY_PROFILES_CORRUPT_BACKUP
+import com.openclaw.ghostcrab.data.storage.clearProfileKeys
+import com.openclaw.ghostcrab.data.storage.profilesForWrite
 import com.openclaw.ghostcrab.data.storage.StoredProfile
 import com.openclaw.ghostcrab.data.storage.decodeProfilesForRead
 import com.openclaw.ghostcrab.data.storage.decodeProfilesForWrite
@@ -104,5 +109,55 @@ class ConnectionProfileStoreTest {
     fun `saveToken maps a keystore failure to ProfileNeedsReauthException`() {
         val store = ConnectionProfileStore(mockk(relaxed = true)) { throw GeneralSecurityException("keystore gone") }
         assertThrows(ProfileNeedsReauthException::class.java) { runBlocking { store.saveToken("p1", "t") } }
+    }
+
+    @Test
+    fun `save after corruption recovers, backs up the raw blob and decodes afterwards`() {
+        val prefs = mutablePreferencesOf(KEY_PROFILES to """[{"id":1}]""")
+
+        val current = prefs.profilesForWrite()
+
+        assertEquals(emptyList<StoredProfile>(), current)
+        assertEquals("""[{"id":1}]""", prefs[KEY_PROFILES_CORRUPT_BACKUP])
+        assertNull(prefs[KEY_PROFILES])
+        prefs[KEY_PROFILES] = "[]"
+        assertEquals(emptyList<StoredProfile>(), prefs.profilesForWrite())
+        assertEquals("""[{"id":1}]""", prefs[KEY_PROFILES_CORRUPT_BACKUP])
+    }
+
+    @Test
+    fun `a second corruption replaces the older backup`() {
+        val prefs = mutablePreferencesOf(
+            KEY_PROFILES to "garbage-2",
+            KEY_PROFILES_CORRUPT_BACKUP to "garbage-1",
+        )
+
+        prefs.profilesForWrite()
+
+        assertEquals("garbage-2", prefs[KEY_PROFILES_CORRUPT_BACKUP])
+    }
+
+    @Test
+    fun `profilesForWrite leaves a healthy store untouched`() {
+        val prefs = mutablePreferencesOf(
+            KEY_PROFILES to """[{"id":"a","displayName":"A","url":"http://x",""" +
+                """"lastConnectedAt":null,"hasToken":false}]""",
+        )
+
+        assertEquals(listOf("a"), prefs.profilesForWrite().map { it.id })
+        assertNull(prefs[KEY_PROFILES_CORRUPT_BACKUP])
+    }
+
+    @Test
+    fun `clearProfileKeys empties a corrupt store and its backup`() {
+        val prefs = mutablePreferencesOf(
+            KEY_PROFILES to "garbage",
+            KEY_PROFILES_CORRUPT_BACKUP to "older",
+        )
+
+        prefs.clearProfileKeys()
+
+        assertNull(prefs[KEY_PROFILES])
+        assertNull(prefs[KEY_PROFILES_CORRUPT_BACKUP])
     }
 }

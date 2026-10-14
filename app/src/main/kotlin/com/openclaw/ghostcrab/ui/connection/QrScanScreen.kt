@@ -66,6 +66,7 @@ import com.google.mlkit.vision.common.InputImage
 import com.openclaw.ghostcrab.ui.theme.BrandTokens
 import org.koin.androidx.compose.koinViewModel
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicReference
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -206,8 +207,14 @@ private fun CameraPreview(
         )
     }
 
+    val cameraProvider = remember { AtomicReference<ProcessCameraProvider?>(null) }
+    val imageAnalysis = remember { AtomicReference<ImageAnalysis?>(null) }
+
     DisposableEffect(Unit) {
         onDispose {
+            // Stop frames reaching the analyzer and release the camera before the executor goes away.
+            imageAnalysis.get()?.clearAnalyzer()
+            cameraProvider.get()?.unbindAll()
             executor.shutdown()
             scanner.close()
         }
@@ -227,6 +234,8 @@ private fun CameraPreview(
                         .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                         .build()
                     analysis.setAnalyzer(executor) { proxy -> analyzeProxy(proxy, scanner, onQrDecoded) }
+                    cameraProvider.set(provider)
+                    imageAnalysis.set(analysis)
                     provider.unbindAll()
                     provider.bindToLifecycle(
                         lifecycleOwner,

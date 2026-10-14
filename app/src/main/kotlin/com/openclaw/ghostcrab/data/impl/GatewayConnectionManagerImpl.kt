@@ -15,9 +15,11 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -50,16 +52,20 @@ class GatewayConnectionManagerImpl(
     /** Live copy of the user's cleartext opt-in; every request's interceptor reads it. */
     private val allowCleartext = AtomicBoolean(false)
 
+    // Fail closed: a settings read error (e.g. DataStore IOException) means "not allowed", never a crash.
+    private val cleartextSetting: Flow<Boolean> =
+        settingsRepository.allowCleartextPublicIPs.catch { emit(false) }
+
     init {
         // App-lifetime singleton: keep the opt-in current so a Settings change applies to the live session.
         CoroutineScope(SupervisorJob() + ioDispatcher).launch {
-            settingsRepository.allowCleartextPublicIPs.collect { allowCleartext.set(it) }
+            cleartextSetting.collect { allowCleartext.set(it) }
         }
     }
 
     /** Reads the current opt-in before building clients, so the first request never races the collector. */
     private suspend fun primeCleartextSetting() {
-        allowCleartext.set(settingsRepository.allowCleartextPublicIPs.firstOrNull() ?: false)
+        allowCleartext.set(cleartextSetting.firstOrNull() ?: false)
     }
 
     override suspend fun probeAuth(url: String): AuthRequirement = withContext(ioDispatcher) {

@@ -21,7 +21,7 @@ sealed interface QrScanUiState {
     data object PermissionDenied : QrScanUiState
     /** A QR was decoded but its content is not a valid gateway URL. */
     data class InvalidQr(val message: String) : QrScanUiState
-    /** A valid code was accepted; further frames are ignored until [QrScanViewModel.onScanAgain]. */
+    /** A valid code was accepted; further frames are ignored. Terminal: navigation leaves the screen. */
     data object Decoded : QrScanUiState
 }
 

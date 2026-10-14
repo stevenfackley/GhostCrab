@@ -273,6 +273,7 @@ private class FakeProfileRepository(
         return null
     }
     override suspend fun deleteProfile(profileId: String) {}
+    override suspend fun clearAll() {}
 }
 
 private class FakeConnectionManager(

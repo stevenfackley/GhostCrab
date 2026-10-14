@@ -136,6 +136,9 @@ class ConnectionPickerScreenTest {
         override suspend fun deleteProfile(profileId: String) {
             flow.value = flow.value.filter { it.id != profileId }
         }
+        override suspend fun clearAll() {
+            flow.value = emptyList()
+        }
     }
 
     private class FakeConnectionManager : GatewayConnectionManager {

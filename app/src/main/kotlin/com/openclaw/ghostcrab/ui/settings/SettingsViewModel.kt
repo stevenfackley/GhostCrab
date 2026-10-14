@@ -158,16 +158,14 @@ class SettingsViewModel(
     }
 
     /**
-     * Deletes all saved profiles. Sets [SettingsUiState.Ready.errorMessage] on partial failure.
+     * Deletes all saved profiles and tokens (even if the stored list is unreadable).
+     * Sets [SettingsUiState.Ready.errorMessage] on failure.
      */
     fun confirmClearAllProfiles() {
-        val profiles = (_state.value as? SettingsUiState.Ready)?.profiles ?: return
         withReady { it.copy(showClearAllConfirmation = false) }
         viewModelScope.launch {
-            profiles.forEach { profile ->
-                suspendRunCatching { profileRepository.deleteProfile(profile.id) }
-                    .onFailure { e -> withReady { s -> s.copy(errorMessage = e.toUserMessage()) } }
-            }
+            suspendRunCatching { profileRepository.clearAll() }
+                .onFailure { e -> withReady { s -> s.copy(errorMessage = e.toUserMessage()) } }
         }
     }
 

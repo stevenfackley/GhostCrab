@@ -25,7 +25,9 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
@@ -262,12 +264,13 @@ class GatewayConnectionManagerImplTest {
     fun `connect runs on the injected IO dispatcher`() = runTest {
         val io = CountingDispatcher(StandardTestDispatcher(testScheduler))
         val mgr = GatewayConnectionManagerImpl(factory, ioDispatcher = io)
+        val before = io.dispatches
         coEvery { probeClient.health() } returns HealthResponse("ok")
         coEvery { probeClient.status() } returns statusOk
 
         mgr.connect(url)
 
-        assertTrue(io.dispatches > 0)
+        assertTrue(io.dispatches > before)
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -289,6 +292,30 @@ class GatewayConnectionManagerImplTest {
         assertTrue(policy.captured())
 
         setting.value = false
+        assertFalse(policy.captured())
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `a settings read error fails closed and does not propagate`() = runTest {
+        val source = MutableSharedFlow<Boolean>(replay = 1)
+        val settings = object : SettingsRepository {
+            override val allowCleartextPublicIPs: Flow<Boolean> =
+                source.map { if (it) true else throw java.io.IOException("datastore gone") }
+            override suspend fun setAllowCleartextPublicIPs(enabled: Boolean) = Unit
+        }
+        val policy = slot<() -> Boolean>()
+        every { factory.authenticated(any(), any(), capture(policy)) } returns sessionClient
+        coEvery { probeClient.health() } returns HealthResponse("ok")
+        coEvery { probeClient.status() } throws GatewayAuthException(url, 401)
+        coEvery { sessionClient.status() } returns statusOk
+        source.tryEmit(true)
+        val mgr = GatewayConnectionManagerImpl(factory, settings, UnconfinedTestDispatcher(testScheduler))
+
+        mgr.connect(url, token)
+        assertTrue(policy.captured())
+
+        source.tryEmit(false)
         assertFalse(policy.captured())
     }
 }

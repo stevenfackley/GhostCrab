@@ -145,6 +145,9 @@ private class FakeCpProfileRepo(
         _profiles.value = _profiles.value.filter { it.id != profileId }
     }
     override suspend fun getToken(profileId: String): String? = tokens[profileId]
+    override suspend fun clearAll() {
+        _profiles.value = emptyList()
+    }
 }
 
 private open class FakeCpConnectionManager : GatewayConnectionManager {

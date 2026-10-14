@@ -47,4 +47,9 @@ interface ConnectionProfileRepository {
      * @param profileId The [ConnectionProfile.id] to delete.
      */
     suspend fun deleteProfile(profileId: String)
+
+    /**
+     * Removes every saved profile and token, including data that can no longer be decoded.
+     */
+    suspend fun clearAll()
 }

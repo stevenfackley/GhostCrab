@@ -25,6 +25,8 @@ class ConnectionProfileRepositoryImpl(
 
     override suspend fun deleteProfile(profileId: String) =
         store.deleteProfile(profileId)
+
+    override suspend fun clearAll() = store.clearAll()
 }
 
 private fun StoredProfile.toDomain() = ConnectionProfile(
