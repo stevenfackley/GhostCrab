@@ -69,6 +69,9 @@ class ManualEntryViewModel(
     /** Display name from a consumed pair bundle; used for the saved profile instead of the gateway's own name. */
     private var pairedName: String? = null
 
+    /** `true` while the form's token came from a pairing link and the user has not typed over it. */
+    private var tokenFromPairing = false
+
     /** Bumped on every [PairingHandoff.offer]; the screen re-runs [consumePendingPairing] when it changes. */
     val pairingOffers: StateFlow<Int> = pairingHandoff.offers
 
@@ -83,16 +86,32 @@ class ManualEntryViewModel(
     val events: Flow<ManualEntryEvent> = _events.receiveAsFlow()
 
     fun onHostChange(value: String) {
+        if (value != _form.value.host) addressEditedByHand()
         _form.update { it.copy(host = value, hostError = null) }
     }
 
     fun onPortChange(value: String) {
         val digitsOnly = value.filter(Char::isDigit).take(5)
+        if (digitsOnly != _form.value.port) addressEditedByHand()
         _form.update { it.copy(port = digitsOnly, portError = null) }
     }
 
     fun onHttpsToggle(useHttps: Boolean) {
+        if (useHttps != _form.value.useHttps) addressEditedByHand()
         _form.update { it.copy(useHttps = useHttps) }
+    }
+
+    /**
+     * The form now names a different gateway than the pairing link did: drop the link's suggested
+     * name, and its token unless the user typed over it. Otherwise gateway B is saved under A's
+     * name and sent A's token.
+     */
+    private fun addressEditedByHand() {
+        pairedName = null
+        if (tokenFromPairing) {
+            tokenFromPairing = false
+            _form.update { it.copy(token = "") }
+        }
     }
 
     /** Parses a full URL (LAN scan, QR) and populates scheme/host/port individually. */
@@ -118,6 +137,7 @@ class ManualEntryViewModel(
     fun consumePendingPairing(): Boolean {
         val bundle = pairingHandoff.take() ?: return false
         pairedName = bundle.name?.takeIf { it.isNotBlank() }
+        tokenFromPairing = !bundle.token.isNullOrEmpty()
         _form.update {
             it.copy(
                 useHttps = bundle.url.scheme == "https",
@@ -132,6 +152,7 @@ class ManualEntryViewModel(
     }
 
     fun onTokenChange(value: String) {
+        if (value != _form.value.token) tokenFromPairing = false
         _form.update { it.copy(token = value) }
     }
 

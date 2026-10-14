@@ -322,4 +322,45 @@ class ManualEntryViewModelTest {
         assertEquals(before + 1, pairedVm.pairingOffers.value)
         assertTrue(pairedVm.consumePendingPairing())
     }
+
+    private fun pairedVm(token: String? = "tkn"): ManualEntryViewModel {
+        val handoff = PairingHandoff().apply {
+            offer(PairBundle(GatewayUrl("http", "gw-a.example", 18789), token = token, name = "Den"))
+        }
+        return ManualEntryViewModel(connectionManager, profileRepository, onboardingRepository, handoff)
+            .also { it.consumePendingPairing() }
+    }
+
+    @Test
+    fun `editing the host after a pairing link drops the paired token and name`() = runTest {
+        val vm = pairedVm()
+        vm.onHostChange("gw-b.example")
+        assertEquals("", vm.form.value.token)
+        vm.connect()
+        coVerify { connectionManager.connect("http://gw-b.example:18789", null) }
+        coVerify(exactly = 0) { profileRepository.saveProfile(match { it.displayName == "Den" }, any()) }
+    }
+
+    @Test
+    fun `editing port or https after a pairing link drops the paired token`() {
+        val a = pairedVm().also { it.onPortChange("9999") }
+        assertEquals("", a.form.value.token)
+        val b = pairedVm().also { it.onHttpsToggle(true) }
+        assertEquals("", b.form.value.token)
+    }
+
+    @Test
+    fun `a token typed over the paired one survives an address edit`() {
+        val vm = pairedVm()
+        vm.onTokenChange("mine")
+        vm.onHostChange("gw-b.example")
+        assertEquals("mine", vm.form.value.token)
+    }
+
+    @Test
+    fun `re-entering the same host keeps the paired token`() {
+        val vm = pairedVm()
+        vm.onHostChange("gw-a.example")
+        assertEquals("tkn", vm.form.value.token)
+    }
 }
