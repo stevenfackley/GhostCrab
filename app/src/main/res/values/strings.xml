@@ -248,4 +248,5 @@
     <string name="field_secret_show">Show value</string>
     <string name="field_secret_hide">Hide value</string>
     <string name="pair_deeplink_label">Pair with GhostCrab</string>
+    <string name="pair_link_invalid">Pairing link rejected. %1$s</string>
 </resources>

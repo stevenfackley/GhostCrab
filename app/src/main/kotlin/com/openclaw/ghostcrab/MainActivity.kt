@@ -58,17 +58,37 @@ class MainActivity : ComponentActivity() {
      * Hands a `ghostcrab://pair` bundle to [PairingHandoff] (the token never enters a navigation
      * route) and asks the nav graph to open ManualEntry, which prefills but does not auto-connect.
      *
-     * @param intent The launch or new intent; ignored when it carries no data URI.
+     * @param intent The launch or new intent; ignored unless [pairLinkToHandle] accepts it.
      */
     private fun acceptPairIntent(intent: Intent?) {
-        val data = intent?.dataString ?: return
-        when (val result = decodePairCode(data)) {
+        val link = intent?.let { pairLinkToHandle(it.action, it.scheme, it.flags, it.dataString) } ?: return
+        when (val result = decodePairCode(link)) {
             is PairCodeResult.Bundle -> {
                 pairingHandoff.offer(result.bundle)
                 pairRequests.update { it + 1 }
             }
-            is PairCodeResult.Invalid -> Toast.makeText(this, result.reason, Toast.LENGTH_LONG).show()
-            is PairCodeResult.PlainUrl -> Unit // the intent filter only matches ghostcrab://pair
+            is PairCodeResult.Invalid ->
+                Toast.makeText(this, getString(R.string.pair_link_invalid, result.reason), Toast.LENGTH_LONG).show()
+            is PairCodeResult.PlainUrl -> Unit // unreachable: pairLinkToHandle only passes ghostcrab: links
         }
     }
 }
+
+private const val PAIR_LINK_SCHEME = "ghostcrab"
+
+/**
+ * Picks the pairing link out of an incoming intent's fields.
+ *
+ * @param action Intent action.
+ * @param scheme Scheme of the intent's data URI.
+ * @param flags Intent flags.
+ * @param dataString The data URI as a string.
+ * @return [dataString] for an `ACTION_VIEW` of the `ghostcrab` scheme; `null` for anything else, and for a
+ *   relaunch from Recents, which re-delivers the original (already handled) link with its token.
+ */
+internal fun pairLinkToHandle(action: String?, scheme: String?, flags: Int, dataString: String?): String? =
+    dataString.takeIf {
+        action == Intent.ACTION_VIEW &&
+            PAIR_LINK_SCHEME.equals(scheme, ignoreCase = true) &&
+            flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY == 0
+    }

@@ -27,7 +27,7 @@ fun NavGraph(pairRequest: Int = 0) {
 
     // A `ghostcrab://pair` deep link was accepted (bundle waiting in PairingHandoff): open ManualEntry.
     LaunchedEffect(pairRequest) {
-        if (pairRequest > 0) navController.navigate("manual_entry")
+        if (pairRequest > 0) navController.navigate("manual_entry") { launchSingleTop = true }
     }
 
     NavHost(
@@ -45,8 +45,12 @@ fun NavGraph(pairRequest: Int = 0) {
                     }
                 },
                 onNavigateToOnboarding = {
-                    navController.navigate("onboarding") {
-                        popUpTo("connection_picker") { inclusive = false }
+                    // First-run redirect only while the picker is on top: if a deep link already pushed
+                    // ManualEntry, popUpTo would pop the prefilled form.
+                    if (navController.currentDestination?.route == "connection_picker") {
+                        navController.navigate("onboarding") {
+                            popUpTo("connection_picker") { inclusive = false }
+                        }
                     }
                 },
             )

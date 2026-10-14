@@ -274,4 +274,30 @@ class ManualEntryViewModelTest {
         assertFalse(pairedVm.consumePendingPairing())
         coVerify(exactly = 0) { connectionManager.connect(any(), any()) }
     }
+
+    @Test
+    fun `paired name is used for the saved profile`() = runTest {
+        val handoff = PairingHandoff().apply {
+            offer(PairBundle(GatewayUrl("http", "192.168.0.23", 18789), token = "tkn", name = "Den"))
+        }
+        val pairedVm = ManualEntryViewModel(connectionManager, profileRepository, onboardingRepository, handoff)
+        coEvery { connectionManager.connect(any(), any()) } returns Unit
+        pairedVm.consumePendingPairing()
+
+        pairedVm.connect()
+
+        coVerify { profileRepository.saveProfile(match { it.displayName == "Den" }, "tkn") }
+    }
+
+    @Test
+    fun `an offer made while the screen is open bumps pairingOffers`() {
+        val handoff = PairingHandoff()
+        val pairedVm = ManualEntryViewModel(connectionManager, profileRepository, onboardingRepository, handoff)
+        val before = pairedVm.pairingOffers.value
+
+        handoff.offer(PairBundle(GatewayUrl("http", "192.168.0.23", 18789), token = null, name = null))
+
+        assertEquals(before + 1, pairedVm.pairingOffers.value)
+        assertTrue(pairedVm.consumePendingPairing())
+    }
 }

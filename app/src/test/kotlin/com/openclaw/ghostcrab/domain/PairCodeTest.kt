@@ -1,5 +1,6 @@
 package com.openclaw.ghostcrab.domain
 
+import com.openclaw.ghostcrab.domain.util.MAX_PAIR_CODE_LENGTH
 import com.openclaw.ghostcrab.domain.util.PairCodeResult
 import com.openclaw.ghostcrab.domain.util.decodePairCode
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -48,5 +49,30 @@ class PairCodeTest {
 
     @Test fun `random text is invalid`() {
         assertInstanceOf(PairCodeResult.Invalid::class.java, decodePairCode("just some random text"))
+    }
+
+    @Test fun `payload over the size cap is rejected before decoding`() {
+        val name = "x".repeat(MAX_PAIR_CODE_LENGTH)
+        val oversized = pairUri("""{"v":1,"url":"http://192.168.0.23:18789","name":"$name"}""")
+        assertTrue((decodePairCode(oversized) as PairCodeResult.Invalid).reason.contains("too large"))
+    }
+
+    @Test fun `unknown version without a url still reports the version`() {
+        val result = decodePairCode(pairUri("""{"v":2}"""))
+        assertTrue((result as PairCodeResult.Invalid).reason.contains("version 2"))
+    }
+
+    @Test fun `bundle without url is rejected`() {
+        assertInstanceOf(PairCodeResult.Invalid::class.java, decodePairCode(pairUri("""{"v":1,"token":"tkn"}""")))
+    }
+
+    @Test fun `userinfo inside the bundle url is rejected`() {
+        val result = decodePairCode(pairUri("""{"v":1,"url":"http://user:pw@192.168.0.23:18789"}"""))
+        assertInstanceOf(PairCodeResult.Invalid::class.java, result)
+    }
+
+    @Test fun `ghostcrab link without a payload is reported as pairing data, not as a QR url`() {
+        val result = decodePairCode("ghostcrab://pair")
+        assertFalse((result as PairCodeResult.Invalid).reason.contains("QR"))
     }
 }

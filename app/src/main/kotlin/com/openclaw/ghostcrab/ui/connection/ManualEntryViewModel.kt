@@ -65,6 +65,9 @@ class ManualEntryViewModel(
     /** Display name from a consumed pair bundle; used for the saved profile instead of the gateway's own name. */
     private var pairedName: String? = null
 
+    /** Bumped on every [PairingHandoff.offer]; the screen re-runs [consumePendingPairing] when it changes. */
+    val pairingOffers: StateFlow<Int> = pairingHandoff.offers
+
     private val _form = MutableStateFlow(ManualEntryFormState())
     val form: StateFlow<ManualEntryFormState> = _form.asStateFlow()
 

@@ -65,8 +65,10 @@ fun ManualEntryScreen(
     LaunchedEffect(prefillUrl) {
         if (prefillUrl != null) viewModel.setPrefillUrl(prefillUrl)
     }
-    // A QR / deep-link pair bundle waiting in PairingHandoff (no-op otherwise).
-    LaunchedEffect(Unit) { viewModel.consumePendingPairing() }
+    // A QR / deep-link pair bundle waiting in PairingHandoff, including one offered while this screen is
+    // already on top (deep links navigate singleTop). No-op otherwise.
+    val pairingOffer by viewModel.pairingOffers.collectAsStateWithLifecycle()
+    LaunchedEffect(pairingOffer) { viewModel.consumePendingPairing() }
 
     ObserveAsEvents(viewModel.events) { event ->
         when (event) {
