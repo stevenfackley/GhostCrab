@@ -136,3 +136,20 @@ public final class Keychain: Sendable {
         }
     }
 }
+
+// MARK: - Seam
+
+/// Token persistence used by ``ProfileStore``. ``Keychain`` is the production
+/// conformer; tests inject an in-memory fake.
+public protocol TokenStoring: Sendable {
+    /// Stores `token` for `profileId`, replacing any existing value.
+    func setToken(_ token: String, for profileId: String) throws
+    /// Returns the token for `profileId`, or `nil` if none exists.
+    func getToken(for profileId: String) throws -> String?
+    /// Deletes the token for `profileId`. No-op if none exists.
+    func deleteToken(for profileId: String) throws
+    /// Deletes every token this app stored. No-op if none exist.
+    func deleteAllTokens() throws
+}
+
+extension Keychain: TokenStoring {}
