@@ -210,6 +210,15 @@ fun AIRecommendationScreen(onNavigateBack: () -> Unit) {
             }
         }
 
+        val pendingRisky = readyState?.confirmSecurityChanges.orEmpty()
+        if (pendingRisky.isNotEmpty()) {
+            SecurityConfirmDialog(
+                changes = pendingRisky,
+                onConfirm = { viewModel.applySelectedChanges(securityConfirmed = true) },
+                onDismiss = { viewModel.dismissSecurityConfirmation() },
+            )
+        }
+
         // Apply suggestions sheet
         if (showApplySheet && readyState != null) {
             val allChanges = readyState.recommendation.suggestedChanges

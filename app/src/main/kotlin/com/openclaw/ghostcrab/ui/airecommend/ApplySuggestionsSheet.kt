@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
@@ -20,6 +21,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -30,6 +32,8 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import com.openclaw.ghostcrab.R
 import com.openclaw.ghostcrab.domain.model.SuggestedChange
+import com.openclaw.ghostcrab.domain.util.REDACTED_PLACEHOLDER
+import com.openclaw.ghostcrab.domain.util.isSecretKey
 import com.openclaw.ghostcrab.ui.theme.BrandTokens
 import com.openclaw.ghostcrab.ui.theme.MonoFontFamily
 import com.openclaw.ghostcrab.ui.theme.Spacing
@@ -176,6 +180,7 @@ private fun SuggestionRow(
                     fontWeight = FontWeight.Bold,
                 ),
             )
+            if (change.isSecurityAffecting) SecurityBadge()
 
             Spacer(Modifier.height(Spacing.xs))
 
@@ -212,4 +217,63 @@ private fun SuggestionRow(
             }
         }
     }
+}
+
+/** Crimson "Security-sensitive" label shown under a security-affecting suggestion. */
+@Composable
+private fun SecurityBadge() {
+    Text(
+        text = stringResource(R.string.ai_sheet_security_badge),
+        style = MaterialTheme.typography.labelSmall.copy(color = BrandTokens.colorCrimsonError),
+    )
+}
+
+/**
+ * Confirmation gate shown before applying AI suggestions that touch auth, credentials, TLS or
+ * network exposure. Secret values are masked.
+ *
+ * @param changes The security-affecting changes the user selected.
+ * @param onConfirm Called when the user explicitly accepts the risk.
+ * @param onDismiss Called when the user backs out; nothing is applied.
+ */
+@Composable
+fun SecurityConfirmDialog(
+    changes: List<SuggestedChange>,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = BrandTokens.colorAbyssRaised,
+        title = {
+            Text(stringResource(R.string.ai_security_confirm_title), color = BrandTokens.colorCrimsonError)
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+                Text(stringResource(R.string.ai_security_confirm_body), color = BrandTokens.colorTextPrimary)
+                changes.forEach { change ->
+                    val shown = if (isSecretKey(change.key.substringAfterLast('.'))) {
+                        REDACTED_PLACEHOLDER
+                    } else {
+                        change.suggestedValue
+                    }
+                    Text(
+                        text = "${change.section}.${change.key} → $shown",
+                        style = MaterialTheme.typography.bodySmall.copy(fontFamily = MonoFontFamily),
+                        color = BrandTokens.colorCrimsonError,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text(stringResource(R.string.ai_security_confirm_apply), color = BrandTokens.colorCrimsonError)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.ai_security_confirm_cancel), color = BrandTokens.colorTextSecondary)
+            }
+        },
+    )
 }
