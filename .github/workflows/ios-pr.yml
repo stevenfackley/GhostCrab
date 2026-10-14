@@ -16,6 +16,9 @@ concurrency:
 jobs:
   ios-pr:
     name: ios-pr
+    # Same-repo branches only. The repo is public and this job runs on the
+    # self-hosted Mac Mini, so a fork PR must never get to execute code there.
+    if: github.event.pull_request.head.repo.full_name == github.repository
     # Mac Mini self-hosted runner (same label set as ios-release.yml): free minutes.
     # Hosted macOS minutes are what the invoice is.
     runs-on: [self-hosted, macOS, ARM64]
@@ -25,6 +28,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Resolve Xcode
         run: |

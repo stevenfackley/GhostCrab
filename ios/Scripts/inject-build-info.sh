@@ -3,17 +3,22 @@
 # Build-phase script that overwrites the `gitSHA` constant in BuildInfo.swift
 # with the short SHA of the current HEAD commit.
 #
-# Wire this into the Xcode project as a "Run Script" build phase BEFORE
-# "Compile Sources" so the rewritten file is what gets compiled. The xcodegen
-# project.yml under `targets.GhostCrab.preBuildScripts` can declare it:
+# Runs as a "Run Script" build phase BEFORE "Compile Sources" so the rewritten
+# file is what gets compiled. ios/project.yml wires it under
+# `targets.GhostCrab.preBuildScripts`:
 #
 #   preBuildScripts:
 #     - script: ${SRCROOT}/Scripts/inject-build-info.sh
-#       name: "Inject build info"
-#       inputFiles:
-#         - $(SRCROOT)/GhostCrab/App/BuildInfo.swift
+#       name: "Inject build info (Git SHA)"
+#       basedOnDependencyAnalysis: false
 #       outputFiles:
 #         - $(SRCROOT)/GhostCrab/App/BuildInfo.swift
+#
+# BuildInfo.swift is an output only. Listing it under `inputFiles` as well makes
+# the phase mutate its own input, which Xcode rejects as a dependency cycle.
+# `basedOnDependencyAnalysis: false` runs the phase on every build so the SHA
+# tracks HEAD. The GhostCrab target also sets ENABLE_USER_SCRIPT_SANDBOXING: NO,
+# because the sandbox denies reading .git and rewriting a source file in place.
 #
 # Safe to run from outside Xcode too:
 #   cd ios && ./Scripts/inject-build-info.sh
