@@ -26,6 +26,7 @@ public final class ConfigEditorViewModel {
 
     // MARK: - Background tasks
 
+    @ObservationIgnored
     private var connectionTask: Task<Void, Never>?
 
     // MARK: - Init / lifecycle

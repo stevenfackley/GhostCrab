@@ -163,16 +163,29 @@ public final class AppContainer {
 
 // MARK: - Environment injection
 
+/// `nil` by default on purpose. A view that reads `\.appContainer` without the
+/// scene root having injected one has a wiring bug. The old default
+/// (`AppContainer()`) silently built a second, disconnected container with its
+/// own `GatewayConnectionManagerImpl`, stores and `NWBrowserDiscoveryService`,
+/// so such a view showed "disconnected" while the real session was live.
 private struct AppContainerKey: EnvironmentKey {
-    @MainActor static let defaultValue: AppContainer = AppContainer()
+    static let defaultValue: AppContainer? = nil
 }
 
 extension EnvironmentValues {
     /// Top-level dependency container. Set once in ``GhostCrabApp`` via
     /// `.environment(\.appContainer, ...)`; read inside any view as
     /// `@Environment(\.appContainer) var container`.
+    ///
+    /// Traps (`preconditionFailure`) when read from a hierarchy that was never
+    /// given a container. Previews of container-reading screens must inject one.
     public var appContainer: AppContainer {
-        get { self[AppContainerKey.self] }
+        get {
+            guard let container = self[AppContainerKey.self] else {
+                preconditionFailure("AppContainer was not injected. Add .environment(\\.appContainer, container) at the scene root.")
+            }
+            return container
+        }
         set { self[AppContainerKey.self] = newValue }
     }
 }

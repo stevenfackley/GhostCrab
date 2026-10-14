@@ -50,6 +50,7 @@ public final class DashboardViewModel {
 
     // MARK: - Internal observation tasks
 
+    @ObservationIgnored
     private var connectionObservationTask: Task<Void, Never>?
 
     // MARK: - Init

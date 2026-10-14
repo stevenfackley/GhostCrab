@@ -23,7 +23,9 @@ public actor ProfileStore {
     public static let changedNotification: Notification.Name =
         Notification.Name("ProfileStoreChanged")
 
-    private let defaults: UserDefaults
+    /// `UserDefaults` is thread-safe but not `Sendable`; read from the
+    /// nonisolated `loadProfilesNonIsolated()` path.
+    private nonisolated(unsafe) let defaults: UserDefaults
     private let keychain: Keychain
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
@@ -127,7 +129,9 @@ public actor ProfileStore {
             // first mutation.
             continuation.yield(loadProfilesNonIsolated())
 
-            let observer = NotificationCenter.default.addObserver(
+            // `any NSObjectProtocol` is not Sendable; the token is only handed
+            // back to NotificationCenter, which is thread-safe.
+            nonisolated(unsafe) let observer = NotificationCenter.default.addObserver(
                 forName: Self.changedNotification,
                 object: nil,
                 queue: nil

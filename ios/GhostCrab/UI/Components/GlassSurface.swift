@@ -24,7 +24,7 @@ public struct GlassSurface<Content: View>: View {
     /// - Parameters:
     ///   - cornerRadius: Defaults to `DesignTokens.Shape.mediumRadius` (12 pt — card scale).
     ///   - content: Surface content. Caller is responsible for inner padding.
-    public init(
+    init(
         cornerRadius: CGFloat = DesignTokens.Shape.mediumRadius,
         @ViewBuilder content: () -> Content
     ) {

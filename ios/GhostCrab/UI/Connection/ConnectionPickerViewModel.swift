@@ -34,7 +34,9 @@ public final class ConnectionPickerViewModel {
     /// observes this and pushes `.dashboard`.
     public private(set) var navigateToDashboard: Bool = false
 
+    @ObservationIgnored
     private var observeTask: Task<Void, Never>?
+    @ObservationIgnored
     private var stateTask: Task<Void, Never>?
 
     // MARK: - Init
