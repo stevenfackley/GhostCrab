@@ -56,9 +56,12 @@ jobs:
           # First iPhone simulator xcodebuild itself lists as an eligible
           # destination for the scheme, so the pick is one the test step accepts.
           # Resolved at runtime: an Xcode upgrade on the runner needs no edit here.
+          # Xcode 27 heads the usable list "Destinations compatible with the ...
+          # scheme:" (older Xcode: "Available destinations"). The range stops at
+          # an ineligible/incompatible list if one follows.
           DESTS=$(xcodebuild -showdestinations -project GhostCrab.xcodeproj -scheme GhostCrab 2>&1 || true)
           LINE=$(printf '%s\n' "$DESTS" \
-            | sed -n '/Available destinations/,/Ineligible destinations/p' \
+            | sed -nE '/Available destinations|Destinations compatible with/,/Ineligible destinations|Incompatible destinations/p' \
             | grep 'platform:iOS Simulator' | grep 'name:iPhone' \
             | grep -E 'id:[0-9A-Fa-f-]{36}' | head -n 1 || true)
           UDID=$(printf '%s' "$LINE" | sed -nE 's/.*id:([0-9A-Fa-f-]{36}).*/\1/p')
