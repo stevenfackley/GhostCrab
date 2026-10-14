@@ -16,7 +16,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.openclaw.ghostcrab.R
 import com.openclaw.ghostcrab.ui.theme.BrandTokens
 import com.openclaw.ghostcrab.ui.theme.Spacing
 
@@ -42,7 +44,7 @@ fun HttpSecurityBanner(modifier: Modifier = Modifier) {
             )
             Spacer(Modifier.width(Spacing.sm))
             Text(
-                text = "Connection is unencrypted (HTTP). Anyone on this network can read configuration data.",
+                text = stringResource(R.string.banner_http_message),
                 style = MaterialTheme.typography.bodySmall,
                 color = BrandTokens.colorAmberWarn,
             )
@@ -72,7 +74,7 @@ fun NoAuthSecurityBanner(modifier: Modifier = Modifier) {
             )
             Spacer(Modifier.width(Spacing.sm))
             Text(
-                text = "This gateway accepts unauthenticated requests. Ensure it is not publicly reachable.",
+                text = stringResource(R.string.banner_no_auth_message),
                 style = MaterialTheme.typography.bodySmall,
                 color = BrandTokens.colorCrimsonError,
             )

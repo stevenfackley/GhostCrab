@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<lint>
+    <!-- Base64 certificate data for the Google Fonts provider, not prose. -->
+    <issue id="Typos">
+        <ignore path="**/values/font_certs.xml" />
+    </issue>
+    <!-- Overriding the Google Fonts cert arrays is how Compose's GoogleFont provider is configured. -->
+    <issue id="PrivateResource">
+        <ignore path="**/values/font_certs.xml" />
+    </issue>
+    <!-- Legacy round/monochrome launcher PNGs are intentionally identical to square/foreground. -->
+    <issue id="IconDuplicates">
+        <ignore regexp="ic_launcher" />
+    </issue>
+    <!-- Zero unused resources: keep it that way. -->
+    <issue id="UnusedResources" severity="error" />
+</lint>

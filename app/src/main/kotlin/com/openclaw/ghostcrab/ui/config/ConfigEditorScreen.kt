@@ -40,8 +40,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.openclaw.ghostcrab.R
 import com.openclaw.ghostcrab.ui.components.GlassSurface
 import com.openclaw.ghostcrab.ui.config.sections.GatewaySectionEditor
 import com.openclaw.ghostcrab.ui.config.sections.RawJsonSectionEditor
@@ -82,9 +84,10 @@ fun ConfigEditorScreen(
 
     // Show save-success snackbar
     val readyState = state as? ConfigEditorUiState.Ready
+    val savedMessage = stringResource(R.string.config_editor_saved_snackbar)
     LaunchedEffect(readyState?.saveSuccess) {
         if (readyState?.saveSuccess == true) {
-            snackbarHostState.showSnackbar("Configuration saved")
+            snackbarHostState.showSnackbar(savedMessage)
             viewModel.clearSaveSuccess()
         }
     }
@@ -99,7 +102,7 @@ fun ConfigEditorScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Configure Gateway") },
+                title = { Text(stringResource(R.string.config_editor_title)) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(
@@ -182,7 +185,7 @@ fun ConfigEditorScreen(
                                 contentColor = BrandTokens.colorAbyss,
                             ),
                         ) {
-                            Text("Retry")
+                            Text(stringResource(R.string.config_editor_retry))
                         }
                     }
                 }
@@ -218,12 +221,9 @@ fun ConfigEditorScreen(
                     if (concurrentSection != null) {
                         AlertDialog(
                             onDismissRequest = { viewModel.dismissConcurrentEdit() },
-                            title = { Text("Configuration Changed") },
+                            title = { Text(stringResource(R.string.config_editor_concurrent_title)) },
                             text = {
-                                Text(
-                                    "Server values changed since you opened section " +
-                                        "\"$concurrentSection\". The latest values have been loaded.",
-                                )
+                                Text(stringResource(R.string.config_editor_concurrent_body, concurrentSection))
                             },
                             confirmButton = {
                                 TextButton(onClick = {
@@ -233,14 +233,14 @@ fun ConfigEditorScreen(
                                     viewModel.discardSection(concurrentSection)
                                 }) {
                                     Text(
-                                        "Reload",
+                                        stringResource(R.string.config_editor_concurrent_reload),
                                         color = BrandTokens.colorCyanPrimary,
                                     )
                                 }
                             },
                             dismissButton = {
                                 TextButton(onClick = { viewModel.dismissConcurrentEdit() }) {
-                                    Text("Dismiss")
+                                    Text(stringResource(R.string.config_editor_concurrent_dismiss))
                                 }
                             },
                         )
@@ -343,7 +343,12 @@ private fun SectionCard(
                     if (hasPending) {
                         SuggestionChip(
                             onClick = {},
-                            label = { Text("Modified", style = MaterialTheme.typography.labelSmall) },
+                            label = {
+                                Text(
+                                    stringResource(R.string.config_editor_section_modified),
+                                    style = MaterialTheme.typography.labelSmall,
+                                )
+                            },
                             colors = SuggestionChipDefaults.suggestionChipColors(
                                 containerColor = BrandTokens.colorAmberWarn.copy(alpha = 0.2f),
                                 labelColor = BrandTokens.colorAmberWarn,
@@ -390,7 +395,7 @@ private fun SectionCard(
                             modifier = Modifier.weight(1f),
                         ) {
                             Text(
-                                "Discard",
+                                stringResource(R.string.config_editor_discard),
                                 color = BrandTokens.colorTextSecondary,
                             )
                         }
@@ -402,7 +407,7 @@ private fun SectionCard(
                                 contentColor = BrandTokens.colorAbyss,
                             ),
                         ) {
-                            Text("Save")
+                            Text(stringResource(R.string.config_editor_save))
                         }
                     }
                 }
