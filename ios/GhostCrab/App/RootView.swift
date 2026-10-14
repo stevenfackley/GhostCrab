@@ -71,8 +71,9 @@ struct RootView: View {
     /// Other schemes are ignored.
     ///
     /// The token goes to the container's ``PairingHandoff``; only the gateway URL
-    /// enters the navigation path, and a repeated delivery of the same link is
-    /// dropped (see ``PairingDeepLink/open(_:handoff:navigator:)``). Nothing
+    /// enters the navigation path, and a repeated delivery for the gateway on
+    /// top never stacks a second Manual Entry (see
+    /// ``PairingDeepLink/open(_:handoff:navigator:)``). Nothing
     /// connects until the user taps Connect, so a hostile link can at most
     /// pre-fill a form the user can read and reject.
     /// The alert never echoes the payload (it contains the token).
@@ -97,6 +98,10 @@ struct RootView: View {
             LazyViewModelHost(make: { container.makeManualEntryVM() }) {
                 ManualEntryScreen(vm: $0, prefillURL: prefillURL)
             }
+            // A deep link that replaces the Manual Entry on top with another
+            // gateway's gets a fresh screen and ViewModel (so a fresh prefill
+            // and hand-off), not the replaced one's state.
+            .id(prefillURL)
         case .qrScan:
             QrScanScreen()
         case .scan:

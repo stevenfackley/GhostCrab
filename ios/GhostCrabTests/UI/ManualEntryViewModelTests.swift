@@ -162,7 +162,18 @@ struct ManualEntryViewModelTests {
         #expect(vm.pastedLinkError == "Pairing link is malformed: unsupported pairing data version 2")
         #expect(vm.host == "192.168.1.5")
         #expect(vm.token == "")
-        #expect(vm.pastedLink == link)
+        // The rejected link still held a token: the field is cleared anyway.
+        #expect(vm.pastedLink == "")
+    }
+
+    @Test func oversizedPasteIsRejectedAndCleared() {
+        let vm = makeVM(handoff: PairingHandoff())
+        vm.pastedLink = String(repeating: "a", count: PairingLink.maxLength + 1)
+
+        vm.applyPastedLink()
+
+        #expect(vm.pastedLinkError == "Link is too large (over \(PairingLink.maxLength) characters)")
+        #expect(vm.pastedLink == "")
     }
 
     @Test(arguments: ["gw.example.com", "http://admin:hunter2@192.168.1.20:18789", "ftp://192.168.1.20"])
@@ -174,6 +185,8 @@ struct ManualEntryViewModelTests {
 
         #expect(vm.pastedLinkError == "Not an http(s) gateway URL or a ghostcrab://pair link")
         #expect(vm.host == "")
+        // Could be userinfo credentials: never left in the field.
+        #expect(vm.pastedLink == "")
     }
 
     @Test func emptyPasteAsksForALink() {
@@ -183,6 +196,68 @@ struct ManualEntryViewModelTests {
         vm.applyPastedLink()
 
         #expect(vm.pastedLinkError == "Paste a gateway URL or a ghostcrab://pair link first")
+    }
+
+    // MARK: - A token never follows the form to another gateway
+
+    @Test func pastingAPlainURLAfterAPairingLinkDropsTheFirstToken() async {
+        let gateway = FakeGatewayConnectionManager()
+        let vm = makeVM(handoff: PairingHandoff(), gateway: gateway)
+        vm.pastedLink = PairingLinkFixture.link(
+            json: #"{"v":1,"url":"http://192.168.1.20:18789","token":"tok_A","name":"Gateway A"}"#
+        )
+        vm.applyPastedLink()
+        #expect(vm.token == "tok_A")
+        #expect(vm.pairedName == "Gateway A")
+
+        vm.pastedLink = "http://192.168.1.99:18789"
+        vm.applyPastedLink()
+
+        #expect(vm.host == "192.168.1.99")
+        #expect(vm.token == "")
+        #expect(vm.pairedName == nil)
+
+        vm.connect()
+        await vm.connectTask?.value
+        #expect(gateway.connectURLs == ["http://192.168.1.99:18789"])
+        #expect(gateway.connectTokens == [nil])
+    }
+
+    @Test func aTokenlessLinkAfterAPairingLinkDropsTheFirstToken() {
+        let vm = makeVM(handoff: PairingHandoff())
+        vm.pastedLink = PairingLinkFixture.link(json: #"{"v":1,"url":"http://192.168.1.20:18789","token":"tok_A"}"#)
+        vm.applyPastedLink()
+        #expect(vm.token == "tok_A")
+
+        vm.pastedLink = PairingLinkFixture.link(json: #"{"v":1,"url":"http://192.168.1.99:18789"}"#)
+        vm.applyPastedLink()
+
+        #expect(vm.host == "192.168.1.99")
+        #expect(vm.token == "")
+        #expect(vm.pairedName == nil)
+    }
+
+    @Test func aTypedTokenIsDroppedWhenAPasteSwitchesGateways() {
+        let vm = makeVM(handoff: PairingHandoff())
+        vm.setHost("192.168.1.20")
+        vm.token = "tok_typed"
+
+        vm.pastedLink = "http://192.168.1.99:18789"
+        vm.applyPastedLink()
+
+        #expect(vm.token == "")
+    }
+
+    @Test func aSecondLinkForAnotherGatewayBringsOnlyItsOwnToken() {
+        let vm = makeVM(handoff: PairingHandoff())
+        vm.pastedLink = PairingLinkFixture.link(json: #"{"v":1,"url":"http://192.168.1.20:18789","token":"tok_A"}"#)
+        vm.applyPastedLink()
+
+        vm.pastedLink = PairingLinkFixture.link(json: #"{"v":1,"url":"http://192.168.1.99:18789","token":"tok_B"}"#)
+        vm.applyPastedLink()
+
+        #expect(vm.host == "192.168.1.99")
+        #expect(vm.token == "tok_B")
     }
 
     // MARK: - IPv6 hosts

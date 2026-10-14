@@ -12,15 +12,30 @@ import SwiftUI
 ///   live ViewModel alive underneath.
 /// - ``showManualEntry(prefillURL:)`` for pairing deep links, which never
 ///   stacks two Manual Entry screens.
+/// - ``redeliverPairing(to:)`` when a pairing link arrives for the gateway
+///   whose Manual Entry is already on top.
 @MainActor
 @Observable
 final class Navigator {
+
+    /// A pairing link delivered again for the gateway whose Manual Entry is
+    /// on top. `sequence` makes every delivery a change, even for the same URL.
+    struct PairingRedelivery: Equatable {
+        /// Gateway URL from the link. Never a token.
+        let url: URL
+        /// Increments with every re-delivery.
+        let sequence: Int
+    }
 
     /// Bottom of the stack, or `nil` until ``resolveRoot(_:)`` (the splash shows meanwhile).
     private(set) var root: Route?
 
     /// Routes pushed above ``root``, bottom first. Bound to `NavigationStack(path:)`.
     var path: [Route] = []
+
+    /// Latest re-delivery, or `nil`. The Manual Entry screen for that URL
+    /// watches it and re-takes the pairing hand-off.
+    private(set) var pairingRedelivery: PairingRedelivery?
 
     /// - Parameter root: Start screen, or `nil` to resolve it later.
     init(root: Route? = nil) {
@@ -74,9 +89,18 @@ final class Navigator {
     /// Whether Manual Entry pre-filled with `url` is already on top.
     ///
     /// - Parameter url: Gateway URL from a pairing link.
-    /// - Returns: `true` when a repeated delivery of that link has nothing left to do.
+    /// - Returns: `true` when a link for that gateway must not push another Manual Entry.
     func isShowingManualEntry(prefillURL url: URL) -> Bool {
         path.last == Route.manualEntry(prefillURL: url)
+    }
+
+    /// Tells the Manual Entry on top (pre-filled with `url`) that a pairing
+    /// link for its gateway arrived again, so it re-takes the hand-off: a link
+    /// re-issued with a new token wins over the one it showed.
+    ///
+    /// - Parameter url: Gateway URL from the link. Never a token.
+    func redeliverPairing(to url: URL) {
+        pairingRedelivery = PairingRedelivery(url: url, sequence: (pairingRedelivery?.sequence ?? 0) + 1)
     }
 }
 
@@ -108,6 +132,11 @@ public struct NavigateAction: Sendable {
     /// Shows the dashboard directly on the picker. See ``Navigator/showDashboard()``.
     @MainActor public func toDashboard() {
         navigator?.showDashboard()
+    }
+
+    /// The latest pairing-link re-delivery. See ``Navigator/redeliverPairing(to:)``.
+    @MainActor var pairingRedelivery: Navigator.PairingRedelivery? {
+        navigator?.pairingRedelivery
     }
 }
 

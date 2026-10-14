@@ -3,8 +3,9 @@ import Foundation
 @testable import GhostCrab
 
 /// Pins the `onOpenURL` gate: only `ghostcrab:` URLs are handled, the token goes
-/// to the hand-off, the stack gets the gateway URL only, and a repeated
-/// delivery neither stacks a second Manual Entry nor re-stashes the token.
+/// to the hand-off, the stack gets the gateway URL only, and a link for the
+/// gateway already on top never stacks a second Manual Entry but always
+/// re-stashes (a re-issued link's new token must not be dropped).
 @MainActor
 @Suite("PairingDeepLink")
 struct PairingDeepLinkTests {
@@ -41,22 +42,54 @@ struct PairingDeepLinkTests {
         #expect(navigator.path == [Route.manualEntry(prefillURL: try gateway)])
     }
 
-    @Test func repeatedDeliveryShowsOneManualEntryAndHandsTheTokenOffOnce() throws {
+    @Test func repeatedDeliveryShowsOneManualEntryAndTellsItToRetake() throws {
         let handoff = PairingHandoff()
         let navigator = Navigator(root: .connectionPicker)
         let link = try tokenLink()
 
         // The OS can hand the same link to onOpenURL twice.
         try PairingDeepLink.open(link, handoff: handoff, navigator: navigator)
+        #expect(navigator.pairingRedelivery == nil)
         try PairingDeepLink.open(link, handoff: handoff, navigator: navigator)
-        #expect(navigator.path == [Route.manualEntry(prefillURL: try gateway)])
 
-        // The screen takes the token when it appears...
-        #expect(handoff.takePairing(for: try gateway)?.token == "tok_123")
-        // ...and a late repeat leaves nothing behind for a later visit.
-        try PairingDeepLink.open(link, handoff: handoff, navigator: navigator)
         #expect(navigator.path == [Route.manualEntry(prefillURL: try gateway)])
-        #expect(handoff.takePairing(for: try gateway) == nil)
+        #expect(navigator.pairingRedelivery == Navigator.PairingRedelivery(url: try gateway, sequence: 1))
+        #expect(handoff.takePairing(for: try gateway)?.token == "tok_123")
+    }
+
+    @Test func reissuedLinkWithANewTokenIsNotDropped() throws {
+        let handoff = PairingHandoff()
+        let navigator = Navigator(root: .connectionPicker)
+        try PairingDeepLink.open(try tokenLink(), handoff: handoff, navigator: navigator)
+        // The screen took the first token when it appeared.
+        #expect(handoff.takePairing(for: try gateway)?.token == "tok_123")
+
+        let reissued = try #require(URL(string: PairingLinkFixture.link(
+            json: #"{"v":1,"url":"http://192.168.1.20:18789","token":"tok_456"}"#
+        )))
+        try PairingDeepLink.open(reissued, handoff: handoff, navigator: navigator)
+
+        let gatewayURL = try gateway
+        #expect(navigator.path == [Route.manualEntry(prefillURL: gatewayURL)])
+        #expect(navigator.pairingRedelivery?.url == gatewayURL)
+        // The screen on top re-takes the stash on that signal.
+        #expect(handoff.takePairing(for: try gateway)?.token == "tok_456")
+    }
+
+    @Test func linkForAnotherGatewayReplacesTheManualEntryOnTop() throws {
+        let handoff = PairingHandoff()
+        let navigator = Navigator(root: .connectionPicker)
+        try PairingDeepLink.open(try tokenLink(), handoff: handoff, navigator: navigator)
+        let other = try #require(URL(string: "http://192.168.1.99:18789"))
+        let otherLink = try #require(URL(string: PairingLinkFixture.link(
+            json: #"{"v":1,"url":"http://192.168.1.99:18789","token":"tok_other"}"#
+        )))
+
+        try PairingDeepLink.open(otherLink, handoff: handoff, navigator: navigator)
+
+        #expect(navigator.path == [Route.manualEntry(prefillURL: other)])
+        #expect(navigator.pairingRedelivery == nil)
+        #expect(handoff.takePairing(for: other)?.token == "tok_other")
     }
 
     @Test func otherSchemesAreIgnored() throws {

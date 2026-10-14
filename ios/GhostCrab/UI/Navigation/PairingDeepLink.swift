@@ -12,10 +12,11 @@ enum PairingDeepLink {
     /// Handles a URL from `onOpenURL`: stashes the link's token and name in
     /// `handoff`, then shows Manual Entry pre-filled with its gateway URL.
     ///
-    /// The OS can deliver one link twice. When Manual Entry for that gateway
-    /// is already on top, the repeat does nothing: the screen took (or will
-    /// take, on appear) the first stash, so the token is handed off once and
-    /// no second Manual Entry is stacked.
+    /// Every valid link is stashed (the hand-off keeps only the latest), so a
+    /// link re-issued with a new token for the same gateway is never dropped.
+    /// When Manual Entry for that gateway is already on top (the OS can also
+    /// deliver one link twice), no second one is stacked: the screen on top is
+    /// told to re-take the hand-off instead.
     ///
     /// - Parameters:
     ///   - url: URL from `onOpenURL`.
@@ -29,9 +30,12 @@ enum PairingDeepLink {
     static func open(_ url: URL, handoff: PairingHandoff, navigator: Navigator) throws -> Bool {
         guard url.scheme?.lowercased() == PairingLink.scheme else { return false }
         let request = try PairingLink.decode(url.absoluteString)
-        guard !navigator.isShowingManualEntry(prefillURL: request.gatewayURL) else { return true }
         handoff.stash(request)
-        navigator.showManualEntry(prefillURL: request.gatewayURL)
+        if navigator.isShowingManualEntry(prefillURL: request.gatewayURL) {
+            navigator.redeliverPairing(to: request.gatewayURL)
+        } else {
+            navigator.showManualEntry(prefillURL: request.gatewayURL)
+        }
         return true
     }
 

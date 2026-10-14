@@ -218,9 +218,10 @@ private struct ViewfinderOverlay: View {
 /// SwiftUI bridge around `VisionKit.DataScannerViewController`.
 ///
 /// Falls back to a black background + status text if the device cannot host a
-/// data scanner (older hardware, missing VisionKit, etc.). Camera permission is
-/// resolved by VisionKit itself once `startScanning()` is called — we just
-/// proactively request access so the first prompt isn't deferred.
+/// data scanner (older hardware, missing VisionKit, etc.). Camera access is
+/// requested before capture starts, so the first scan shows the system prompt;
+/// a refusal or a device restriction surfaces as
+/// ``QrScannerFailure/cameraAccessDenied`` instead of "unavailable".
 private struct QRScannerRepresentable: UIViewControllerRepresentable {
 
     /// ``QrScanViewModel/scanGeneration``; a change restarts capture.
@@ -235,9 +236,11 @@ private struct QRScannerRepresentable: UIViewControllerRepresentable {
 
     func makeUIViewController(context: Context) -> UIViewController {
         // Deployment target is iOS 18+, so `DataScannerViewController` is always
-        // present. Hardware/runtime support is still a real gate (e.g. devices
-        // without the Neural Engine return `false` from `isSupported`).
-        guard DataScannerViewController.isSupported, DataScannerViewController.isAvailable else {
+        // present. Hardware support is still a real gate (e.g. devices without
+        // the Neural Engine return `false` from `isSupported`). Do not gate on
+        // `isAvailable` here: it is also `false` until camera access is granted,
+        // so on first use it showed "unavailable" and never prompted.
+        guard DataScannerViewController.isSupported else {
             return UnsupportedScannerVC()
         }
 
@@ -253,20 +256,23 @@ private struct QRScannerRepresentable: UIViewControllerRepresentable {
         scanner.delegate = context.coordinator
         context.coordinator.scanner = scanner
 
-        // Camera permission can be requested up-front. VisionKit will refuse to
-        // start otherwise; we forward the decision but don't block construction.
-        // A main-actor Task keeps the work on the main actor. It holds the
-        // coordinator weakly (and the coordinator holds the scanner weakly), so
-        // leaving the screen while the prompt is up frees both.
+        // Ask for camera access first (the system prompt on first use; an
+        // immediate answer afterwards), then check `isAvailable`, which needs
+        // that access. Construction is not blocked. A main-actor Task keeps the
+        // work on the main actor. It holds the coordinator weakly (and the
+        // coordinator holds the scanner weakly), so leaving the screen while
+        // the prompt is up frees both.
         let coordinator = context.coordinator
         Task { @MainActor [weak coordinator] in
             let granted = await AVCaptureDevice.requestAccess(for: .video)
             guard let coordinator else { return }
-            if granted {
-                coordinator.startScanning()
-            } else {
+            // With access granted, `isAvailable` is `false` only when a device
+            // policy (Screen Time, MDM) restricts the camera.
+            guard granted, DataScannerViewController.isAvailable else {
                 coordinator.report(.cameraAccessDenied)
+                return
             }
+            coordinator.startScanning()
         }
         return scanner
     }

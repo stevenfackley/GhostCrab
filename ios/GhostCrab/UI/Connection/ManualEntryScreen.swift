@@ -19,6 +19,10 @@ public struct ManualEntryScreen: View {
     /// Optional URL passed in by the navigation Route; applied to the form on first appearance.
     public let prefillURL: URL?
 
+    /// Whether ``prefillURL`` was applied. Applied once, so a later appear
+    /// never resets what the user typed (a prefill drops the token).
+    @State private var prefillApplied = false
+
     public init(vm: ManualEntryViewModel, prefillURL: URL? = nil) {
         self._vm = State(initialValue: vm)
         self.prefillURL = prefillURL
@@ -208,7 +212,16 @@ public struct ManualEntryScreen: View {
         .toolbarColorScheme(.dark, for: .navigationBar)
         #endif
         .onAppear {
+            guard !prefillApplied else { return }
+            prefillApplied = true
             if let prefill = prefillURL { vm.setPrefillURL(prefill) }
+        }
+        .onChange(of: navigate.pairingRedelivery) { _, redelivery in
+            // A pairing link for this gateway arrived again while this screen
+            // was on top, perhaps re-issued with a new token: the newer link
+            // wins and its stash fills the form.
+            guard let redelivery, let prefill = prefillURL, redelivery.url == prefill else { return }
+            vm.setPrefillURL(prefill)
         }
         .onDisappear {
             vm.cancelConnect()

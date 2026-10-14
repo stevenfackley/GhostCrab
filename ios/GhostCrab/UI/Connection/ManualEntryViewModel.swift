@@ -112,13 +112,18 @@ public final class ManualEntryViewModel {
         self.tokenVisible.toggle()
     }
 
-    /// Parses a URL and populates scheme/host/port (e.g. from a QR scan or LAN result).
+    /// Parses a URL and populates scheme/host/port (from a QR scan, a deep
+    /// link, a pasted link or a LAN result).
     ///
-    /// If a pairing link was stashed for this URL's origin (QR or deep link),
-    /// its token is moved into ``token`` and its suggested name into
-    /// ``pairedName``. The hand-off is one-shot, so later calls (the screen
-    /// calls this on every appear) leave both alone. Never connects: the user
-    /// still reviews the form and taps Connect.
+    /// The form's ``token`` and ``pairedName`` are dropped first, on every
+    /// call: credentials typed or pasted for one gateway never ride along to
+    /// the gateway this URL names. Then, if a pairing link was stashed for this
+    /// URL's origin (QR, deep link or paste), its token fills ``token`` and its
+    /// suggested name ``pairedName``. The hand-off is one-shot. The screen
+    /// applies its route's URL once (and again only when a pairing link for
+    /// the same gateway is re-delivered), so this never wipes what the user
+    /// typed afterwards. Never connects: the user still reviews the form and
+    /// taps Connect.
     ///
     /// - Parameter url: Gateway base URL.
     public func setPrefillURL(_ url: URL) {
@@ -130,6 +135,9 @@ public final class ManualEntryViewModel {
         self.port = parsedPort
         self.hostError = nil
         self.portError = nil
+        // Never carry a token (or a suggested name) to a different host.
+        self.token = ""
+        self.pairedName = nil
         if let paired = pairingHandoff.takePairing(for: url) {
             if let pairedToken = paired.token {
                 self.token = pairedToken
@@ -149,17 +157,22 @@ public final class ManualEntryViewModel {
     /// - Anything else must pass ``PairingLink/gatewayURL(from:)`` (`http` or
     ///   `https`, a host, no userinfo); it fills scheme, host and port only.
     ///
-    /// On success ``pastedLink`` is cleared. On failure ``pastedLinkError`` is
-    /// set and the form is left as it was. Never connects: the user still
+    /// Either way the token and suggested name already in the form are
+    /// dropped (``setPrefillURL(_:)``), so pasting a link for gateway B after
+    /// one for gateway A never sends A's token to B.
+    ///
+    /// ``pastedLink`` is cleared whether or not it was accepted: it can hold a
+    /// token or userinfo credentials. On failure ``pastedLinkError`` is set and
+    /// the rest of the form is left as it was. Never connects: the user still
     /// reviews the form and taps Connect.
     public func applyPastedLink() {
         guard pastedLink.utf8.count <= PairingLink.maxLength else {
-            pastedLinkError = "Link is too large (over \(PairingLink.maxLength) characters)"
+            rejectPaste("Link is too large (over \(PairingLink.maxLength) characters)")
             return
         }
         let trimmed = pastedLink.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
-            pastedLinkError = "Paste a gateway URL or a ghostcrab://pair link first"
+            rejectPaste("Paste a gateway URL or a ghostcrab://pair link first")
             return
         }
 
@@ -168,7 +181,7 @@ public final class ManualEntryViewModel {
             do {
                 request = try PairingLink.decode(trimmed)
             } catch {
-                pastedLinkError = "Pairing link is malformed: \(error.localizedDescription)"
+                rejectPaste("Pairing link is malformed: \(error.localizedDescription)")
                 return
             }
             pairingHandoff.stash(request)
@@ -176,11 +189,18 @@ public final class ManualEntryViewModel {
         } else if let url = PairingLink.gatewayURL(from: trimmed) {
             setPrefillURL(url)
         } else {
-            pastedLinkError = "Not an http(s) gateway URL or a ghostcrab://pair link"
+            rejectPaste("Not an http(s) gateway URL or a ghostcrab://pair link")
             return
         }
         pastedLink = ""
         pastedLinkError = nil
+    }
+
+    /// Shows why a paste was refused and clears the field, which may hold a
+    /// token or credentials. The error never echoes the pasted text.
+    private func rejectPaste(_ message: String) {
+        pastedLink = ""
+        pastedLinkError = message
     }
 
     // MARK: - Connect

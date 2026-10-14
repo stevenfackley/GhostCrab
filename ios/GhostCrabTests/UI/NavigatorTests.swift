@@ -61,9 +61,10 @@ struct NavigatorTests {
     }
 
     @Test func dashboardAfterConnectSitsDirectlyOnThePicker() throws {
+        let url = try #require(URL(string: "http://192.168.1.20:18789"))
         let navigator = Navigator(root: .connectionPicker)
         navigator.push(.qrScan)
-        navigator.push(.manualEntry(prefillURL: try #require(URL(string: "http://192.168.1.20:18789"))))
+        navigator.push(.manualEntry(prefillURL: url))
 
         navigator.showDashboard()
 
@@ -118,6 +119,19 @@ struct NavigatorTests {
 
         #expect(navigator.path == [.dashboard, .manualEntry(prefillURL: url)])
         #expect(navigator.isShowingManualEntry(prefillURL: url))
+    }
+
+    @Test func redeliveryCountsEveryDeliveryWithoutTouchingTheStack() throws {
+        let url = try #require(URL(string: "http://192.168.1.20:18789"))
+        let navigator = Navigator(root: .connectionPicker)
+        navigator.showManualEntry(prefillURL: url)
+
+        navigator.redeliverPairing(to: url)
+        navigator.redeliverPairing(to: url)
+
+        #expect(navigator.pairingRedelivery == Navigator.PairingRedelivery(url: url, sequence: 2))
+        #expect(navigator.path == [.manualEntry(prefillURL: url)])
+        #expect(NavigateAction(navigator).pairingRedelivery?.sequence == 2)
     }
 
     @Test func manualEntryForALinkReplacesTheManualEntryOnTop() throws {
