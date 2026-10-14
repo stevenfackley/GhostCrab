@@ -118,7 +118,8 @@ class SettingsViewModel(
         viewModelScope.launch {
             runCatching {
                 val tokenToSave = when {
-                    newToken == null -> profileRepository.getToken(current.id) // unchanged
+                    newToken == null ->
+                        if (current.hasToken) profileRepository.getToken(current.id) else null // unchanged
                     newToken.isBlank() -> null  // clear
                     else -> newToken
                 }

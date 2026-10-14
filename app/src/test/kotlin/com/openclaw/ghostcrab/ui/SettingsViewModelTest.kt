@@ -1,5 +1,7 @@
 package com.openclaw.ghostcrab.ui
 
+import com.openclaw.ghostcrab.domain.exception.GatewayException
+import com.openclaw.ghostcrab.domain.exception.ProfileNeedsReauthException
 import com.openclaw.ghostcrab.domain.model.ConnectionProfile
 import com.openclaw.ghostcrab.domain.model.OnboardingStep
 import com.openclaw.ghostcrab.domain.repository.ConnectionProfileRepository
@@ -237,6 +239,22 @@ class SettingsViewModelTest {
         assertTrue(saved.hasToken)
         assertEquals("kept", token)
     }
+
+    @Test
+    fun `saveProfileEdit on tokenless profile never reads the keystore`() = runTest {
+        val p = profile("12", "Plain") // hasToken = false
+        val profileRepo = FakeSettingsProfileRepository(listOf(p))
+            .apply { tokenError = ProfileNeedsReauthException("12") }
+        val vm = makeVm(profileRepo = profileRepo)
+
+        vm.startEditProfile(p)
+        vm.saveProfileEdit("Renamed", null)
+
+        val (saved, token) = profileRepo.savedProfiles.last()
+        assertFalse(saved.hasToken)
+        assertNull(token)
+        assertEquals(0, profileRepo.getTokenCalls)
+    }
 }
 
 // ── Fakes ─────────────────────────────────────────────────────────────────────
@@ -257,8 +275,14 @@ private class FakeSettingsProfileRepository(
     }
 
     val tokens = mutableMapOf<String, String>()
+    var tokenError: GatewayException? = null
+    var getTokenCalls = 0
 
-    override suspend fun getToken(profileId: String): String? = tokens[profileId]
+    override suspend fun getToken(profileId: String): String? {
+        getTokenCalls++
+        tokenError?.let { throw it }
+        return tokens[profileId]
+    }
 
     override suspend fun deleteProfile(profileId: String) {
         deletedIds += profileId
