@@ -24,13 +24,18 @@ import kotlinx.coroutines.Dispatchers
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
 import org.koin.core.annotation.KoinExperimentalAPI
 import org.koin.dsl.koinApplication
 import org.koin.dsl.module
 import org.koin.test.verify.verify
+import java.io.File
 
 @OptIn(KoinExperimentalAPI::class)
 class KoinModulesTest {
+
+    @TempDir
+    lateinit var tempDir: File
 
     /**
      * Static check only: koin-test `verify()` inspects the public constructor parameter types of each
@@ -48,6 +53,8 @@ class KoinModulesTest {
     fun `real graph resolves viewmodels and key singles`() {
         val context = mockk<Context>(relaxed = true) {
             every { applicationContext } returns this
+            // DataStore files resolve under filesDir on Dispatchers.IO; null would leak uncaught exceptions.
+            every { filesDir } returns tempDir
             every { getSystemService(Context.NSD_SERVICE) } returns mockk<NsdManager>(relaxed = true)
             every { getSystemService(Context.WIFI_SERVICE) } returns mockk<WifiManager>(relaxed = true)
         }

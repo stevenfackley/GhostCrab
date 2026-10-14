@@ -208,13 +208,8 @@ private fun InstallProgressRow(progress: SkillInstallProgress) {
 }
 
 @Composable
-private fun InstallErrorRow(
-    error: SkillInstallError,
-    canRetry: Boolean,
-    onRetry: () -> Unit,
-    onDismiss: () -> Unit,
-) {
-    val message = when (error) {
+private fun installErrorMessage(error: SkillInstallError): String {
+    return when (error) {
         is SkillInstallError.Unauthorized -> stringResource(
             R.string.ai_skill_install_error_unauthorized,
             error.missingScope,
@@ -239,12 +234,26 @@ private fun InstallErrorRow(
             error.rpcCode,
             error.message,
         )
+        is SkillInstallError.MalformedResponse -> stringResource(
+            R.string.ai_skill_install_error_malformed,
+            error.detail,
+        )
         SkillInstallError.NotConnected -> stringResource(R.string.ai_skill_install_error_not_connected)
         is SkillInstallError.Unknown -> stringResource(
             R.string.ai_skill_install_error_unknown,
             error.cause,
         )
     }
+}
+
+@Composable
+private fun InstallErrorRow(
+    error: SkillInstallError,
+    canRetry: Boolean,
+    onRetry: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val message = installErrorMessage(error)
     Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
         Text(
             text = message,

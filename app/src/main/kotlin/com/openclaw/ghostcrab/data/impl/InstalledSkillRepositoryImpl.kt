@@ -60,8 +60,10 @@ class InstalledSkillRepositoryImpl(
      */
     override suspend fun refreshFromGateway(): Result<List<InstalledSkill>> = suspendRunCatching {
         wsFactory().use { ws ->
-            val res = ws.request("skills.list", params = null).jsonObject
-            val list = res["skills"]?.jsonArray.orEmpty().map { it.jsonObject.toInstalledSkill() }
+            val raw = ws.request("skills.list", params = null)
+            val list = parseShape {
+                raw.jsonObject["skills"]?.jsonArray.orEmpty().map { it.jsonObject.toInstalledSkill() }
+            }
             installedFlow.value = list
             list
         }
@@ -129,8 +131,8 @@ class InstalledSkillRepositoryImpl(
         }
 
         try {
-            val result = ws.request("skills.install", params).jsonObject
-            val skill = result.toInstalledSkill()
+            val raw = ws.request("skills.install", params)
+            val skill = parseShape { raw.jsonObject.toInstalledSkill() }
             installedFlow.value = (installedFlow.value.filter { it.slug != skill.slug } + skill)
             send(SkillInstallProgress.Succeeded(skill))
         } catch (e: CancellationException) {
@@ -166,6 +168,13 @@ class InstalledSkillRepositoryImpl(
             withContext(NonCancellable) { close() }
         }
 
+    /** Runs [block], turning kotlinx.serialization shape errors into a [GatewayProtocolException]. */
+    private inline fun <T> parseShape(block: () -> T): T = try {
+        block()
+    } catch (e: IllegalArgumentException) {
+        throw GatewayProtocolException("ws:skills", "malformed response: ${e.message}", e)
+    }
+
     private fun JsonObject.toInstalledSkill(): InstalledSkill {
         val slug = this["slug"]?.jsonPrimitive?.contentOrNull
         val version = this["installed_version"]?.jsonPrimitive?.contentOrNull
@@ -187,7 +196,7 @@ class InstalledSkillRepositoryImpl(
     /** Classifies a failed `skills.install` request; transport faults are retryable, protocol faults are not. */
     private fun Exception.toInstallError(): SkillInstallError = when (this) {
         is GatewayWsClient.WsRpcException -> toInstallError()
-        is GatewayProtocolException -> SkillInstallError.Protocol(rpcCode = 0, message = detail)
+        is GatewayProtocolException -> SkillInstallError.MalformedResponse(detail)
         // Timeout or socket closed mid-install: retryable transport failure.
         is GatewayException -> SkillInstallError.Network(message ?: this::class.java.simpleName)
         else -> SkillInstallError.Unknown(message ?: "unknown")

@@ -141,8 +141,10 @@ fun NavGraph() {
         composable("model_manager") {
             ModelManagerScreen(onNavigateBack = { navController.popBackStack() })
         }
-        composable("ai_recommendation") {
-            AIRecommendationScreen(onNavigateBack = { navController.popBackStack() })
+        if (BuildConfig.AI_PRO_ENABLED) {
+            composable("ai_recommendation") {
+                AIRecommendationScreen(onNavigateBack = { navController.popBackStack() })
+            }
         }
         composable("settings") {
             SettingsScreen(

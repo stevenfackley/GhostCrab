@@ -3,10 +3,13 @@ package com.openclaw.ghostcrab.data.impl
 import com.openclaw.ghostcrab.data.ws.FakeWsSession
 import com.openclaw.ghostcrab.data.ws.GatewayWsClient
 import com.openclaw.ghostcrab.domain.exception.GatewayNotConnectedException
+import com.openclaw.ghostcrab.domain.exception.GatewayTimeoutException
 import com.openclaw.ghostcrab.domain.exception.GatewayProtocolException
 import com.openclaw.ghostcrab.domain.model.SkillInstallError
 import com.openclaw.ghostcrab.domain.model.SkillInstallProgress
 import kotlinx.coroutines.async
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
@@ -127,7 +130,7 @@ class InstalledSkillRepositoryImplTest {
     }
 
     @Test
-    fun `install with a malformed result reports a Protocol error`() = runTest {
+    fun `install with a malformed result reports a MalformedResponse error`() = runTest {
         val session = FakeWsSession()
         val repo = InstalledSkillRepositoryImpl { GatewayWsClient.forTesting(session) }
 
@@ -136,6 +139,66 @@ class InstalledSkillRepositoryImplTest {
         session.pushInbound("""{"jsonrpc":"2.0","id":$id,"result":{"installed_version":"1.0.0"}}""")
 
         val last = emissions.await().last() as SkillInstallProgress.Failed
-        assertInstanceOf(SkillInstallError.Protocol::class.java, last.error)
+        assertInstanceOf(SkillInstallError.MalformedResponse::class.java, last.error)
+    }
+
+    private suspend fun kotlinx.coroutines.test.TestScope.refreshWith(result: String): Throwable? {
+        val session = FakeWsSession()
+        val repo = InstalledSkillRepositoryImpl { GatewayWsClient.forTesting(session) }
+        val call = async { repo.refreshFromGateway() }
+        val id = session.awaitSent()["id"].toString().toLong()
+        session.pushInbound("""{"jsonrpc":"2.0","id":$id,"result":$result}""")
+        return call.await().exceptionOrNull()
+    }
+
+    @Test
+    fun `badly shaped refresh results fail with GatewayProtocolException`() = runTest {
+        listOf(
+            "[]",
+            """{"skills":{}}""",
+            """{"skills":[{"slug":{},"installed_version":"1"}]}""",
+        ).forEach { shape ->
+            val e = refreshWith(shape)
+            assertInstanceOf(GatewayProtocolException::class.java, e, shape)
+        }
+    }
+
+    @Test
+    fun `request timeout during install reports retryable Network`() = runTest {
+        val session = FakeWsSession()
+        val repo = InstalledSkillRepositoryImpl { GatewayWsClient.forTesting(session, requestTimeoutMs = 1_000) }
+
+        val emissions = async { repo.install("foo/bar").toList() }
+        session.awaitSent()
+        // No response is pushed: virtual time advances to the request timeout.
+        val failed = emissions.await().last() as SkillInstallProgress.Failed
+
+        assertInstanceOf(SkillInstallError.Network::class.java, failed.error)
+        assertTrue(failed.error.isRetryable)
+    }
+
+    @Test
+    fun `refresh timeout surfaces GatewayTimeoutException`() = runTest {
+        val session = FakeWsSession()
+        val repo = InstalledSkillRepositoryImpl { GatewayWsClient.forTesting(session, requestTimeoutMs = 1_000) }
+
+        val call = async { repo.refreshFromGateway() }
+        session.awaitSent()
+
+        assertInstanceOf(GatewayTimeoutException::class.java, call.await().exceptionOrNull())
+    }
+
+    @Test
+    fun `cancelling an install propagates and emits no Failed`() = runTest {
+        val session = FakeWsSession()
+        val repo = InstalledSkillRepositoryImpl { GatewayWsClient.forTesting(session) }
+        val seen = mutableListOf<SkillInstallProgress>()
+
+        val job = launch { repo.install("foo/bar").collect { seen += it } }
+        session.awaitSent()
+        job.cancelAndJoin()
+
+        assertTrue(job.isCancelled)
+        assertTrue(seen.none { it is SkillInstallProgress.Failed })
     }
 }
