@@ -139,11 +139,12 @@ class OpenClawApiClient private constructor(
      * @param section Top-level section key (e.g. `"gateway"`).
      * @param value JSON merge-patch value.
      * @param etag Optional ETag for optimistic concurrency — sent as `If-Match` header when non-null.
+     * @return The ETag the gateway returned with the write, or null when it sent none.
      * @throws GatewayApiException with `statusCode = 412` on concurrent-edit conflict.
      * @throws ConfigValidationException if the gateway reports a validation failure (422).
      * @throws GatewayApiException on other unexpected HTTP errors.
      */
-    suspend fun updateConfig(section: String, value: JsonElement, etag: String?) =
+    suspend fun updateConfig(section: String, value: JsonElement, etag: String?): String? =
         safeRequest(baseUrl) {
             val url = "$baseUrl/config/$section"
             val response = httpClient.patch(url) {
@@ -152,7 +153,6 @@ class OpenClawApiClient private constructor(
                 setBody(value.toString())
             }
             when (response.status) {
-                HttpStatusCode.OK, HttpStatusCode.NoContent -> Unit
                 HttpStatusCode.PreconditionFailed ->
                     throw GatewayApiException(url, 412)
                 HttpStatusCode.UnprocessableEntity -> {
@@ -168,7 +168,10 @@ class OpenClawApiClient private constructor(
                         throw GatewayApiException(url, 422, bodyText)
                     }
                 }
-                else -> response.mapErrors(url)
+                else -> {
+                    response.mapErrors(url)
+                    response.headers[HttpHeaders.ETag]
+                }
             }
         }
 

@@ -72,4 +72,41 @@ class ConfigRepositoryImplTest {
             repo.getConfig()
         }
     }
+
+    @Test
+    fun `updateConfig sends the ETag returned by the previous write`() = runTest {
+        coEvery { mockClient.getConfig() } returns Pair(sectionMap, "etag-v1")
+        coEvery { mockClient.updateConfig("gateway", any(), "etag-v1") } returns "etag-v2"
+        coEvery { mockClient.updateConfig("gateway", any(), "etag-v2") } returns "etag-v3"
+        repo.getConfig()
+
+        repo.updateConfig("gateway", JsonPrimitive("a"))
+        repo.updateConfig("gateway", JsonPrimitive("b"))
+
+        coVerify { mockClient.updateConfig("gateway", JsonPrimitive("b"), "etag-v2") }
+    }
+
+    @Test
+    fun `updateConfig drops a stale ETag when the write response carries none`() = runTest {
+        coEvery { mockClient.getConfig() } returns Pair(sectionMap, "etag-v1")
+        coEvery { mockClient.updateConfig(any(), any(), any()) } returns null
+        repo.getConfig()
+
+        repo.updateConfig("gateway", JsonPrimitive("a"))
+        repo.updateConfig("gateway", JsonPrimitive("b"))
+
+        coVerify { mockClient.updateConfig("gateway", JsonPrimitive("b"), null) }
+    }
+
+    @Test
+    fun `an ETag cached for one session is never sent after reconnecting`() = runTest {
+        coEvery { mockClient.getConfig() } returns Pair(sectionMap, "etag-old-session")
+        repo.getConfig()
+        val newSessionClient = mockk<OpenClawApiClient>(relaxed = true)
+        every { mockManager.requireClient() } returns newSessionClient
+
+        repo.updateConfig("gateway", JsonPrimitive("x"))
+
+        coVerify { newSessionClient.updateConfig("gateway", JsonPrimitive("x"), null) }
+    }
 }

@@ -160,6 +160,25 @@ class OpenClawApiClientTest {
         assertEquals(422, ex.statusCode)
     }
 
+    @Test fun `updateConfig returns the ETag sent with the write response`() = runTest {
+        val engine = MockEngine {
+            respond("{}", HttpStatusCode.OK, Headers.build {
+                append(HttpHeaders.ContentType, "application/json")
+                append(HttpHeaders.ETag, "etag-v2")
+            })
+        }
+        val client = OpenClawApiClient.forTest(BASE, HttpClient(engine) {
+            install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
+        })
+
+        assertEquals("etag-v2", client.updateConfig("gateway", JsonPrimitive("x"), "etag-v1"))
+    }
+
+    @Test fun `updateConfig returns null when the write response has no ETag`() = runTest {
+        val client = mockClient(HttpStatusCode.NoContent to "")
+        assertNull(client.updateConfig("gateway", JsonPrimitive("x"), null))
+    }
+
     // ── getModels ─────────────────────────────────────────────────────────────
 
     @Test fun `getModels returns mapped list`() = runTest {
