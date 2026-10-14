@@ -411,7 +411,7 @@ class AIRecommendationViewModelTest {
             error = AIServiceUnavailableException(gatewayUrl)
         }
         val repo = FakeInstallRepo().apply {
-            scripted = flowOf(SkillInstallProgress.Failed(SkillInstallError.Network("timeout")))
+            scripted = flowOf(SkillInstallProgress.Failed(SkillInstallError.Network(java.io.IOException("timeout"))))
         }
         val (vm, _) = makeVm(service = service, installRepo = repo)
 
@@ -430,7 +430,7 @@ class AIRecommendationViewModelTest {
             error = AIServiceUnavailableException(gatewayUrl)
         }
         val repo = FakeInstallRepo().apply {
-            scripted = flowOf(SkillInstallProgress.Failed(SkillInstallError.Network("x")))
+            scripted = flowOf(SkillInstallProgress.Failed(SkillInstallError.Network(java.io.IOException("x"))))
         }
         val (vm, _) = makeVm(service = service, installRepo = repo)
 

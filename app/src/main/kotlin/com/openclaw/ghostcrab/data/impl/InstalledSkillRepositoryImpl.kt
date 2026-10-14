@@ -84,7 +84,7 @@ class InstalledSkillRepositoryImpl(
         send(SkillInstallProgress.Failed(SkillInstallError.NotConnected))
         null
     } catch (e: Exception) {
-        send(SkillInstallProgress.Failed(SkillInstallError.Network(e.message ?: e::class.java.simpleName)))
+        send(SkillInstallProgress.Failed(SkillInstallError.Network(e)))
         null
     }
 
@@ -198,8 +198,8 @@ class InstalledSkillRepositoryImpl(
         is GatewayWsClient.WsRpcException -> toInstallError()
         is GatewayProtocolException -> SkillInstallError.MalformedResponse(detail)
         // Timeout or socket closed mid-install: retryable transport failure.
-        is GatewayException -> SkillInstallError.Network(message ?: this::class.java.simpleName)
-        else -> SkillInstallError.Unknown(message ?: "unknown")
+        is GatewayException -> SkillInstallError.Network(this)
+        else -> SkillInstallError.Unknown(this)
     }
 
     private fun GatewayWsClient.WsRpcException.toInstallError(): SkillInstallError = when (code) {

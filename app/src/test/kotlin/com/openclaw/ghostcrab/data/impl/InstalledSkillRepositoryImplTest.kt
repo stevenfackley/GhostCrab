@@ -77,7 +77,8 @@ class InstalledSkillRepositoryImplTest {
 
         assertTrue(progress.first() is SkillInstallProgress.Connecting)
         val failed = progress.last() as SkillInstallProgress.Failed
-        assertTrue(failed.error is SkillInstallError.Network)
+        val network = failed.error as SkillInstallError.Network
+        assertTrue(network.cause is IllegalStateException)
     }
 
     @Test

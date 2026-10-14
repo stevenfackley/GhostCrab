@@ -38,6 +38,7 @@ import com.openclaw.ghostcrab.ui.components.CodeBlock
 import com.openclaw.ghostcrab.ui.components.GlassSurface
 import com.openclaw.ghostcrab.ui.theme.BrandTokens
 import com.openclaw.ghostcrab.ui.theme.Spacing
+import com.openclaw.ghostcrab.ui.toUserMessage
 
 private data class SkillUnavailableCopy(val title: String, val body: String, val command: String)
 
@@ -227,7 +228,7 @@ private fun installErrorMessage(error: SkillInstallError): String {
         )
         is SkillInstallError.Network -> stringResource(
             R.string.ai_skill_install_error_network,
-            error.cause,
+            error.cause.toUserMessage(),
         )
         is SkillInstallError.Protocol -> stringResource(
             R.string.ai_skill_install_error_protocol,
@@ -241,7 +242,7 @@ private fun installErrorMessage(error: SkillInstallError): String {
         SkillInstallError.NotConnected -> stringResource(R.string.ai_skill_install_error_not_connected)
         is SkillInstallError.Unknown -> stringResource(
             R.string.ai_skill_install_error_unknown,
-            error.cause,
+            error.cause.toUserMessage(),
         )
     }
 }
