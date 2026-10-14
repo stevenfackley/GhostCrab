@@ -1,6 +1,7 @@
 package com.openclaw.ghostcrab.ui
 
 import com.openclaw.ghostcrab.domain.exception.GatewayApiException
+import com.openclaw.ghostcrab.domain.exception.GatewayNotConnectedException
 import com.openclaw.ghostcrab.domain.model.AuthRequirement
 import com.openclaw.ghostcrab.domain.model.GatewayConnection
 import com.openclaw.ghostcrab.domain.model.ModelInfo
@@ -105,6 +106,15 @@ class ModelManagerViewModelTest {
 
         val state = assertInstanceOf(ModelManagerUiState.Error::class.java, vm.state.value)
         assertTrue(state.message.contains("500"))
+    }
+
+    @Test
+    fun `loading models after the session dropped shows Error instead of crashing`() = runTest {
+        val repo = FakeMMRepository().apply { getError = GatewayNotConnectedException() }
+        val (vm, _) = makeVm(initialConnection = connectedState, repo = repo)
+
+        val state = vm.state.value as ModelManagerUiState.Error
+        assertTrue(state.message.contains("GatewayNotConnectedException"))
     }
 
     @Test

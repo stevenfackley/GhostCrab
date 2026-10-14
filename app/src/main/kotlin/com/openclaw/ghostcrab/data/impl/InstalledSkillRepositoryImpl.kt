@@ -1,13 +1,19 @@
 package com.openclaw.ghostcrab.data.impl
 
 import com.openclaw.ghostcrab.data.ws.GatewayWsClient
+import com.openclaw.ghostcrab.domain.exception.GatewayException
+import com.openclaw.ghostcrab.domain.exception.GatewayNotConnectedException
+import com.openclaw.ghostcrab.domain.exception.GatewayProtocolException
 import com.openclaw.ghostcrab.domain.model.InstalledSkill
 import com.openclaw.ghostcrab.domain.model.SkillInstallError
 import com.openclaw.ghostcrab.domain.model.SkillInstallProgress
 import com.openclaw.ghostcrab.domain.model.SkillSource
 import com.openclaw.ghostcrab.domain.repository.InstalledSkillRepository
+import com.openclaw.ghostcrab.domain.util.suspendRunCatching
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.channels.ProducerScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -24,7 +30,7 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import kotlinx.serialization.json.long
+import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 
 /**
@@ -52,13 +58,34 @@ class InstalledSkillRepositoryImpl(
      *
      * @return [Result] wrapping the refreshed list, or an exception on network failure.
      */
-    override suspend fun refreshFromGateway(): Result<List<InstalledSkill>> = runCatching {
+    override suspend fun refreshFromGateway(): Result<List<InstalledSkill>> = suspendRunCatching {
         wsFactory().use { ws ->
-            val res = ws.request("skills.list", params = null).jsonObject
-            val list = res["skills"]?.jsonArray.orEmpty().map { it.jsonObject.toInstalledSkill() }
+            val raw = ws.request("skills.list", params = null)
+            val list = parseShape {
+                raw.jsonObject["skills"]?.jsonArray.orEmpty().map { it.jsonObject.toInstalledSkill() }
+            }
             installedFlow.value = list
             list
         }
+    }
+
+    /**
+     * Opens the live session for an install. On failure (disconnected, WS upgrade error)
+     * emits [SkillInstallProgress.Failed] ([SkillInstallError.NotConnected] while disconnected,
+     * [SkillInstallError.Network] otherwise) and returns `null`
+     * so the collector never sees the exception.
+     */
+    private suspend fun ProducerScope<SkillInstallProgress>.openSessionOrReport(): GatewayWsClient? = try {
+        wsFactory()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (ignored: GatewayNotConnectedException) {
+        // Not retryable as-is: the user must reconnect first, so no Retry button.
+        send(SkillInstallProgress.Failed(SkillInstallError.NotConnected))
+        null
+    } catch (e: Exception) {
+        send(SkillInstallProgress.Failed(SkillInstallError.Network(e)))
+        null
     }
 
     /**
@@ -74,7 +101,7 @@ class InstalledSkillRepositoryImpl(
     @Suppress("LongMethod")
     override fun install(slug: String, version: String?): Flow<SkillInstallProgress> = channelFlow {
         send(SkillInstallProgress.Connecting(slug))
-        val ws = wsFactory()
+        val ws = openSessionOrReport() ?: return@channelFlow
 
         val notifJob = ws.notifications
             .filter { it.method == "skills.install.progress" }
@@ -104,14 +131,14 @@ class InstalledSkillRepositoryImpl(
         }
 
         try {
-            val result = ws.request("skills.install", params).jsonObject
-            val skill = result.toInstalledSkill()
+            val raw = ws.request("skills.install", params)
+            val skill = parseShape { raw.jsonObject.toInstalledSkill() }
             installedFlow.value = (installedFlow.value.filter { it.slug != skill.slug } + skill)
             send(SkillInstallProgress.Succeeded(skill))
-        } catch (e: GatewayWsClient.WsRpcException) {
-            send(SkillInstallProgress.Failed(e.toInstallError()))
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
-            send(SkillInstallProgress.Failed(SkillInstallError.Unknown(e.message ?: "unknown")))
+            send(SkillInstallProgress.Failed(e.toInstallError()))
         } finally {
             notifJob.cancel()
             withContext(NonCancellable) { ws.close() }
@@ -124,7 +151,7 @@ class InstalledSkillRepositoryImpl(
      * @param slug The skill to remove.
      * @return [Result.success] on success, or a failure wrapping the exception.
      */
-    override suspend fun uninstall(slug: String): Result<Unit> = runCatching {
+    override suspend fun uninstall(slug: String): Result<Unit> = suspendRunCatching {
         wsFactory().use { ws ->
             ws.request("skills.uninstall", buildJsonObject { put("slug", JsonPrimitive(slug)) })
             installedFlow.value = installedFlow.value.filter { it.slug != slug }
@@ -141,16 +168,39 @@ class InstalledSkillRepositoryImpl(
             withContext(NonCancellable) { close() }
         }
 
-    private fun JsonObject.toInstalledSkill(): InstalledSkill = InstalledSkill(
-        slug = this["slug"]!!.jsonPrimitive.content,
-        installedVersion = this["installed_version"]!!.jsonPrimitive.content,
-        source = when (this["source"]?.jsonPrimitive?.contentOrNull) {
-            "ClawHub", "clawhub" -> SkillSource.ClawHub
-            "Local", "local" -> SkillSource.Local
-            else -> SkillSource.Unknown
-        },
-        installedAt = this["installed_at"]?.jsonPrimitive?.long ?: 0L,
-    )
+    /** Runs [block], turning kotlinx.serialization shape errors into a [GatewayProtocolException]. */
+    private inline fun <T> parseShape(block: () -> T): T = try {
+        block()
+    } catch (e: IllegalArgumentException) {
+        throw GatewayProtocolException("ws:skills", "malformed response: ${e.message}", e)
+    }
+
+    private fun JsonObject.toInstalledSkill(): InstalledSkill {
+        val slug = this["slug"]?.jsonPrimitive?.contentOrNull
+        val version = this["installed_version"]?.jsonPrimitive?.contentOrNull
+        if (slug == null || version == null) {
+            throw GatewayProtocolException("ws:skills", "skill entry without slug/installed_version: $this")
+        }
+        return InstalledSkill(
+            slug = slug,
+            installedVersion = version,
+            source = when (this["source"]?.jsonPrimitive?.contentOrNull) {
+                "ClawHub", "clawhub" -> SkillSource.ClawHub
+                "Local", "local" -> SkillSource.Local
+                else -> SkillSource.Unknown
+            },
+            installedAt = this["installed_at"]?.jsonPrimitive?.longOrNull ?: 0L,
+        )
+    }
+
+    /** Classifies a failed `skills.install` request; transport faults are retryable, protocol faults are not. */
+    private fun Exception.toInstallError(): SkillInstallError = when (this) {
+        is GatewayWsClient.WsRpcException -> toInstallError()
+        is GatewayProtocolException -> SkillInstallError.MalformedResponse(detail)
+        // Timeout or socket closed mid-install: retryable transport failure.
+        is GatewayException -> SkillInstallError.Network(this)
+        else -> SkillInstallError.Unknown(this)
+    }
 
     private fun GatewayWsClient.WsRpcException.toInstallError(): SkillInstallError = when (code) {
         -32003 -> SkillInstallError.Unauthorized(missingScope = "operator.admin")

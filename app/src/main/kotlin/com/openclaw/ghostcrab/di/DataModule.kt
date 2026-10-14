@@ -1,7 +1,5 @@
 package com.openclaw.ghostcrab.di
 
-import com.openclaw.ghostcrab.data.api.OpenClawApiClient
-import com.openclaw.ghostcrab.data.api.dto.HealthResponse
 import com.openclaw.ghostcrab.data.discovery.NsdDiscoveryServiceImpl
 
 import com.openclaw.ghostcrab.data.impl.AIRecommendationServiceImpl
@@ -11,12 +9,15 @@ import com.openclaw.ghostcrab.data.impl.GatewayConnectionManagerImpl
 import com.openclaw.ghostcrab.data.impl.ModelRepositoryImpl
 import com.openclaw.ghostcrab.data.impl.OnboardingRepositoryImpl
 import com.openclaw.ghostcrab.data.impl.SettingsRepositoryImpl
+import com.openclaw.ghostcrab.data.impl.appSettingsDataStore
+import com.openclaw.ghostcrab.data.impl.onboardingDataStore
 import com.openclaw.ghostcrab.data.storage.ConnectionProfileStore
 import com.openclaw.ghostcrab.domain.repository.AIRecommendationService
 import com.openclaw.ghostcrab.domain.repository.ConfigRepository
 import com.openclaw.ghostcrab.domain.repository.ConnectionProfileRepository
 import com.openclaw.ghostcrab.domain.repository.DiscoveryService
 import com.openclaw.ghostcrab.domain.repository.GatewayConnectionManager
+import com.openclaw.ghostcrab.domain.repository.GatewayHealthChecker
 import com.openclaw.ghostcrab.domain.repository.ModelRepository
 import com.openclaw.ghostcrab.domain.repository.OnboardingRepository
 import com.openclaw.ghostcrab.domain.repository.InstalledSkillRepository
@@ -24,62 +25,43 @@ import com.openclaw.ghostcrab.domain.repository.ScopeProbe
 import com.openclaw.ghostcrab.domain.repository.SettingsRepository
 import com.openclaw.ghostcrab.data.impl.InstalledSkillRepositoryImpl
 import com.openclaw.ghostcrab.data.impl.ScopeProbeImpl
-import com.openclaw.ghostcrab.data.ws.openGatewayWs
-import com.openclaw.ghostcrab.domain.model.GatewayConnection
+import com.openclaw.ghostcrab.data.ws.GatewayWsClient
 import org.koin.android.ext.koin.androidContext
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
+import org.koin.core.qualifier.named
+import org.koin.core.scope.Scope
 import org.koin.dsl.module
 
+/** Koin qualifier for the blocking-IO dispatcher. Inject it; never hard-code `Dispatchers.IO` in data classes. */
+val IoDispatcher = named("io")
+
 val dataModule = module {
-    single { ConnectionProfileStore(androidContext()) }
+    single<CoroutineDispatcher>(IoDispatcher) { Dispatchers.IO }
+    single { ConnectionProfileStore(androidContext(), ioDispatcher = get(IoDispatcher)) }
     single<ConnectionProfileRepository> { ConnectionProfileRepositoryImpl(get()) }
     // Register the concrete type first so dependent impls can get<GatewayConnectionManagerImpl>()
-    single { GatewayConnectionManagerImpl(settingsRepository = get()) }
+    single { GatewayConnectionManagerImpl(settingsRepository = get(), ioDispatcher = get(IoDispatcher)) }
     single<GatewayConnectionManager> { get<GatewayConnectionManagerImpl>() }
+    single<GatewayHealthChecker> { get<GatewayConnectionManagerImpl>() }
     single<ConfigRepository> { ConfigRepositoryImpl(get<GatewayConnectionManagerImpl>()) }
     single<ModelRepository> { ModelRepositoryImpl(get<GatewayConnectionManagerImpl>()) }
     single<AIRecommendationService> { AIRecommendationServiceImpl(get<GatewayConnectionManagerImpl>()) }
     single<DiscoveryService> { NsdDiscoveryServiceImpl(androidContext()) }
-    single<OnboardingRepository> { OnboardingRepositoryImpl(androidContext()) }
-    single<SettingsRepository> { SettingsRepositoryImpl(androidContext()) }
+    single<OnboardingRepository> { OnboardingRepositoryImpl(androidContext().onboardingDataStore) }
+    single<SettingsRepository> { SettingsRepositoryImpl(androidContext().appSettingsDataStore) }
 
     if (com.openclaw.ghostcrab.BuildConfig.SKILLS_INSTALL_ENABLED) {
-        single<InstalledSkillRepository> {
-            InstalledSkillRepositoryImpl(
-                wsFactory = {
-                    val mgr = get<GatewayConnectionManagerImpl>()
-                    val profile = (mgr.connectionState.value as? GatewayConnection.Connected)
-                        ?: error("Cannot install skills while disconnected")
-                    // Reuse the session client: same cleartext interceptor, timeouts, sanitized
-                    // logging and origin-scoped bearer as every HTTP call.
-                    openGatewayWs(
-                        httpClient = mgr.requireClient().httpClient,
-                        baseUrl = profile.url,
-                        tokenProvider = { profile.tokenOrNull },
-                    )
-                }
-            )
-        }
-        single<ScopeProbe> {
-            ScopeProbeImpl(
-                wsFactory = {
-                    val mgr = get<GatewayConnectionManagerImpl>()
-                    val profile = (mgr.connectionState.value as? GatewayConnection.Connected)
-                        ?: error("Cannot probe scopes while disconnected")
-                    // Reuse the session client: same cleartext interceptor, timeouts, sanitized
-                    // logging and origin-scoped bearer as every HTTP call.
-                    openGatewayWs(
-                        httpClient = mgr.requireClient().httpClient,
-                        baseUrl = profile.url,
-                        tokenProvider = { profile.tokenOrNull },
-                    )
-                }
-            )
-        }
+        single<InstalledSkillRepository> { InstalledSkillRepositoryImpl(wsFactory = liveWsFactory()) }
+        single<ScopeProbe> { ScopeProbeImpl(wsFactory = liveWsFactory()) }
     }
 }
 
-/** Unauthenticated `/health` probe — creates and closes a client per call. */
-internal suspend fun gatewayHealthCheck(url: String): HealthResponse {
-    val client = OpenClawApiClient.unauthenticated(url)
-    return try { client.health() } finally { client.close() }
+/**
+ * Opens a fresh JSON-RPC WebSocket on the live session client. Shared by every WS-backed
+ * repository; throws `GatewayNotConnectedException` while disconnected.
+ */
+private fun Scope.liveWsFactory(): suspend () -> GatewayWsClient {
+    val manager = get<GatewayConnectionManagerImpl>()
+    return { manager.requireClient().openWebSocket() }
 }

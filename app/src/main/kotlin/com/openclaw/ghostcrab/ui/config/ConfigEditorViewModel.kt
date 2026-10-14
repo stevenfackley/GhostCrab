@@ -6,8 +6,11 @@ import com.openclaw.ghostcrab.domain.exception.ConfigValidationException
 import com.openclaw.ghostcrab.domain.exception.GatewayApiException
 import com.openclaw.ghostcrab.domain.exception.GatewayException
 import com.openclaw.ghostcrab.domain.model.GatewayConnection
+import com.openclaw.ghostcrab.domain.model.OpenClawConfig
 import com.openclaw.ghostcrab.domain.repository.ConfigRepository
 import com.openclaw.ghostcrab.domain.repository.GatewayConnectionManager
+import com.openclaw.ghostcrab.domain.util.suspendRunCatching
+import com.openclaw.ghostcrab.ui.toUserMessage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -65,7 +68,7 @@ class ConfigEditorViewModel(
                     ConfigEditorUiState.Ready(config = config)
                 }
             } catch (e: GatewayException) {
-                _state.value = ConfigEditorUiState.Error(e.message ?: "Unknown error")
+                _state.value = ConfigEditorUiState.Error(e.toUserMessage())
             }
         }
     }
@@ -124,10 +127,13 @@ class ConfigEditorViewModel(
     /**
      * Writes the pending change for [section] to the gateway, then re-reads config.
      *
-     * On success: transitions to a fresh [ConfigEditorUiState.Ready] with `saveSuccess = true`.
-     * On 412: reloads config and sets `concurrentEditSection`.
+     * Every outcome copies the latest [ConfigEditorUiState.Ready] instead of rebuilding it, so edits
+     * and diff sheets opened while the save was in flight survive.
+     * On success: reloads config, drops [section]'s pending edit only if it is still the saved value,
+     *   sets saveSuccess.
+     * On 412: reloads config, keeps every pending edit, sets `concurrentEditSection`.
      * On 422 / [ConfigValidationException]: sets the field error inline.
-     * On other errors: transitions to [ConfigEditorUiState.Error].
+     * On other errors (or a failed reload after 412): keeps every pending edit, sets `saveError`.
      *
      * @param section Top-level section key to write.
      */
@@ -139,37 +145,27 @@ class ConfigEditorViewModel(
             try {
                 configRepository.updateConfig(section, newValue)
                 val updated = configRepository.getConfig()
-                _state.value = ConfigEditorUiState.Ready(
-                    config = updated,
-                    saveSuccess = true,
-                )
+                _state.updateReady { it.afterSave(section, newValue, updated) }
             } catch (e: GatewayApiException) {
                 if (e.statusCode == 412) {
-                    val reloaded = try { configRepository.getConfig() } catch (_: Exception) { null }
-                    _state.value = if (reloaded != null) {
-                        ConfigEditorUiState.Ready(
-                            config = reloaded,
-                            concurrentEditSection = section,
-                        )
-                    } else {
-                        ConfigEditorUiState.Error(
-                            "Concurrent edit detected and reload failed: ${e.message}",
+                    val reloaded = suspendRunCatching { configRepository.getConfig() }
+                    _state.updateReady { ready ->
+                        reloaded.fold(
+                            onSuccess = { ready.copy(config = it, concurrentEditSection = section) },
+                            onFailure = {
+                                ready.copy(
+                                    saveError = "Concurrent edit detected and reload failed: ${it.toUserMessage()}",
+                                )
+                            },
                         )
                     }
                 } else {
-                    _state.value = ConfigEditorUiState.Error("Save failed: ${e.message}")
+                    _state.updateReady { it.copy(saveError = "Save failed: ${e.toUserMessage()}") }
                 }
             } catch (e: ConfigValidationException) {
-                val current2 = _state.value as? ConfigEditorUiState.Ready
-                if (current2 != null) {
-                    _state.value = current2.copy(
-                        fieldErrors = current2.fieldErrors + (e.field to e.reason),
-                    )
-                } else {
-                    _state.value = ConfigEditorUiState.Error("Validation error: ${e.message}")
-                }
+                _state.updateReady { it.copy(fieldErrors = it.fieldErrors + (e.field to e.reason)) }
             } catch (e: GatewayException) {
-                _state.value = ConfigEditorUiState.Error("Save failed: ${e.message}")
+                _state.updateReady { it.copy(saveError = "Save failed: ${e.toUserMessage()}") }
             }
         }
     }
@@ -194,8 +190,57 @@ class ConfigEditorViewModel(
         _state.update { (it as? ConfigEditorUiState.Ready)?.copy(saveSuccess = false) ?: it }
     }
 
-    /** Dismisses the concurrent-edit warning dialog. */
-    fun dismissConcurrentEdit() {
-        _state.update { (it as? ConfigEditorUiState.Ready)?.copy(concurrentEditSection = null) ?: it }
+    /** Clears [ConfigEditorUiState.Ready.saveError] after the snackbar has been shown. */
+    fun clearSaveError() {
+        _state.update { (it as? ConfigEditorUiState.Ready)?.copy(saveError = null) ?: it }
     }
+
+    /**
+     * Dismisses the concurrent-edit warning dialog.
+     *
+     * @param discardConflicting When `true` (the dialog's Reload), also drops the pending edit of the
+     *   conflicting section; the latest server config is already loaded and other sections' edits stay.
+     */
+    fun dismissConcurrentEdit(discardConflicting: Boolean = false) {
+        _state.update { state ->
+            val ready = state as? ConfigEditorUiState.Ready ?: return@update state
+            val section = ready.concurrentEditSection
+            val dismissed = ready.copy(concurrentEditSection = null)
+            if (discardConflicting && section != null) {
+                dismissed.copy(
+                    pendingChanges = dismissed.pendingChanges - section,
+                    fieldErrors = dismissed.fieldErrors.filterKeys { !it.startsWith("$section.") },
+                )
+            } else {
+                dismissed
+            }
+        }
+    }
+}
+
+/** Applies [transform] when the state is [ConfigEditorUiState.Ready]; any other state is left as is. */
+private inline fun MutableStateFlow<ConfigEditorUiState>.updateReady(
+    transform: (ConfigEditorUiState.Ready) -> ConfigEditorUiState.Ready,
+) {
+    update { state -> (state as? ConfigEditorUiState.Ready)?.let { transform(it) } ?: state }
+}
+
+/**
+ * State after [section] was written as [savedValue] and the config re-read as [updated].
+ *
+ * The section's pending edit and field errors are dropped only while they still match what was
+ * saved; a re-edit made during the save survives. Other sections and the open diff sheet are kept.
+ */
+private fun ConfigEditorUiState.Ready.afterSave(
+    section: String,
+    savedValue: JsonElement,
+    updated: OpenClawConfig,
+): ConfigEditorUiState.Ready {
+    val unchangedSinceSave = pendingChanges[section] == savedValue
+    return copy(
+        config = updated,
+        pendingChanges = if (unchangedSinceSave) pendingChanges - section else pendingChanges,
+        fieldErrors = if (unchangedSinceSave) fieldErrors.filterKeys { !it.startsWith("$section.") } else fieldErrors,
+        saveSuccess = true,
+    )
 }

@@ -71,7 +71,7 @@ class InstalledSkillsViewModelTest {
 
         val s = assertInstanceOf(InstalledSkillsUiState.Ready::class.java, vm.state.value)
         assertTrue(s.skills.isEmpty())
-        assertEquals("offline", s.errorMessage)
+        assertEquals("offline (IllegalStateException)", s.errorMessage)
     }
 
     @Test
@@ -136,7 +136,7 @@ class InstalledSkillsViewModelTest {
         val s = vm.state.value as InstalledSkillsUiState.Ready
         assertNull(s.uninstallingSlug)
         assertNull(s.uninstallSuccessSlug)
-        assertEquals("boom", s.errorMessage)
+        assertEquals("boom (RuntimeException)", s.errorMessage)
     }
 
     @Test
@@ -175,7 +175,7 @@ class InstalledSkillsViewModelTest {
         val vm2 = InstalledSkillsViewModel(failRepo)
         vm2.requestUninstall("x/y")
         vm2.confirmUninstall()
-        assertEquals("nope", (vm2.state.value as InstalledSkillsUiState.Ready).errorMessage)
+        assertEquals("nope (RuntimeException)", (vm2.state.value as InstalledSkillsUiState.Ready).errorMessage)
 
         vm2.clearError()
         assertNull((vm2.state.value as InstalledSkillsUiState.Ready).errorMessage)

@@ -39,6 +39,9 @@ sealed interface ConfigEditorUiState {
      * @param pendingSaveSection When non-null, the diff sheet is shown for this section key.
      * @param saveSuccess When `true`, show a success snackbar; call [com.openclaw.ghostcrab.ui.config.ConfigEditorViewModel.clearSaveSuccess] to dismiss.
      * @param concurrentEditSection When non-null, show a concurrent-edit warning dialog for this section.
+     * @param saveError Last failed save, formatted for display (URL, status, exception class); pending
+     *   edits are kept. Call [com.openclaw.ghostcrab.ui.config.ConfigEditorViewModel.clearSaveError]
+     *   once it has been shown.
      */
     data class Ready(
         val config: OpenClawConfig,
@@ -47,5 +50,6 @@ sealed interface ConfigEditorUiState {
         val pendingSaveSection: String? = null,
         val saveSuccess: Boolean = false,
         val concurrentEditSection: String? = null,
+        val saveError: String? = null,
     ) : ConfigEditorUiState
 }

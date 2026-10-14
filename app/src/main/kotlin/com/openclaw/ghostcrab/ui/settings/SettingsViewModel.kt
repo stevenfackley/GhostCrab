@@ -6,6 +6,8 @@ import com.openclaw.ghostcrab.domain.model.ConnectionProfile
 import com.openclaw.ghostcrab.domain.repository.ConnectionProfileRepository
 import com.openclaw.ghostcrab.domain.repository.OnboardingRepository
 import com.openclaw.ghostcrab.domain.repository.SettingsRepository
+import com.openclaw.ghostcrab.domain.util.suspendRunCatching
+import com.openclaw.ghostcrab.ui.toUserMessage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -91,8 +93,8 @@ class SettingsViewModel(
         val profileId = (_state.value as? SettingsUiState.Ready)?.pendingDeleteProfileId ?: return
         withReady { it.copy(pendingDeleteProfileId = null) }
         viewModelScope.launch {
-            runCatching { profileRepository.deleteProfile(profileId) }
-                .onFailure { e -> withReady { s -> s.copy(errorMessage = e.message) } }
+            suspendRunCatching { profileRepository.deleteProfile(profileId) }
+                .onFailure { e -> withReady { s -> s.copy(errorMessage = e.toUserMessage()) } }
         }
     }
 
@@ -116,15 +118,19 @@ class SettingsViewModel(
         val current = (_state.value as? SettingsUiState.Ready)?.editingProfile ?: return
         withReady { it.copy(editingProfile = null) }
         viewModelScope.launch {
-            runCatching {
-                val updated = current.copy(displayName = displayName.trim())
+            suspendRunCatching {
                 val tokenToSave = when {
-                    newToken == null -> profileRepository.getToken(current.id) // unchanged
+                    newToken == null ->
+                        if (current.hasToken) profileRepository.getToken(current.id) else null // unchanged
                     newToken.isBlank() -> null  // clear
                     else -> newToken
                 }
+                val updated = current.copy(
+                    displayName = displayName.trim(),
+                    hasToken = tokenToSave != null,
+                )
                 profileRepository.saveProfile(updated, tokenToSave)
-            }.onFailure { e -> withReady { s -> s.copy(errorMessage = e.message) } }
+            }.onFailure { e -> withReady { s -> s.copy(errorMessage = e.toUserMessage()) } }
         }
     }
 
@@ -152,16 +158,14 @@ class SettingsViewModel(
     }
 
     /**
-     * Deletes all saved profiles. Sets [SettingsUiState.Ready.errorMessage] on partial failure.
+     * Deletes all saved profiles and tokens (even if the stored list is unreadable).
+     * Sets [SettingsUiState.Ready.errorMessage] on failure.
      */
     fun confirmClearAllProfiles() {
-        val profiles = (_state.value as? SettingsUiState.Ready)?.profiles ?: return
         withReady { it.copy(showClearAllConfirmation = false) }
         viewModelScope.launch {
-            profiles.forEach { profile ->
-                runCatching { profileRepository.deleteProfile(profile.id) }
-                    .onFailure { e -> withReady { s -> s.copy(errorMessage = e.message) } }
-            }
+            suspendRunCatching { profileRepository.clearAll() }
+                .onFailure { e -> withReady { s -> s.copy(errorMessage = e.toUserMessage()) } }
         }
     }
 
@@ -174,9 +178,9 @@ class SettingsViewModel(
      */
     fun replayWalkthrough() {
         viewModelScope.launch {
-            runCatching { onboardingRepository.reset() }
+            suspendRunCatching { onboardingRepository.reset() }
                 .onSuccess { withReady { it.copy(onboardingResetSuccess = true) } }
-                .onFailure { e -> withReady { s -> s.copy(errorMessage = e.message) } }
+                .onFailure { e -> withReady { s -> s.copy(errorMessage = e.toUserMessage()) } }
         }
     }
 

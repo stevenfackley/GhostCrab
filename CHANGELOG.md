@@ -5,30 +5,58 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-### Security
-
-- **Bearer token scoped to the gateway origin** — the token is attached only to requests whose host, port and scheme match the configured gateway URL (`OpenClawApiClient.isSameOrigin`). Ktor's `Auth` plugin was replaced by a request hook with no 401-challenge retry, so a redirect off the gateway can never carry the token. The WebSocket path reuses this same client instead of a bare one.
-- **Backup disabled** — `allowBackup="false"` plus `dataExtractionRules` / `fullBackupContent` excluding all app data from cloud backup and device-to-device transfer.
-- **Release logging** — Ktor header logging is installed only in debug builds; R8 strips `Log.v` / `Log.d` call sites in release (`-assumenosideeffects`).
-- **Crash-log scrubbing** also redacts `token=` / `"token":` / `api_key` fields and IPv4 literals, matching the promise in `SECURITY.md`.
-- **Token-carrying state can't be logged** — `GatewayConnection.Connected` and `ManualEntryFormState` redact the token in `toString()`.
-- **Onboarding token** no longer lives in `rememberSaveable` (saved-instance Bundle); it is held in `OnboardingViewModel`. Copies are flagged `EXTRA_IS_SENSITIVE` so Android 13+ hides the clipboard preview.
-- **Cleartext guard** treats IPv6 ULA (`fc00::/7`) and unspecified addresses as private.
-- **Host validation** rejects `@`, `?`, `#`, `\` in the manual-entry host field (userinfo / query smuggling into the assembled URL).
-- **Gradle wrapper** pins `distributionSha256Sum`.
-
-### Fixed
-
-- `GatewayConnectionManagerImpl.connect` could leave the UI on `Connecting` forever if the handshake failed with a non-`GatewayException` or was cancelled; both now land in a terminal state.
-- A gateway that answered `/health` but failed `/status` leaked the freshly built OkHttp client (only `activeClient`, assigned after success, was ever closed).
-- WebSocket sessions opened by `ScopeProbeImpl` / `InstalledSkillRepositoryImpl` were never closed (one leaked socket per probe / list / install / uninstall).
-- Opening ClawHub with no browser installed crashed with `ActivityNotFoundException`; now shows a toast.
-- CodeQL workflow had its `name:` key glued onto a comment line.
+## [0.2.0] - 2026-10-14
 
 ### Added
 
-- **Release signing config** — `app/build.gradle.kts` reads `KEYSTORE_PATH`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD` from `local.properties` first, then process env vars (CI fallback). Unsigned build remains the default when no keystore is configured.
-- **Release keystore** — PKCS12, RSA-4096, 30-year validity at `%USERPROFILE%\.android\ghostcrab-release.jks`. Documented in [`docs/RELEASE_SIGNING.md`](docs/RELEASE_SIGNING.md).
+- **Pairing links** — `ghostcrab://pair` deep links and QR codes prefill the manual connect form; you still tap Connect. The token is held in memory only, for at most 2 minutes, and links re-delivered from Recents are ignored.
+- **IPv6-safe gateway URLs** — one `GatewayUrl` parser (port range check, zone-id stripping) now used by manual entry and discovery; mDNS records that cannot form a valid URL are skipped.
+- **Single-leaf config editing** — the config editor edits individual gateway leaves and falls back to raw JSON when a section cannot be decoded.
+- **Error messages** show the URL, HTTP status and exception class everywhere.
+- **Lifecycle-aware UI** — screens collect state only while visible and one-shot events are buffered, so rotation no longer drops navigation events.
+- **Tests** — settings/onboarding repositories, the Koin module graph, WebSocket timeouts and the config ViewModel are covered (401 unit tests).
+- **Release signing config** — `app/build.gradle.kts` reads `KEYSTORE_PATH`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD` from `local.properties` first, then env vars (CI fallback); unsigned remains the default. See [`docs/RELEASE_SIGNING.md`](docs/RELEASE_SIGNING.md).
+
+### Changed
+
+- The AI recommendations entry point and route are hidden unless `AI_PRO_ENABLED` is set.
+- AI suggestions are no longer pre-selected and are applied as one merge-patch per config section.
+- The dashboard polls `/health` on the live session client.
+- WebSocket requests time out after 30 s and fail at once when the socket closes; sockets open through the session client.
+- Cleartext blocks and protocol errors are reported as such instead of "unreachable"; a disconnect race raises `GatewayNotConnectedException` instead of crashing.
+- The config editor refreshes its ETag after each write; a failed reload after a successful write is a success with a warning.
+- Internal: large screens split into focused files, IO dispatcher injected via Koin, dead code removed, detekt baseline trimmed, lint warnings wired up and unused resources fail the build.
+
+### Fixed
+
+- Cancelled coroutines no longer show up as errors (`suspendRunCatching` rethrows `CancellationException`), and a profile-save failure after a successful connect no longer crashes the app.
+- Saving or reloading one config section (including after a 412) no longer drops pending edits in other sections.
+- Undecodable saved profiles are never overwritten; settings read errors fail closed.
+- A reconnect drops the config ETag, so a stale ETag is never sent to a different gateway.
+- Clear-all also wipes undecodable profiles and their corruption backup.
+- QR scanning releases the camera and navigates once per scan.
+- Malformed gateway skill JSON produces typed errors instead of an NPE; a skill install that cannot open a session reports a network failure.
+- Editing a tokenless profile, or reconnecting a known gateway, no longer fails on the token read; `hasToken` stays in sync after an edit.
+- `GatewayConnectionManagerImpl.connect` could stay on `Connecting` forever after a non-gateway failure or cancellation.
+- Leaked OkHttp client after a failed `/status`, and WebSocket sessions never closed by the scope probe and skill repository.
+- Opening ClawHub with no browser installed crashed; it now shows a toast.
+- CodeQL workflow had its `name:` key glued onto a comment line.
+
+### Security
+
+- **Secrets are redacted before AI** — tokens and API keys are stripped from the config sent as AI context, and redacted placeholders can never be applied back.
+- **Security-affecting AI suggestions need confirmation** — they are withheld until you confirm them in a dialog, and null deletions are confirmed too.
+- **Tokens are masked and redacted** in the config and settings UI; token-carrying state redacts the token in `toString()`.
+- **Cleartext opt-in is live** — toggling it takes effect on the current session; the setting path in error text is correct.
+- **Pairing token never persisted** by the handoff, never put in a navigation route or saved state; payloads over 4096 characters are rejected.
+- **Bearer token scoped to the gateway origin** — attached only to requests matching the configured host, port and scheme, with no 401-challenge retry, so a redirect can never carry it. The WebSocket path uses the same client.
+- **Backup disabled** — `allowBackup="false"` plus `dataExtractionRules` / `fullBackupContent` excluding all app data.
+- **Release logging** — Ktor header logging only in debug builds; R8 strips `Log.v` / `Log.d` in release.
+- **Crash-log scrubbing** also redacts `token=` / `"token":` / `api_key` fields and IPv4 literals.
+- **Onboarding token** is held in `OnboardingViewModel`, not the saved-instance Bundle; copies are flagged `EXTRA_IS_SENSITIVE`.
+- **Cleartext guard** treats IPv6 ULA (`fc00::/7`) and unspecified addresses as private.
+- **Host validation** rejects `@`, `?`, `#`, `\` in the manual-entry host field.
+- **Gradle wrapper** pins `distributionSha256Sum`.
 
 ---
 

@@ -41,6 +41,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.openclaw.ghostcrab.BuildConfig
 import com.openclaw.ghostcrab.R
 import com.openclaw.ghostcrab.domain.model.AuthRequirement
 import com.openclaw.ghostcrab.domain.model.GatewayConnection
@@ -339,10 +340,12 @@ private fun QuickActionsRow(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
     ) {
-        OutlinedButton(
-            onClick = onNavigateToAiRecommend,
-            modifier = Modifier.weight(1f),
-        ) { Text(stringResource(R.string.dashboard_action_ai_recommend)) }
+        if (BuildConfig.AI_PRO_ENABLED) {
+            OutlinedButton(
+                onClick = onNavigateToAiRecommend,
+                modifier = Modifier.weight(1f),
+            ) { Text(stringResource(R.string.dashboard_action_ai_recommend)) }
+        }
 
         OutlinedButton(
             onClick = onDisconnect,

@@ -37,8 +37,8 @@ class ScopeProbeImpl(
         throw e
     } catch (e: GatewayWsClient.WsRpcException) {
         if (e.code == -32601) ScopeProbeResult.UnknownOldGateway
-        else ScopeProbeResult.Failed(cause = "${e.code}: ${e.message}")
+        else ScopeProbeResult.Failed(cause = "${e.code}: ${e.message} (${e::class.java.simpleName})")
     } catch (e: Exception) {
-        ScopeProbeResult.Failed(cause = e.message ?: "unknown")
+        ScopeProbeResult.Failed(cause = "${e.message ?: "unknown"} (${e::class.java.simpleName})")
     }
 }

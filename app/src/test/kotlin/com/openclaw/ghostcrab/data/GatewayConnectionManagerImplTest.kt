@@ -7,22 +7,38 @@ import com.openclaw.ghostcrab.data.api.dto.StatusResponse
 import com.openclaw.ghostcrab.data.impl.GatewayConnectionManagerImpl
 import com.openclaw.ghostcrab.data.impl.OpenClawApiClientFactory
 import com.openclaw.ghostcrab.domain.exception.GatewayAuthException
+import com.openclaw.ghostcrab.domain.exception.GatewayNotConnectedException
+import com.openclaw.ghostcrab.domain.exception.GatewayProtocolException
 import com.openclaw.ghostcrab.domain.exception.GatewayTimeoutException
 import com.openclaw.ghostcrab.domain.exception.GatewayUnreachableException
 import com.openclaw.ghostcrab.domain.model.AuthRequirement
 import com.openclaw.ghostcrab.domain.model.GatewayConnection
+import com.openclaw.ghostcrab.domain.repository.SettingsRepository
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.slot
 import io.mockk.verify
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertInstanceOf
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertThrows
+import kotlin.coroutines.CoroutineContext
 
 class GatewayConnectionManagerImplTest {
 
@@ -204,7 +220,7 @@ class GatewayConnectionManagerImplTest {
 
         val exception = runCatching { manager.connect(url, null) }.exceptionOrNull()
 
-        assertInstanceOf(GatewayUnreachableException::class.java, exception)
+        assertInstanceOf(GatewayProtocolException::class.java, exception)
         assertInstanceOf(IllegalStateException::class.java, exception!!.cause)
         val state = manager.connectionState.value as GatewayConnection.Error
         assertEquals(url, state.url)
@@ -224,5 +240,92 @@ class GatewayConnectionManagerImplTest {
         assertTrue(rendered.startsWith("Connected("), rendered)
         assertTrue(!rendered.contains(secret), rendered)
         assertTrue(rendered.contains("tokenOrNull=[REDACTED]"), rendered)
+    }
+
+    @Test
+    fun `check probes health on the live session client`() = runTest {
+        coEvery { probeClient.health() } returns HealthResponse("ok")
+        coEvery { probeClient.status() } throws GatewayAuthException(url, 401)
+        coEvery { sessionClient.status() } returns statusOk
+        manager.connect(url, token)
+
+        manager.check()
+
+        coVerify { sessionClient.health() }
+    }
+
+    @Test
+    fun `requireClient before connect throws GatewayNotConnectedException`() {
+        assertThrows<GatewayNotConnectedException> { manager.requireClient() }
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `connect runs on the injected IO dispatcher`() = runTest {
+        val io = CountingDispatcher(StandardTestDispatcher(testScheduler))
+        val mgr = GatewayConnectionManagerImpl(factory, ioDispatcher = io)
+        val before = io.dispatches
+        coEvery { probeClient.health() } returns HealthResponse("ok")
+        coEvery { probeClient.status() } returns statusOk
+
+        mgr.connect(url)
+
+        assertTrue(io.dispatches > before)
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `turning the cleartext opt-in off applies to the live session`() = runTest {
+        val setting = MutableStateFlow(true)
+        val settings = object : SettingsRepository {
+            override val allowCleartextPublicIPs: Flow<Boolean> = setting
+            override suspend fun setAllowCleartextPublicIPs(enabled: Boolean) { setting.value = enabled }
+        }
+        val policy = slot<() -> Boolean>()
+        every { factory.authenticated(any(), any(), capture(policy)) } returns sessionClient
+        coEvery { probeClient.health() } returns HealthResponse("ok")
+        coEvery { probeClient.status() } throws GatewayAuthException(url, 401)
+        coEvery { sessionClient.status() } returns statusOk
+        val mgr = GatewayConnectionManagerImpl(factory, settings, UnconfinedTestDispatcher(testScheduler))
+
+        mgr.connect(url, token)
+        assertTrue(policy.captured())
+
+        setting.value = false
+        assertFalse(policy.captured())
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `a settings read error fails closed and does not propagate`() = runTest {
+        val source = MutableSharedFlow<Boolean>(replay = 1)
+        val settings = object : SettingsRepository {
+            override val allowCleartextPublicIPs: Flow<Boolean> =
+                source.map { if (it) true else throw java.io.IOException("datastore gone") }
+            override suspend fun setAllowCleartextPublicIPs(enabled: Boolean) = Unit
+        }
+        val policy = slot<() -> Boolean>()
+        every { factory.authenticated(any(), any(), capture(policy)) } returns sessionClient
+        coEvery { probeClient.health() } returns HealthResponse("ok")
+        coEvery { probeClient.status() } throws GatewayAuthException(url, 401)
+        coEvery { sessionClient.status() } returns statusOk
+        source.tryEmit(true)
+        val mgr = GatewayConnectionManagerImpl(factory, settings, UnconfinedTestDispatcher(testScheduler))
+
+        mgr.connect(url, token)
+        assertTrue(policy.captured())
+
+        source.tryEmit(false)
+        assertFalse(policy.captured())
+    }
+}
+
+private class CountingDispatcher(private val delegate: CoroutineDispatcher) : CoroutineDispatcher() {
+    var dispatches = 0
+        private set
+
+    override fun dispatch(context: CoroutineContext, block: Runnable) {
+        dispatches++
+        delegate.dispatch(context, block)
     }
 }

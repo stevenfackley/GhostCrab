@@ -35,14 +35,15 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.openclaw.ghostcrab.domain.model.DiscoveredGateway
 import com.openclaw.ghostcrab.ui.components.GlassSurface
+import com.openclaw.ghostcrab.ui.components.ObserveAsEvents
 import com.openclaw.ghostcrab.ui.theme.BrandTokens
 import com.openclaw.ghostcrab.ui.theme.MonoFontFamily
 import com.openclaw.ghostcrab.ui.theme.Spacing
@@ -69,16 +70,14 @@ fun ScanScreen(
     onNavigateToDashboard: () -> Unit,
     viewModel: ScanViewModel = koinViewModel(),
 ) {
-    val state by viewModel.state.collectAsState()
+    val state by viewModel.state.collectAsStateWithLifecycle()
 
     LaunchedEffect(Unit) { viewModel.startScan() }
 
-    LaunchedEffect(Unit) {
-        viewModel.events.collect { event ->
-            when (event) {
-                is ScanEvent.NavigateToManualEntry -> onNavigateToManualEntry(event.prefillUrl)
-                ScanEvent.NavigateToDashboard -> onNavigateToDashboard()
-            }
+    ObserveAsEvents(viewModel.events) { event ->
+        when (event) {
+            is ScanEvent.NavigateToManualEntry -> onNavigateToManualEntry(event.prefillUrl)
+            ScanEvent.NavigateToDashboard -> onNavigateToDashboard()
         }
     }
 

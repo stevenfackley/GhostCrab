@@ -1,6 +1,9 @@
 package com.openclaw.ghostcrab.ui
 
 import app.cash.turbine.test
+import com.openclaw.ghostcrab.domain.exception.GatewayException
+import com.openclaw.ghostcrab.domain.exception.GatewayTimeoutException
+import com.openclaw.ghostcrab.domain.exception.ProfileNeedsReauthException
 import com.openclaw.ghostcrab.domain.model.ConnectionProfile
 import com.openclaw.ghostcrab.domain.model.DiscoveredGateway
 import com.openclaw.ghostcrab.domain.model.GatewayConnection
@@ -188,14 +191,59 @@ class ScanViewModelTest {
         val gw = gateway()
         val vm = makeVm(
             profiles = listOf(profile(gw.url)),
-            connectResult = Result.failure(RuntimeException("timeout")),
+            connectResult = Result.failure(GatewayTimeoutException(gw.url)),
         )
 
         vm.onGatewaySelected(gw)
         advanceUntilIdle()
 
         val state = vm.state.value as ScanState.Error
-        assertTrue(state.reason.contains("timeout"))
+        assertTrue(state.reason.contains("timed out"))
+    }
+
+    @Test
+    fun `known gateway with unreadable token emits Error instead of crashing`() = runTest {
+        val gw = gateway()
+        val vm = ScanViewModel(
+            discoveryService = FakeDiscoveryService(),
+            profileRepository = FakeProfileRepository(
+                profiles = listOf(profile(gw.url).copy(hasToken = true)),
+                tokenError = ProfileNeedsReauthException("id-1"),
+            ),
+            connectionManager = FakeConnectionManager(),
+        )
+
+        vm.onGatewaySelected(gw)
+        advanceUntilIdle()
+
+        val state = vm.state.value as ScanState.Error
+        assertTrue(state.reason.contains("id-1"))
+    }
+
+    @Test
+    fun `known gateway without token never touches the keystore`() = runTest {
+        val gw = gateway()
+        val repo = FakeProfileRepository(
+            profiles = listOf(profile(gw.url)), // hasToken = false
+            tokenError = ProfileNeedsReauthException("id-1"),
+        )
+        val vm = ScanViewModel(FakeDiscoveryService(), repo, FakeConnectionManager())
+
+        vm.events.test {
+            vm.onGatewaySelected(gw)
+            assertEquals(ScanEvent.NavigateToDashboard, awaitItem())
+        }
+        assertEquals(0, repo.getTokenCalls)
+    }
+
+    @Test
+    fun `navigation event sent while nobody collects is delivered later`() = runTest {
+        val vm = makeVm()
+        vm.onGatewaySelected(gateway()) // no collector attached, e.g. mid-rotation
+
+        vm.events.test {
+            assertInstanceOf(ScanEvent.NavigateToManualEntry::class.java, awaitItem())
+        }
     }
 }
 
@@ -224,11 +272,18 @@ private class FakeDiscoveryService(
 
 private class FakeProfileRepository(
     private val profiles: List<ConnectionProfile> = emptyList(),
+    private val tokenError: GatewayException? = null,
 ) : ConnectionProfileRepository {
+    var getTokenCalls = 0
     override fun getProfiles(): Flow<List<ConnectionProfile>> = flowOf(profiles)
     override suspend fun saveProfile(profile: ConnectionProfile, token: String?) {}
-    override suspend fun getToken(profileId: String): String? = null
+    override suspend fun getToken(profileId: String): String? {
+        getTokenCalls++
+        tokenError?.let { throw it }
+        return null
+    }
     override suspend fun deleteProfile(profileId: String) {}
+    override suspend fun clearAll() {}
 }
 
 private class FakeConnectionManager(

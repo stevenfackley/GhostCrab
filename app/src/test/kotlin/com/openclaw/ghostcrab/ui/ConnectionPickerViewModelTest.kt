@@ -1,5 +1,7 @@
 package com.openclaw.ghostcrab.ui
 
+import app.cash.turbine.test
+import com.openclaw.ghostcrab.domain.exception.GatewayUnreachableException
 import com.openclaw.ghostcrab.domain.model.AuthRequirement
 import com.openclaw.ghostcrab.domain.model.ConnectionProfile
 import com.openclaw.ghostcrab.domain.model.GatewayConnection
@@ -7,6 +9,7 @@ import com.openclaw.ghostcrab.domain.model.OnboardingStep
 import com.openclaw.ghostcrab.domain.repository.ConnectionProfileRepository
 import com.openclaw.ghostcrab.domain.repository.GatewayConnectionManager
 import com.openclaw.ghostcrab.domain.repository.OnboardingRepository
+import com.openclaw.ghostcrab.ui.connection.ConnectionPickerEvent
 import com.openclaw.ghostcrab.ui.connection.ConnectionPickerViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -19,7 +22,7 @@ import kotlinx.coroutines.test.setMain
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
-import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -87,14 +90,16 @@ class ConnectionPickerViewModelTest {
     }
 
     @Test
-    fun `connect without token calls connectionManager with null token`() = runTest {
+    fun `connect without token calls connectionManager with null token and navigates`() = runTest {
         val p = profile(hasToken = false)
         val (vm, _, manager) = makeVm(profiles = listOf(p))
-        var result: Result<Unit>? = null
-        vm.connect(p) { result = it }
-        assertNotNull(result)
-        assertTrue(result!!.isSuccess)
+
+        vm.events.test {
+            vm.connect(p)
+            assertEquals(ConnectionPickerEvent.NavigateToDashboard, awaitItem())
+        }
         assertEquals(listOf(Pair(p.url, null as String?)), manager.connectCalls)
+        assertNull(vm.uiState.value.connectingProfileId)
     }
 
     @Test
@@ -102,28 +107,29 @@ class ConnectionPickerViewModelTest {
         val p = profile(id = "tok-id", hasToken = true)
         val (vm, repo, manager) = makeVm(profiles = listOf(p))
         repo.tokens["tok-id"] = "secret-token"
-        var result: Result<Unit>? = null
-        vm.connect(p) { result = it }
-        assertNotNull(result)
-        assertTrue(result!!.isSuccess)
+
+        vm.connect(p)
+
         assertEquals(listOf(Pair(p.url, "secret-token")), manager.connectCalls)
     }
 
     @Test
-    fun `connect propagates exception as failure result`() = runTest {
+    fun `connect failure surfaces errorMessage and clears connecting state`() = runTest {
         val p = profile()
-        val repo = FakeCpProfileRepo(listOf(p))
         val manager = object : FakeCpConnectionManager() {
             override suspend fun connect(url: String, token: String?) {
-                throw RuntimeException("refused")
+                throw GatewayUnreachableException(url)
             }
         }
-        val vm = ConnectionPickerViewModel(repo, manager, FakeCpOnboardingRepo(true))
-        var result: Result<Unit>? = null
-        vm.connect(p) { result = it }
-        assertNotNull(result)
-        assertTrue(result!!.isFailure)
-        assertEquals("refused", result!!.exceptionOrNull()?.message)
+        val vm = ConnectionPickerViewModel(FakeCpProfileRepo(listOf(p)), manager, FakeCpOnboardingRepo(true))
+
+        vm.connect(p)
+
+        val state = vm.uiState.value
+        assertNull(state.connectingProfileId)
+        assertTrue(state.errorMessage.orEmpty().contains("GatewayUnreachableException"))
+        vm.clearError()
+        assertNull(vm.uiState.value.errorMessage)
     }
 }
 
@@ -145,6 +151,9 @@ private class FakeCpProfileRepo(
         _profiles.value = _profiles.value.filter { it.id != profileId }
     }
     override suspend fun getToken(profileId: String): String? = tokens[profileId]
+    override suspend fun clearAll() {
+        _profiles.value = emptyList()
+    }
 }
 
 private open class FakeCpConnectionManager : GatewayConnectionManager {

@@ -92,5 +92,4 @@ Preview deploys per PR happen automatically once connected.
 ## Updating
 
 Every push to `main` that touches `site/`, `docs/PRIVACY_POLICY_IOS.md`, or any imported asset
-triggers a Cloudflare Pages rebuild. There is **no** GitHub Actions workflow for the site — Cloudflare
-Pages is git-connected directly.
+runs the `site-deploy` GitHub Actions workflow (`.github/workflows/site-deploy.yml`), which builds `site/` and deploys it to Cloudflare Workers Static Assets (needs the `CLOUDFLARE_API_TOKEN` repo secret; PRs run the build only). The workflow header explains why it replaced Cloudflare's Git integration.

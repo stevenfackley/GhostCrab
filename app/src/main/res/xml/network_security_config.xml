@@ -4,12 +4,13 @@
     a LAN gateway on an RFC-1918 address, and Android NSC cannot express CIDR
     ranges. The public-IP restriction is enforced at runtime instead:
     data/api/CleartextPublicIpInterceptor rejects http:// to any non-private IP
-    literal unless the user opts in via Settings → Security. The UI additionally
-    shows amber (HTTP) / crimson (HTTP + no auth) banners.
+    literal unless the user opts in via Settings → Connections → Allow HTTP to public IPs.
+    The UI additionally shows amber (HTTP) / crimson (HTTP + no auth) banners.
 -->
-<network-security-config>
+<network-security-config xmlns:tools="http://schemas.android.com/tools">
     <domain-config cleartextTrafficPermitted="true">
         <domain includeSubdomains="false">localhost</domain>
     </domain-config>
-    <base-config cleartextTrafficPermitted="true" />
+    <!-- Deliberate: see header. Public-IP cleartext is blocked at runtime by CleartextPublicIpInterceptor. -->
+    <base-config cleartextTrafficPermitted="true" tools:ignore="InsecureBaseConfiguration" />
 </network-security-config>

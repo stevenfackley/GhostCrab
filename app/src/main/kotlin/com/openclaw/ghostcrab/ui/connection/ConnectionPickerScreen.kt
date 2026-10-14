@@ -40,12 +40,8 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -53,13 +49,14 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.openclaw.ghostcrab.R
 import com.openclaw.ghostcrab.domain.model.ConnectionProfile
 import com.openclaw.ghostcrab.ui.components.GlassSurface
+import com.openclaw.ghostcrab.ui.components.ObserveAsEvents
 import com.openclaw.ghostcrab.ui.theme.BrandTokens
 import com.openclaw.ghostcrab.ui.theme.MonoFontFamily
 import com.openclaw.ghostcrab.ui.theme.Spacing
-import kotlinx.coroutines.launch
 import org.koin.androidx.compose.koinViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -72,12 +69,22 @@ fun ConnectionPickerScreen(
     onNavigateToOnboarding: () -> Unit = {},
     viewModel: ConnectionPickerViewModel = koinViewModel(),
 ) {
-    val profiles by viewModel.profiles.collectAsState()
+    val profiles by viewModel.profiles.collectAsStateWithLifecycle()
+    val pickerState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
-    val scope = rememberCoroutineScope()
-    var connectingId by remember { mutableStateOf<String?>(null) }
 
-    val showOnboarding by viewModel.showOnboarding.collectAsState()
+    ObserveAsEvents(viewModel.events) { event ->
+        when (event) {
+            ConnectionPickerEvent.NavigateToDashboard -> onNavigateToDashboard()
+        }
+    }
+    LaunchedEffect(pickerState.errorMessage) {
+        val message = pickerState.errorMessage ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(message)
+        viewModel.clearError()
+    }
+
+    val showOnboarding by viewModel.showOnboarding.collectAsStateWithLifecycle()
     LaunchedEffect(showOnboarding) {
         if (showOnboarding) {
             onNavigateToOnboarding()
@@ -151,21 +158,8 @@ fun ConnectionPickerScreen(
                 items(profiles, key = { it.id }) { profile ->
                     ProfileCard(
                         profile = profile,
-                        isConnecting = connectingId == profile.id,
-                        onConnect = {
-                            connectingId = profile.id
-                            viewModel.connect(profile) { result ->
-                                connectingId = null
-                                result.onSuccess { onNavigateToDashboard() }
-                                    .onFailure { e ->
-                                        scope.launch {
-                                            snackbarHostState.showSnackbar(
-                                                e.message ?: "Connection failed"
-                                            )
-                                        }
-                                    }
-                            }
-                        },
+                        isConnecting = pickerState.connectingProfileId == profile.id,
+                        onConnect = { viewModel.connect(profile) },
                         onDelete = { viewModel.delete(profile.id) },
                     )
                 }

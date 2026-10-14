@@ -2,20 +2,22 @@ package com.openclaw.ghostcrab.ui.connection
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.openclaw.ghostcrab.domain.exception.GatewayException
 import com.openclaw.ghostcrab.domain.model.DiscoveredGateway
 import com.openclaw.ghostcrab.domain.repository.ConnectionProfileRepository
 import com.openclaw.ghostcrab.domain.repository.DiscoveryService
 import com.openclaw.ghostcrab.domain.repository.GatewayConnectionManager
+import com.openclaw.ghostcrab.ui.toUserMessage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
 
 private const val SCAN_DURATION_MS = 10_000L
@@ -82,10 +84,10 @@ class ScanViewModel(
     /** Current scan state. */
     val state: StateFlow<ScanState> = _state.asStateFlow()
 
-    private val _events = MutableSharedFlow<ScanEvent>()
+    private val _events = Channel<ScanEvent>(Channel.BUFFERED)
 
-    /** One-shot navigation events. Collect in the composable. */
-    val events: SharedFlow<ScanEvent> = _events.asSharedFlow()
+    /** One-shot navigation events, buffered so an event sent during rotation is delivered once a collector returns. */
+    val events: Flow<ScanEvent> = _events.receiveAsFlow()
 
     private var scanJob: Job? = null
 
@@ -125,7 +127,7 @@ class ScanViewModel(
                 throw e // propagate so the Job hierarchy can cancel cleanly
             } catch (e: Exception) {
                 timeoutJob.cancel()
-                _state.value = ScanState.Error(e.message ?: "Discovery failed")
+                _state.value = ScanState.Error(e.toUserMessage())
             }
         }
     }
@@ -160,14 +162,19 @@ class ScanViewModel(
             val match = profiles.find { it.url == gateway.url }
 
             if (match != null) {
-                val token = profileRepository.getToken(match.id)
-                runCatching { connectionManager.connect(match.url, token) }
-                    .onSuccess { _events.emit(ScanEvent.NavigateToDashboard) }
-                    .onFailure { e ->
-                        _state.value = ScanState.Error(e.message ?: "Connection failed")
-                    }
+                try {
+                    val token = if (match.hasToken) profileRepository.getToken(match.id) else null
+                    connectionManager.connect(match.url, token)
+                    _events.send(ScanEvent.NavigateToDashboard)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: GatewayException) {
+                    // connect() and getToken() both report failures as GatewayException
+                    // (ProfileNeedsReauthException after a Keystore reset).
+                    _state.value = ScanState.Error(e.toUserMessage())
+                }
             } else {
-                _events.emit(ScanEvent.NavigateToManualEntry(gateway.url))
+                _events.send(ScanEvent.NavigateToManualEntry(gateway.url))
             }
         }
     }

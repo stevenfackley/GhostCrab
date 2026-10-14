@@ -4,8 +4,10 @@ import android.content.Context
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 import android.net.wifi.WifiManager
+import android.util.Log
 import com.openclaw.ghostcrab.domain.model.DiscoveredGateway
 import com.openclaw.ghostcrab.domain.repository.DiscoveryService
+import com.openclaw.ghostcrab.domain.util.GatewayUrl
 import kotlinx.coroutines.channels.SendChannel
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -65,7 +67,12 @@ class NsdDiscoveryServiceImpl(private val context: Context) : DiscoveryService {
                     if (!seen.add(instanceName)) return@launch
 
                     val host = resolved.host?.hostAddress ?: return@launch
-                    val port = resolved.port.takeIf { it > 0 } ?: return@launch
+                    val port = resolved.port
+                    // Untrusted mDNS record: drop anything that cannot form a valid URL (never crash discovery).
+                    if (GatewayUrl.ofOrNull(host, port) == null) {
+                        Log.d("NsdDiscovery", "Skipping mDNS record with invalid host/port: $host:$port")
+                        return@launch
+                    }
 
                     val attrs = resolved.attributes
                     val displayName = attrs["displayName"]

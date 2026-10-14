@@ -32,10 +32,11 @@ Both apps share the same `Domain/Repository/` contract surface — frozen v1.0 i
 
 - **Auto-discovery** — finds OpenClaw gateways on your local Wi-Fi via mDNS (no IP hunting required)
 - **Manual connect** — enter any URL + optional bearer token for remote access
+- **Pairing** — scan a `ghostcrab://pair` QR code or open a `ghostcrab://pair` link to prefill the connect form (you still tap Connect)
 - **Config editor** — form-based editor for `openclaw.json` with typed fields, validation, and a diff-before-save sheet
 - **Dashboard** — live gateway health, active model, version, and capability readout
-- **Model manager** — view all configured models, swap the active one *(Phase 7, in progress)*
-- **AI recommendations** — ask the gateway's built-in AI CLI for configuration suggestions *(Phase 8)*
+- **Model manager** — view all configured models, swap the active one
+- **AI recommendations** — ask the gateway's built-in AI CLI for configuration suggestions (security-affecting changes need explicit confirmation; secrets are redacted before anything is sent)
 - **Secure storage** — bearer tokens encrypted with AES-256-GCM via Android Keystore; never logged
 - **Security banners** — explicit amber/crimson warnings for HTTP and no-auth connections; no silent risks
 - **Onboarding walkthrough** — step-by-step guide to install, start, and connect to your first gateway
@@ -109,7 +110,7 @@ UI (Compose)  →  ViewModel (StateFlow)  →  Domain (interfaces)  →  Data (K
 | **ViewModel** | One VM per screen, `StateFlow<UiState>`, `SharedFlow` for one-shot events |
 | **Domain** | Frozen interfaces in `domain/repository/`, immutable models in `domain/model/`, sealed `GatewayException` hierarchy |
 | **Data** | `OpenClawApiClient` (Ktor + OkHttp), `NsdDiscoveryServiceImpl`, `ConnectionProfileStore` (DataStore + EncryptedSharedPreferences), repository impls |
-| **DI** | Koin — `AppModule`, `DataModule`, `DomainModule`, `UiModule` |
+| **DI** | Koin — `AppModule`, `DataModule`, `UiModule` |
 
 Domain interfaces are the v1.0 API surface and are **frozen** — implementations change, signatures don't.
 
@@ -141,6 +142,10 @@ See [`docs/PRIVACY_POLICY.md`](docs/PRIVACY_POLICY.md) for the full policy.
 | 8 | AI recommendations (gateway-proxied) | ✅ Done |
 | 9 | Settings, profile management, about | ✅ Done |
 | 10 | Hardening, release | ✅ Done |
+| 11 | QR connect, splash | ✅ Done |
+| 12 | Skills install (WebSocket) | 🟡 On-device QA pending |
+| 13 | R8 release build verification | ✅ Done |
+| 14 | Release signing | ✅ Done |
 
 ---
 

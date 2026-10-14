@@ -9,6 +9,7 @@ import com.openclaw.ghostcrab.domain.repository.ConfigRepository
 import com.openclaw.ghostcrab.domain.repository.GatewayConnectionManager
 import com.openclaw.ghostcrab.ui.config.ConfigEditorUiState
 import com.openclaw.ghostcrab.ui.config.ConfigEditorViewModel
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -72,6 +73,12 @@ class ConfigEditorViewModelTest {
 
     private val sampleEdit: JsonElement =
         JsonObject(mapOf("http" to JsonObject(mapOf("port" to JsonPrimitive(9090)))))
+
+    private val twoSections = sampleConfig.copy(
+        sections = sampleConfig.sections + ("models" to JsonObject(mapOf("timeout_ms" to JsonPrimitive(1)))),
+    )
+
+    private val modelsEdit: JsonElement = JsonObject(mapOf("timeout_ms" to JsonPrimitive(2)))
 
     private fun makeVm(
         initialConnection: GatewayConnection = GatewayConnection.Disconnected,
@@ -196,7 +203,7 @@ class ConfigEditorViewModelTest {
     }
 
     @Test
-    fun `confirmSave 412 with reload failure transitions to Error`() = runTest(testDispatcher) {
+    fun `confirmSave 412 with reload failure stays Ready with saveError and keeps edits`() = runTest(testDispatcher) {
         val repo = FakeConfigRepository(configToReturn = sampleConfig)
         val (vm, _) = makeVm(initialConnection = connectedState, repo = repo)
         advanceUntilIdle()
@@ -208,7 +215,88 @@ class ConfigEditorViewModelTest {
         vm.confirmSave("gateway")
         advanceUntilIdle()
 
-        assertInstanceOf(ConfigEditorUiState.Error::class.java, vm.state.value)
+        val state = vm.state.value as ConfigEditorUiState.Ready
+        assertEquals(mapOf("gateway" to sampleEdit), state.pendingChanges)
+        assertTrue(state.saveError.orEmpty().contains("reload failed"))
+        assertTrue(state.saveError.orEmpty().contains("HTTP 503"))
+    }
+
+    @Test
+    fun `confirmSave 412 reloads config and keeps every pending edit`() = runTest(testDispatcher) {
+        val reloaded = twoSections.copy(etag = "server-newer")
+        val repo = FakeConfigRepository(configToReturn = twoSections)
+        val (vm, _) = makeVm(initialConnection = connectedState, repo = repo)
+        advanceUntilIdle()
+        repo.updateError = GatewayApiException("http://192.168.1.50:18789/config/gateway", 412)
+        repo.configToReturn = reloaded
+
+        vm.editSection("gateway", sampleEdit)
+        vm.editSection("models", modelsEdit)
+        vm.confirmSave("gateway")
+        advanceUntilIdle()
+
+        val state = vm.state.value as ConfigEditorUiState.Ready
+        assertEquals(reloaded, state.config)
+        assertEquals("gateway", state.concurrentEditSection)
+        assertEquals(mapOf("gateway" to sampleEdit, "models" to modelsEdit), state.pendingChanges)
+    }
+
+    @Test
+    fun `dismissConcurrentEdit with discardConflicting drops only the conflicting section`() =
+        runTest(testDispatcher) {
+            val repo = FakeConfigRepository(configToReturn = twoSections)
+            val (vm, _) = makeVm(initialConnection = connectedState, repo = repo)
+            advanceUntilIdle()
+            repo.updateError = GatewayApiException("http://192.168.1.50:18789/config/gateway", 412)
+            vm.editSection("gateway", sampleEdit)
+            vm.editSection("models", modelsEdit)
+            vm.confirmSave("gateway")
+            advanceUntilIdle()
+
+            // What the dialog's Reload button does.
+            vm.dismissConcurrentEdit(discardConflicting = true)
+
+            val state = vm.state.value as ConfigEditorUiState.Ready
+            assertNull(state.concurrentEditSection)
+            assertEquals(mapOf("models" to modelsEdit), state.pendingChanges)
+        }
+
+    @Test
+    fun `plain dismissConcurrentEdit keeps every pending edit`() = runTest(testDispatcher) {
+        val repo = FakeConfigRepository(configToReturn = twoSections)
+        val (vm, _) = makeVm(initialConnection = connectedState, repo = repo)
+        advanceUntilIdle()
+        repo.updateError = GatewayApiException("http://192.168.1.50:18789/config/gateway", 412)
+        vm.editSection("gateway", sampleEdit)
+        vm.editSection("models", modelsEdit)
+        vm.confirmSave("gateway")
+        advanceUntilIdle()
+
+        vm.dismissConcurrentEdit()
+
+        val state = vm.state.value as ConfigEditorUiState.Ready
+        assertNull(state.concurrentEditSection)
+        assertEquals(mapOf("gateway" to sampleEdit, "models" to modelsEdit), state.pendingChanges)
+    }
+
+    @Test
+    fun `confirmSave failure stays Ready with saveError and keeps every pending edit`() = runTest(testDispatcher) {
+        val repo = FakeConfigRepository(configToReturn = twoSections)
+        val (vm, _) = makeVm(initialConnection = connectedState, repo = repo)
+        advanceUntilIdle()
+        repo.updateError = GatewayApiException("http://192.168.1.50:18789/config/gateway", 503)
+
+        vm.editSection("gateway", sampleEdit)
+        vm.editSection("models", modelsEdit)
+        vm.confirmSave("gateway")
+        advanceUntilIdle()
+
+        val state = vm.state.value as ConfigEditorUiState.Ready
+        assertEquals(mapOf("gateway" to sampleEdit, "models" to modelsEdit), state.pendingChanges)
+        assertTrue(state.saveError.orEmpty().contains("GatewayApiException"))
+        assertTrue(state.saveError.orEmpty().contains("HTTP 503"))
+        vm.clearSaveError()
+        assertNull((vm.state.value as ConfigEditorUiState.Ready).saveError)
     }
 
     @Test
@@ -241,6 +329,62 @@ class ConfigEditorViewModelTest {
         assertTrue(state.pendingChanges.isEmpty())
         assertTrue(state.fieldErrors.isEmpty())
     }
+
+    @Test
+    fun `confirmSave keeps pending edits of other sections`() = runTest(testDispatcher) {
+        val repo = FakeConfigRepository(configToReturn = twoSections)
+        val (vm, _) = makeVm(initialConnection = connectedState, repo = repo)
+        advanceUntilIdle()
+
+        vm.editSection("gateway", sampleEdit)
+        vm.editSection("models", modelsEdit)
+        vm.confirmSave("gateway")
+        advanceUntilIdle()
+
+        val state = vm.state.value as ConfigEditorUiState.Ready
+        assertEquals(mapOf("models" to modelsEdit), state.pendingChanges)
+        assertTrue(state.saveSuccess)
+    }
+
+    @Test
+    fun `confirmSave keeps a re-edit of the saved section made while the save was in flight`() =
+        runTest(testDispatcher) {
+            val gate = CompletableDeferred<Unit>()
+            val repo = FakeConfigRepository(configToReturn = sampleConfig, updateGate = gate)
+            val (vm, _) = makeVm(initialConnection = connectedState, repo = repo)
+            advanceUntilIdle()
+            val reEdit: JsonElement =
+                JsonObject(mapOf("http" to JsonObject(mapOf("port" to JsonPrimitive(7070)))))
+
+            vm.editSection("gateway", sampleEdit)
+            vm.confirmSave("gateway")
+            vm.editSection("gateway", reEdit)
+            gate.complete(Unit)
+            advanceUntilIdle()
+
+            val state = vm.state.value as ConfigEditorUiState.Ready
+            assertEquals(mapOf("gateway" to reEdit), state.pendingChanges)
+            assertTrue(state.saveSuccess)
+        }
+
+    @Test
+    fun `confirmSave leaves the diff sheet another section opened while saving`() = runTest(testDispatcher) {
+        val gate = CompletableDeferred<Unit>()
+        val repo = FakeConfigRepository(configToReturn = twoSections, updateGate = gate)
+        val (vm, _) = makeVm(initialConnection = connectedState, repo = repo)
+        advanceUntilIdle()
+
+        vm.editSection("gateway", sampleEdit)
+        vm.editSection("models", modelsEdit)
+        vm.confirmSave("gateway")
+        vm.requestSave("models")
+        gate.complete(Unit)
+        advanceUntilIdle()
+
+        val state = vm.state.value as ConfigEditorUiState.Ready
+        assertEquals("models", state.pendingSaveSection)
+        assertEquals(mapOf("models" to modelsEdit), state.pendingChanges)
+    }
 }
 
 // ── Fakes ─────────────────────────────────────────────────────────────────────
@@ -250,6 +394,8 @@ private class FakeConfigRepository(
     var updateError: Exception? = null,
     var reloadError: Exception? = null,
     var getCallCount: Int = 0,
+    /** When set, `updateConfig` suspends until it completes: simulates a PATCH in flight. */
+    private val updateGate: CompletableDeferred<Unit>? = null,
 ) : ConfigRepository {
     override suspend fun getConfig(): OpenClawConfig {
         getCallCount++
@@ -258,6 +404,7 @@ private class FakeConfigRepository(
     }
 
     override suspend fun updateConfig(section: String, value: JsonElement) {
+        updateGate?.await()
         updateError?.let { throw it }
     }
 }

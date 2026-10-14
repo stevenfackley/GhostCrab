@@ -34,14 +34,16 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.openclaw.ghostcrab.R
 import com.openclaw.ghostcrab.ui.components.GlassSurface
 import com.openclaw.ghostcrab.ui.config.sections.GatewaySectionEditor
 import com.openclaw.ghostcrab.ui.config.sections.RawJsonSectionEditor
@@ -62,14 +64,15 @@ import org.koin.androidx.compose.koinViewModel
  * Section order: `"gateway"` first, remaining keys alphabetically.
  *
  * @param onNavigateBack Called when the back arrow is tapped or state becomes [ConfigEditorUiState.Disconnected].
+ * @param viewModel Injected via Koin by default.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ConfigEditorScreen(
     onNavigateBack: () -> Unit,
+    viewModel: ConfigEditorViewModel = koinViewModel(),
 ) {
-    val viewModel: ConfigEditorViewModel = koinViewModel()
-    val state by viewModel.state.collectAsState()
+    val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
 
     // Navigate back when disconnected
@@ -81,17 +84,25 @@ fun ConfigEditorScreen(
 
     // Show save-success snackbar
     val readyState = state as? ConfigEditorUiState.Ready
+    val savedMessage = stringResource(R.string.config_editor_saved_snackbar)
     LaunchedEffect(readyState?.saveSuccess) {
         if (readyState?.saveSuccess == true) {
-            snackbarHostState.showSnackbar("Configuration saved")
+            snackbarHostState.showSnackbar(savedMessage)
             viewModel.clearSaveSuccess()
         }
+    }
+
+    // Show save-failure snackbar; pending edits stay in place so the user can retry.
+    LaunchedEffect(readyState?.saveError) {
+        val message = readyState?.saveError ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(message)
+        viewModel.clearSaveError()
     }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Configure Gateway") },
+                title = { Text(stringResource(R.string.config_editor_title)) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(
@@ -174,7 +185,7 @@ fun ConfigEditorScreen(
                                 contentColor = BrandTokens.colorAbyss,
                             ),
                         ) {
-                            Text("Retry")
+                            Text(stringResource(R.string.config_editor_retry))
                         }
                     }
                 }
@@ -182,7 +193,10 @@ fun ConfigEditorScreen(
                 is ConfigEditorUiState.Ready -> {
                     ReadyContent(
                         state = s,
-                        viewModel = viewModel,
+                        onEdit = viewModel::editSection,
+                        onFieldError = viewModel::setFieldError,
+                        onSave = viewModel::requestSave,
+                        onDiscard = viewModel::discardSection,
                         modifier = Modifier.fillMaxSize(),
                     )
 
@@ -207,27 +221,25 @@ fun ConfigEditorScreen(
                     if (concurrentSection != null) {
                         AlertDialog(
                             onDismissRequest = { viewModel.dismissConcurrentEdit() },
-                            title = { Text("Configuration Changed") },
+                            title = { Text(stringResource(R.string.config_editor_concurrent_title)) },
                             text = {
-                                Text(
-                                    "Server values changed since you opened section " +
-                                        "\"$concurrentSection\". The latest values have been loaded.",
-                                )
+                                Text(stringResource(R.string.config_editor_concurrent_body, concurrentSection))
                             },
                             confirmButton = {
                                 TextButton(onClick = {
-                                    viewModel.dismissConcurrentEdit()
-                                    viewModel.loadConfig()
+                                    // The config was already reloaded by the failed save; drop only the
+                                    // conflicting section's edit and keep every other section's.
+                                    viewModel.dismissConcurrentEdit(discardConflicting = true)
                                 }) {
                                     Text(
-                                        "Reload",
+                                        stringResource(R.string.config_editor_concurrent_reload),
                                         color = BrandTokens.colorCyanPrimary,
                                     )
                                 }
                             },
                             dismissButton = {
                                 TextButton(onClick = { viewModel.dismissConcurrentEdit() }) {
-                                    Text("Dismiss")
+                                    Text(stringResource(R.string.config_editor_concurrent_dismiss))
                                 }
                             },
                         )
@@ -241,7 +253,10 @@ fun ConfigEditorScreen(
 @Composable
 private fun ReadyContent(
     state: ConfigEditorUiState.Ready,
-    viewModel: ConfigEditorViewModel,
+    onEdit: (section: String, value: kotlinx.serialization.json.JsonElement) -> Unit,
+    onFieldError: (field: String, error: String?) -> Unit,
+    onSave: (section: String) -> Unit,
+    onDiscard: (section: String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var expandedSections by remember { mutableStateOf(emptySet<String>()) }
@@ -283,10 +298,10 @@ private fun ReadyContent(
                         expandedSections + sectionKey
                     }
                 },
-                onEdit = { newValue -> viewModel.editSection(sectionKey, newValue) },
-                onFieldError = { field, err -> viewModel.setFieldError(field, err) },
-                onSave = { viewModel.requestSave(sectionKey) },
-                onDiscard = { viewModel.discardSection(sectionKey) },
+                onEdit = { newValue -> onEdit(sectionKey, newValue) },
+                onFieldError = { field, err -> onFieldError(field, err) },
+                onSave = { onSave(sectionKey) },
+                onDiscard = { onDiscard(sectionKey) },
             )
         }
     }
@@ -327,7 +342,12 @@ private fun SectionCard(
                     if (hasPending) {
                         SuggestionChip(
                             onClick = {},
-                            label = { Text("Modified", style = MaterialTheme.typography.labelSmall) },
+                            label = {
+                                Text(
+                                    stringResource(R.string.config_editor_section_modified),
+                                    style = MaterialTheme.typography.labelSmall,
+                                )
+                            },
                             colors = SuggestionChipDefaults.suggestionChipColors(
                                 containerColor = BrandTokens.colorAmberWarn.copy(alpha = 0.2f),
                                 labelColor = BrandTokens.colorAmberWarn,
@@ -374,7 +394,7 @@ private fun SectionCard(
                             modifier = Modifier.weight(1f),
                         ) {
                             Text(
-                                "Discard",
+                                stringResource(R.string.config_editor_discard),
                                 color = BrandTokens.colorTextSecondary,
                             )
                         }
@@ -386,7 +406,7 @@ private fun SectionCard(
                                 contentColor = BrandTokens.colorAbyss,
                             ),
                         ) {
-                            Text("Save")
+                            Text(stringResource(R.string.config_editor_save))
                         }
                     }
                 }

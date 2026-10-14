@@ -85,7 +85,19 @@ class GatewayTlsException(
  */
 class ProfileNeedsReauthException(
     val profileId: String,
-) : GatewayException("Stored token for profile $profileId is no longer valid. Please reconnect.") {
+    cause: Throwable? = null,
+) : GatewayException("Stored token for profile $profileId is no longer valid. Please reconnect.", cause) {
+    override val isRetryable: Boolean = false
+}
+
+/**
+ * The saved-profiles store holds data this build cannot decode (corruption or a newer schema).
+ * Writes are refused so that data is never overwritten.
+ *
+ * @param cause The decoding failure.
+ */
+class ProfileStoreCorruptedException(cause: Throwable) :
+    GatewayException("Saved gateway profiles could not be read; refusing to overwrite them.", cause) {
     override val isRetryable: Boolean = false
 }
 
@@ -121,5 +133,57 @@ class ConfigValidationException(
     val field: String,
     val reason: String,
 ) : GatewayException("Invalid value for '$field': $reason") {
+    override val isRetryable: Boolean = false
+}
+
+/**
+ * A cleartext (`http://`) request to a public IP literal was refused by the app's own policy before
+ * it left the device. Fix: use HTTPS, or enable Settings → Connections → "Allow HTTP to public IPs".
+ *
+ * @param url The URL that was blocked.
+ * @param host The public IP literal that triggered the block.
+ */
+class CleartextBlockedException(
+    val url: String,
+    val host: String,
+    cause: Throwable? = null,
+) : GatewayException("${policyMessage(host)} URL: $url", cause) {
+    override val isRetryable: Boolean = false
+
+    companion object {
+        /**
+         * The policy text, shared with the data-layer interceptor's `IOException` so the advice is
+         * worded identically on both and is printed only once when the cause chain is rendered.
+         *
+         * @param host The public IP literal that was blocked.
+         * @return A sentence naming the host and the exact Settings toggle that lifts the block.
+         */
+        fun policyMessage(host: String): String =
+            "Cleartext HTTP to public IP $host blocked by app policy. " +
+                "Use HTTPS or enable Settings → Connections → Allow HTTP to public IPs."
+    }
+}
+
+/**
+ * The gateway answered, but not in a way this client understands (undecodable body, refused
+ * WebSocket upgrade), or the request could not even be built. Not a connectivity problem.
+ *
+ * @param url The URL involved.
+ * @param detail What went wrong, for display.
+ */
+class GatewayProtocolException(
+    val url: String,
+    val detail: String,
+    cause: Throwable? = null,
+) : GatewayException("Unexpected gateway response at $url: $detail", cause) {
+    override val isRetryable: Boolean = false
+}
+
+/**
+ * An operation needed the active gateway session but none exists (never connected, or the
+ * connection dropped mid-flight). Not retryable as-is: the user must reconnect first.
+ */
+class GatewayNotConnectedException :
+    GatewayException("No active gateway connection. Reconnect and try again.") {
     override val isRetryable: Boolean = false
 }

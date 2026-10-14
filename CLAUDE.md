@@ -40,15 +40,20 @@ Package root: `app/src/main/kotlin/com/openclaw/ghostcrab/`
 | `domain/model/` | Immutable data classes / sealed interfaces (wire types are `@Serializable`) |
 | `domain/exception/` | Sealed `GatewayException` hierarchy — every leaf has `isRetryable: Boolean` |
 | `domain/repository/` | Frozen interfaces — do **not** change signatures without a documented ADR |
-| `domain/util/` | Pure helpers (IP literal checks, etc.) |
+| `domain/util/` | Pure helpers: `ConfigSensitivity` (secret/security-affecting path classification + redaction), `JsonPatch` (`withLeaf`, merge-patch building), `suspendRunCatching`, `GatewayUrl` (IPv6-safe URL parsing), `PairCode` (`ghostcrab://pair` decoding), `TokenUtils` |
 | `data/api/` | `OpenClawApiClient` (Ktor) + DTOs |
 | `data/discovery/` | `NsdDiscoveryServiceImpl` |
+| `data/ws/` | `GatewayWsClient` (JSON-RPC 2.0 over WebSocket, 30 s request timeout), `JsonRpc` |
 | `data/storage/` | `ConnectionProfileStore` (DataStore metadata + EncryptedSharedPreferences tokens) |
 | `data/impl/` | Repository implementations |
 | `ui/theme/` | `BrandTokens`, `Color`, `Type`, `Shape`, `Spacing`, `GhostCrabTheme` |
-| `ui/components/` | Shared composables: `GlassSurface`, `SecurityBanner`, `ConnectionStatusBar`, etc. |
-| `ui/navigation/` | `Routes` sealed class, `NavGraph` composable (type-safe Compose Navigation) |
-| `ui/{connection,dashboard,config,models,model,ai,airecommend,onboarding,settings}/` | Per-feature Compose screens + ViewModels |
+| `ui/components/` | Shared composables: `GlassSurface`, `SecurityBanner`, `ObserveAsEvents`, `IntFieldRow`, etc. |
+| `ui/navigation/` | `NavGraph` composable only; routes are string literals in the `composable("...")` calls (no `Routes` class). The `ai_recommendation` route exists only when `BuildConfig.AI_PRO_ENABLED` |
+| `ui/ErrorMessages.kt` | `toUserMessage()` — the single renderer of errors for users |
+| `ui/connection/PairingHandoff.kt` | In-memory one-shot handoff (2 min expiry) of a decoded `ghostcrab://pair` bundle to ManualEntry; the token never enters a route or saved state |
+| `ui/{connection,dashboard,config,model,airecommend,installedskills,onboarding,settings}/` | Per-feature Compose screens + ViewModels |
+| `app/lint.xml` | Lint suppressions with rationale (icon duplicates, font cert data, deliberate cleartext base-config) |
+| `ios/`, `site/` | Sibling apps in this repo: the iOS/Catalyst client (Swift) and the getghostcrab.com Astro site. Not part of the Android module |
 
 ## Key Constraints
 
@@ -59,7 +64,10 @@ Package root: `app/src/main/kotlin/com/openclaw/ghostcrab/`
 - **Logging**: Strip `Authorization` headers from Ktor logs. Verify with `adb logcat | grep -i bearer`.
 - **No work in `GhostCrab (1)/` folder.** Canonical workspace is `GhostCrab/`.
 - **Upstream gateway quirk**: `ghcr.io/openclaw/openclaw:latest` serves **HTML** at `/status` and `/config`; only `/health` and `/ready` return JSON. Connect flow tolerates non-JSON — don't assume JSON responses in new code paths.
-- **BuildConfig fields**: `AI_PRO_ENABLED` (Boolean — gates AI recommendations), `GIT_SHA` (baked in at build, shown on About screen).
+- **suspendRunCatching, not runCatching**: never wrap suspend calls in `runCatching` or `catch (_: Exception)`; use `suspendRunCatching` so `CancellationException` is rethrown.
+- **toUserMessage() is the only error renderer**: UI shows errors via `toUserMessage()` (URL + HTTP status + exception class); no ad-hoc `e.message` strings.
+- **Pairing**: `ghostcrab://pair` links (deep link via `MainActivity`, or QR scan) prefill ManualEntry; they never auto-connect and the token is never persisted by the handoff.
+- **BuildConfig fields**: `AI_PRO_ENABLED` (Boolean — gates AI recommendations and the `ai_recommendation` route), `GIT_SHA` (baked in at build, shown on About screen).
 
 ## Brand / Theme Rules
 
@@ -84,12 +92,12 @@ All colors and fonts come from `ui/theme/BrandTokens.kt` — no hardcoded hex va
 
 Progress tracked in `docs/IMPLEMENTATION_PLAN.md`. Each phase is self-contained; read §0 + §1 + the target phase before starting. Always update the Progress Ledger at phase end.
 
-Current status: **v0.1.0 shipped** — Phases 0–11 complete. New work is additive (bug fixes, tests, features beyond the original plan). Check `docs/IMPLEMENTATION_PLAN.md` Progress Ledger for the authoritative state.
+Current status: **v0.2.0** (2026-10-14, hardening + refactor release) — Phases 0–11, 13, 14 complete; Phase 12 awaits on-device QA. Roadmap: `docs/superpowers/plans/2026-10-13-finish-development-roadmap.md`. New work is additive (bug fixes, tests, features beyond the original plan). Check `docs/IMPLEMENTATION_PLAN.md` Progress Ledger for the authoritative state.
 
 ## Docs
 
 Always `find docs/ -name "*.md"` before cross-cutting changes. Key files:
-- `docs/adr/0001-0004*.md` — architecture decisions (frozen; new ADRs for new decisions)
+- `docs/adr/0001-0005*.md` — architecture decisions (frozen; new ADRs for new decisions)
 - `docs/RELEASE_SIGNING.md` — signing config (env vars: `KEYSTORE_PATH`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD`)
 - `docs/TUNNEL_SETUP.md` — Cloudflare tunnel + QR connect flow
 - `docs/PRIVACY_POLICY.md` / `docs/DATA_SAFETY.md` / `docs/PLAY_STORE_LISTING.md` — Play Store artifacts
@@ -97,4 +105,4 @@ Always `find docs/ -name "*.md"` before cross-cutting changes. Key files:
 
 ## Out of Scope (v1.0)
 
-WebSocket streaming · offline config cache · iOS · agent runtime on-device · provider-API keys on-device · multi-active-connection · Play Billing.
+WebSocket streaming · offline config cache · agent runtime on-device · provider-API keys on-device · multi-active-connection · Play Billing.

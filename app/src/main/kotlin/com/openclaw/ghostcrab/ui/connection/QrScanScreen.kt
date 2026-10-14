@@ -3,6 +3,8 @@ package com.openclaw.ghostcrab.ui.connection
 import android.annotation.SuppressLint
 import android.Manifest
 import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
@@ -38,11 +40,10 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -57,26 +58,28 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.PermissionChecker
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
+import com.openclaw.ghostcrab.ui.components.ObserveAsEvents
 import com.openclaw.ghostcrab.ui.theme.BrandTokens
-import kotlinx.coroutines.launch
 import org.koin.androidx.compose.koinViewModel
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicReference
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun QrScanScreen(
     onNavigateToManualEntry: (String) -> Unit,
+    onNavigateToPairedEntry: () -> Unit,
     onNavigateBack: () -> Unit,
     viewModel: QrScanViewModel = koinViewModel(),
 ) {
-    val uiState by viewModel.uiState.collectAsState()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
-    val scope = rememberCoroutineScope()
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -84,9 +87,9 @@ fun QrScanScreen(
         if (granted) {
             viewModel.onPermissionGranted()
         } else {
-            val isPermanent = !ActivityCompat.shouldShowRequestPermissionRationale(
-                context as Activity, Manifest.permission.CAMERA
-            )
+            val activity = context.findActivity()
+            val isPermanent = activity != null &&
+                !ActivityCompat.shouldShowRequestPermissionRationale(activity, Manifest.permission.CAMERA)
             viewModel.onPermissionDenied(isPermanent)
         }
     }
@@ -99,20 +102,18 @@ fun QrScanScreen(
         else permissionLauncher.launch(Manifest.permission.CAMERA)
     }
 
-    LaunchedEffect(viewModel) {
-        viewModel.events.collect { event ->
-            when (event) {
-                is QrScanEvent.NavigateToManualEntry -> onNavigateToManualEntry(event.url)
-            }
+    ObserveAsEvents(viewModel.events) { event ->
+        when (event) {
+            is QrScanEvent.NavigateToManualEntry -> onNavigateToManualEntry(event.url)
+            QrScanEvent.NavigateToPairedEntry -> onNavigateToPairedEntry()
         }
     }
 
     LaunchedEffect(uiState) {
-        if (uiState is QrScanUiState.InvalidQr) {
-            scope.launch {
-                snackbarHostState.showSnackbar((uiState as QrScanUiState.InvalidQr).message)
-                viewModel.onScanAgain()
-            }
+        val invalid = uiState as? QrScanUiState.InvalidQr
+        if (invalid != null) {
+            snackbarHostState.showSnackbar(invalid.message)
+            viewModel.onScanAgain()
         }
     }
 
@@ -207,6 +208,19 @@ private fun CameraPreview(
         )
     }
 
+    val cameraProvider = remember { AtomicReference<ProcessCameraProvider?>(null) }
+    val imageAnalysis = remember { AtomicReference<ImageAnalysis?>(null) }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            // Stop frames reaching the analyzer and release the camera before the executor goes away.
+            imageAnalysis.get()?.clearAnalyzer()
+            cameraProvider.get()?.unbindAll()
+            executor.shutdown()
+            scanner.close()
+        }
+    }
+
     AndroidView(
         modifier = modifier,
         factory = { ctx ->
@@ -221,6 +235,8 @@ private fun CameraPreview(
                         .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                         .build()
                     analysis.setAnalyzer(executor) { proxy -> analyzeProxy(proxy, scanner, onQrDecoded) }
+                    cameraProvider.set(provider)
+                    imageAnalysis.set(analysis)
                     provider.unbindAll()
                     provider.bindToLifecycle(
                         lifecycleOwner,
@@ -302,4 +318,11 @@ private fun PermissionDeniedDialog(
             TextButton(onClick = onDismiss) { Text("Cancel") }
         },
     )
+}
+
+/** Walks [ContextWrapper] layers to the hosting [Activity], or `null` (e.g. in previews). */
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
 }

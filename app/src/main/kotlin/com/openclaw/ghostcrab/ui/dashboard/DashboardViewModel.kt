@@ -2,10 +2,12 @@ package com.openclaw.ghostcrab.ui.dashboard
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.openclaw.ghostcrab.data.api.dto.HealthResponse
 import com.openclaw.ghostcrab.domain.model.GatewayConnection
 import com.openclaw.ghostcrab.domain.repository.GatewayConnectionManager
+import com.openclaw.ghostcrab.domain.repository.GatewayHealthChecker
 import com.openclaw.ghostcrab.domain.repository.ModelRepository
+import com.openclaw.ghostcrab.domain.util.suspendRunCatching
+import com.openclaw.ghostcrab.ui.toUserMessage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -28,12 +30,12 @@ import kotlinx.coroutines.launch
  *
  * @param connectionManager Source of [GatewayConnection] state transitions.
  * @param modelRepository Fetches the gateway's model list (best-effort; empty on failure).
- * @param healthChecker Performs a `/health` call against the given URL. Injected for testability.
+ * @param healthChecker Runs GET /health on the live session client. Injected for testability.
  */
 class DashboardViewModel(
     private val connectionManager: GatewayConnectionManager,
     private val modelRepository: ModelRepository,
-    private val healthChecker: suspend (url: String) -> HealthResponse,
+    private val healthChecker: GatewayHealthChecker,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow<DashboardUiState>(DashboardUiState.Loading)
@@ -67,7 +69,7 @@ class DashboardViewModel(
     private fun startDashboard(conn: GatewayConnection.Connected) {
         _state.value = DashboardUiState.Loading
         pollJob = viewModelScope.launch {
-            val models = try { modelRepository.getModels() } catch (_: Exception) { emptyList() }
+            val models = suspendRunCatching { modelRepository.getModels() }.getOrDefault(emptyList())
 
             // Emit Ready immediately — satisfies "renders within 1 s" acceptance criterion
             _state.value = DashboardUiState.Ready(
@@ -80,7 +82,7 @@ class DashboardViewModel(
             var consecutiveFailures = 0
             while (isActive) {
                 try {
-                    healthChecker(conn.url)
+                    healthChecker.check()
                     consecutiveFailures = 0
                     _state.update {
                         if (it is DashboardUiState.Ready) it.copy(
@@ -100,14 +102,14 @@ class DashboardViewModel(
                         if (it is DashboardUiState.Ready) it.copy(
                             health = HealthSnapshot(
                                 lastOkMs = it.health.lastOkMs,
-                                lastError = e.message,
+                                lastError = e.toUserMessage(),
                                 isStale = it.health.lastOkMs != null &&
                                     (nowMs - it.health.lastOkMs > HealthSnapshot.STALE_THRESHOLD_MS),
                             ),
                         ) else it
                     }
                     if (consecutiveFailures >= DEGRADED_FAILURE_THRESHOLD) {
-                        _state.value = DashboardUiState.Degraded(e.message ?: "Health check failed")
+                        _state.value = DashboardUiState.Degraded(e.toUserMessage())
                         break  // degraded break exits without waiting for the next delay
                     }
                 }

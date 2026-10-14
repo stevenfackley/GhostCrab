@@ -2,12 +2,14 @@ package com.openclaw.ghostcrab.ui.connection
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import kotlinx.coroutines.flow.MutableSharedFlow
+import com.openclaw.ghostcrab.domain.util.PairCodeResult
+import com.openclaw.ghostcrab.domain.util.decodePairCode
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
 
 sealed interface QrScanUiState {
@@ -21,11 +23,16 @@ sealed interface QrScanUiState {
     data object PermissionDenied : QrScanUiState
     /** A QR was decoded but its content is not a valid gateway URL. */
     data class InvalidQr(val message: String) : QrScanUiState
+    /** A valid code was accepted; further frames are ignored. Terminal: navigation leaves the screen. */
+    data object Decoded : QrScanUiState
 }
 
 sealed interface QrScanEvent {
     /** Emitted when a valid URL is decoded. Navigate to ManualEntry with this URL. */
     data class NavigateToManualEntry(val url: String) : QrScanEvent
+
+    /** A pair bundle was handed to [PairingHandoff]; ManualEntry picks it up (no token in the route). */
+    data object NavigateToPairedEntry : QrScanEvent
 }
 
 /**
@@ -33,14 +40,17 @@ sealed interface QrScanEvent {
  *
  * All camera permission checks and CameraX lifecycle management live in the screen;
  * this ViewModel only manages state and validates decoded URLs.
+ *
+ * @param pairingHandoff Receives decoded `ghostcrab://pair` bundles, so the token never enters a route.
  */
-class QrScanViewModel : ViewModel() {
+class QrScanViewModel(private val pairingHandoff: PairingHandoff) : ViewModel() {
 
     private val _uiState = MutableStateFlow<QrScanUiState>(QrScanUiState.Idle)
     val uiState: StateFlow<QrScanUiState> = _uiState.asStateFlow()
 
-    private val _events = MutableSharedFlow<QrScanEvent>()
-    val events: SharedFlow<QrScanEvent> = _events.asSharedFlow()
+    private val _events = Channel<QrScanEvent>(Channel.BUFFERED)
+    /** One-shot navigation events, buffered so an event sent during rotation is delivered once a collector returns. */
+    val events: Flow<QrScanEvent> = _events.receiveAsFlow()
 
     /** Call when the system grants camera permission. */
     fun onPermissionGranted() {
@@ -58,24 +68,29 @@ class QrScanViewModel : ViewModel() {
     }
 
     /**
-     * Call when ML Kit decodes a barcode.
-     *
-     * Validates [raw] is a valid `http://` or `https://` URL. On success emits
-     * [QrScanEvent.NavigateToManualEntry]; on failure sets [QrScanUiState.InvalidQr].
+     * Call when ML Kit decodes a barcode. Accepts a plain `http(s)` gateway URL (emits
+     * [QrScanEvent.NavigateToManualEntry]) or a `ghostcrab://pair` bundle (offered to [PairingHandoff],
+     * emits [QrScanEvent.NavigateToPairedEntry]); anything else sets [QrScanUiState.InvalidQr]. After one
+     * accepted code, further frames are ignored until [onScanAgain].
      *
      * @param raw Raw string decoded from the QR code.
      */
     fun onQrDecoded(raw: String) {
-        val url = raw.trim()
-        if (url.isBlank() || (!url.startsWith("http://") && !url.startsWith("https://"))) {
-            _uiState.value = QrScanUiState.InvalidQr("QR code doesn't contain a valid gateway URL")
-            return
+        if (_uiState.value == QrScanUiState.Decoded) return
+        when (val result = decodePairCode(raw)) {
+            is PairCodeResult.Invalid -> _uiState.value = QrScanUiState.InvalidQr(result.reason)
+            // Navigate with the normalized base URL only: path/query/fragment must not reach the saved-state Bundle.
+            is PairCodeResult.PlainUrl -> accept(QrScanEvent.NavigateToManualEntry(result.url.toString()))
+            is PairCodeResult.Bundle -> {
+                pairingHandoff.offer(result.bundle)
+                accept(QrScanEvent.NavigateToPairedEntry)
+            }
         }
-        runCatching { java.net.URI(url) }.onFailure {
-            _uiState.value = QrScanUiState.InvalidQr("QR code doesn't contain a valid gateway URL")
-            return
-        }
-        viewModelScope.launch { _events.emit(QrScanEvent.NavigateToManualEntry(url)) }
+    }
+
+    private fun accept(event: QrScanEvent) {
+        _uiState.value = QrScanUiState.Decoded
+        viewModelScope.launch { _events.send(event) }
     }
 
     /** Re-activate the scanner after a [QrScanUiState.InvalidQr] state. */

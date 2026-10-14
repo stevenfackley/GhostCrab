@@ -10,7 +10,9 @@ import com.openclaw.ghostcrab.domain.model.GatewayConnection
 import com.openclaw.ghostcrab.domain.model.RecommendationContext
 import com.openclaw.ghostcrab.domain.model.SuggestedChange
 import com.openclaw.ghostcrab.domain.repository.AIRecommendationService
+import com.openclaw.ghostcrab.domain.util.redactSecrets
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonObject
 
 /**
  * Ktor-backed [AIRecommendationService] that proxies queries to the gateway's AI skill.
@@ -25,12 +27,12 @@ class AIRecommendationServiceImpl(
 ) : AIRecommendationService {
 
     /**
-     * Returns `true` if the currently-connected gateway advertises the `skill-ai-recommend`
+     * Returns `true` if the currently-connected gateway advertises the `ai.recommend`
      * capability in its `/status` response.
      *
      * Reads the in-memory connection state — no network call is made.
      *
-     * @return `true` when [GatewayConnection.Connected.capabilities] contains `"skill-ai-recommend"`.
+     * @return `true` when [GatewayConnection.Connected.capabilities] contains `"ai.recommend"`.
      */
     override suspend fun isAvailable(): Boolean {
         val state = connectionManager.connectionState.value
@@ -47,7 +49,7 @@ class AIRecommendationServiceImpl(
      * @throws AIServiceUnavailableException if the gateway returns 404 (skill not installed).
      * @throws AIQuotaExceededException if the gateway returns 429 (rate limit).
      * @throws com.openclaw.ghostcrab.domain.exception.GatewayException on other network errors.
-     * @throws IllegalStateException if no active connection exists.
+     * @throws com.openclaw.ghostcrab.domain.exception.GatewayNotConnectedException if no session is active.
      */
     override suspend fun getRecommendation(
         query: String,
@@ -57,7 +59,8 @@ class AIRecommendationServiceImpl(
         val request = AIRecommendationRequestDto(
             query = query,
             context = AIContextDto(
-                activeConfig = JsonObject(context.activeConfig.sections),
+                // ADR-0004: the AI skill may forward context to an external LLM — never ship secrets.
+                activeConfig = JsonObject(context.activeConfig.sections).redactSecrets().jsonObject,
                 hardwareInfo = context.hardwareInfo,
                 activeModelId = context.activeModelId,
             ),

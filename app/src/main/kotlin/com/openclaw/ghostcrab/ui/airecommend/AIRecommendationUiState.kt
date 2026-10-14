@@ -41,23 +41,27 @@ sealed interface AIRecommendationUiState {
      *
      * @param query The query that produced this result (shown for context).
      * @param recommendation Full recommendation from the gateway AI skill.
-     * @param selectedChanges Subset of [AIRecommendation.suggestedChanges] the user wants to apply.
-     *   Defaults to all suggestions selected. **Always pass this explicitly when calling [copy] with
-     *   a new [recommendation]** — the default re-evaluates against the new recommendation, so
-     *   stale selections from the old recommendation are silently discarded if omitted.
+     * @param selectedChanges Changes the user ticked. Starts **empty** — nothing is pre-selected.
      * @param isApplying `true` while a config-apply operation is in flight.
-     * @param applySuccess `true` after all selected changes were applied successfully.
-     *   Cleared by [AIRecommendationViewModel.clearApplySuccess].
-     * @param applyError Non-null when a config-apply operation failed.
-     *   Cleared by [AIRecommendationViewModel.clearApplyError].
+     * @param applySuccess `true` after every selected change was written to the gateway.
+     *   Cleared by [AIRecommendationViewModel.clearApplyFlags].
+     * @param applyError Non-null when a config-apply operation failed — or, alongside
+     *   [applySuccess], a warning that every write landed but reloading the config failed.
+     *   Cleared by [AIRecommendationViewModel.clearApplyFlags].
+     * @param confirmSecurityChanges Non-empty while the UI must ask the user to confirm these
+     *   security-affecting changes before anything is written.
+     * @param droppedSuggestionCount How many AI suggestions were removed from [recommendation]
+     *   because they echoed a redacted value (see [isApplicable]); the sheet tells the user.
      */
     data class Ready(
         val query: String,
         val recommendation: AIRecommendation,
-        val selectedChanges: Set<SuggestedChange> = recommendation.suggestedChanges.toSet(),
+        val selectedChanges: Set<SuggestedChange> = emptySet(),
         val isApplying: Boolean = false,
         val applySuccess: Boolean = false,
         val applyError: String? = null,
+        val confirmSecurityChanges: List<SuggestedChange> = emptyList(),
+        val droppedSuggestionCount: Int = 0,
     ) : AIRecommendationUiState
 
     /**

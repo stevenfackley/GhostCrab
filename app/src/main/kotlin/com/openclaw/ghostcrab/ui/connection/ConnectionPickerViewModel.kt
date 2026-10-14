@@ -6,13 +6,37 @@ import com.openclaw.ghostcrab.domain.model.ConnectionProfile
 import com.openclaw.ghostcrab.domain.repository.ConnectionProfileRepository
 import com.openclaw.ghostcrab.domain.repository.GatewayConnectionManager
 import com.openclaw.ghostcrab.domain.repository.OnboardingRepository
+import com.openclaw.ghostcrab.domain.util.suspendRunCatching
+import com.openclaw.ghostcrab.ui.toUserMessage
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+
+/**
+ * Transient picker state.
+ *
+ * @param connectingProfileId Profile whose connect is in flight, or `null`.
+ * @param errorMessage Last connect failure, formatted for display; cleared by
+ *   [ConnectionPickerViewModel.clearError].
+ */
+data class ConnectionPickerUiState(
+    val connectingProfileId: String? = null,
+    val errorMessage: String? = null,
+)
+
+/** One-shot navigation events for [ConnectionPickerScreen]. */
+sealed interface ConnectionPickerEvent {
+    /** Connected — show the dashboard. */
+    data object NavigateToDashboard : ConnectionPickerEvent
+}
 
 /**
  * ViewModel for the connection picker screen.
@@ -67,19 +91,41 @@ public class ConnectionPickerViewModel(
         }
     }
 
+    private val _uiState = MutableStateFlow(ConnectionPickerUiState())
+
+    /** Connect progress and errors; survives rotation. */
+    public val uiState: StateFlow<ConnectionPickerUiState> = _uiState.asStateFlow()
+
+    private val _events = Channel<ConnectionPickerEvent>(Channel.BUFFERED)
+
+    /** One-shot navigation events, buffered across rotation. */
+    public val events: Flow<ConnectionPickerEvent> = _events.receiveAsFlow()
+
     /**
-     * Attempts to connect to [profile].
+     * Connects to [profile] with its stored token. Ignored while another connect is in flight.
+     * Sends [ConnectionPickerEvent.NavigateToDashboard] on success; sets
+     * [ConnectionPickerUiState.errorMessage] on failure.
      *
      * @param profile The profile to connect to.
-     * @param onResult Invoked on the main thread with the connection result.
      */
-    public fun connect(profile: ConnectionProfile, onResult: (Result<Unit>) -> Unit) {
+    public fun connect(profile: ConnectionProfile) {
+        if (_uiState.value.connectingProfileId != null) return
+        _uiState.value = ConnectionPickerUiState(connectingProfileId = profile.id)
         viewModelScope.launch {
-            val result = runCatching {
+            suspendRunCatching {
                 val token = if (profile.hasToken) profileRepository.getToken(profile.id) else null
                 connectionManager.connect(profile.url, token)
+            }.onSuccess {
+                _uiState.value = ConnectionPickerUiState()
+                _events.send(ConnectionPickerEvent.NavigateToDashboard)
+            }.onFailure { e ->
+                _uiState.value = ConnectionPickerUiState(errorMessage = e.toUserMessage())
             }
-            onResult(result)
         }
+    }
+
+    /** Clears [ConnectionPickerUiState.errorMessage] after the snackbar was shown. */
+    public fun clearError() {
+        _uiState.update { it.copy(errorMessage = null) }
     }
 }

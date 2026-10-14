@@ -1,15 +1,19 @@
 package com.openclaw.ghostcrab.ui
 
 import app.cash.turbine.test
+import com.openclaw.ghostcrab.domain.exception.ProfileNeedsReauthException
 import com.openclaw.ghostcrab.domain.model.GatewayConnection
 import com.openclaw.ghostcrab.domain.repository.ConnectionProfileRepository
 import com.openclaw.ghostcrab.domain.repository.GatewayConnectionManager
 import com.openclaw.ghostcrab.domain.repository.OnboardingRepository
-import com.openclaw.ghostcrab.ui.connection.DEFAULT_GATEWAY_PORT
+import com.openclaw.ghostcrab.domain.util.DEFAULT_GATEWAY_PORT
+import com.openclaw.ghostcrab.domain.util.GatewayUrl
+import com.openclaw.ghostcrab.domain.util.PairBundle
 import com.openclaw.ghostcrab.ui.connection.ManualEntryEvent
 import com.openclaw.ghostcrab.ui.connection.ManualEntryFormState
 import com.openclaw.ghostcrab.ui.connection.ManualEntryUiState
 import com.openclaw.ghostcrab.ui.connection.ManualEntryViewModel
+import com.openclaw.ghostcrab.ui.connection.PairingHandoff
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -49,7 +53,7 @@ class ManualEntryViewModelTest {
         every { connectionManager.connectionState } returns
             MutableStateFlow(GatewayConnection.Disconnected)
         every { profileRepository.getProfiles() } returns flowOf(emptyList())
-        vm = ManualEntryViewModel(connectionManager, profileRepository, onboardingRepository)
+        vm = ManualEntryViewModel(connectionManager, profileRepository, onboardingRepository, PairingHandoff())
     }
 
     @AfterEach
@@ -62,7 +66,7 @@ class ManualEntryViewModelTest {
         val form = vm.form.value
         assertFalse(form.useHttps)
         assertEquals("http", form.scheme)
-        assertEquals(DEFAULT_GATEWAY_PORT, form.port)
+        assertEquals(DEFAULT_GATEWAY_PORT.toString(), form.port)
         assertEquals("", form.host)
     }
 
@@ -116,7 +120,7 @@ class ManualEntryViewModelTest {
     @Test
     fun `setPrefillUrl with no port falls back to default`() {
         vm.setPrefillUrl("http://host.local")
-        assertEquals(DEFAULT_GATEWAY_PORT, vm.form.value.port)
+        assertEquals(DEFAULT_GATEWAY_PORT.toString(), vm.form.value.port)
     }
 
     // ── Validation ────────────────────────────────────────────────────────────
@@ -176,6 +180,13 @@ class ManualEntryViewModelTest {
     }
 
     @Test
+    fun `assembledUrl canonicalises a zero-padded port and brackets IPv6`() {
+        vm.onHostChange("::1")
+        vm.onPortChange("08080")
+        assertEquals("http://[::1]:8080", vm.form.value.assembledUrl)
+    }
+
+    @Test
     fun `connect calls connectionManager with assembled URL`() = runTest {
         coEvery { connectionManager.connect(any(), any()) } returns Unit
         vm.onHostChange("192.168.0.23")
@@ -195,7 +206,22 @@ class ManualEntryViewModelTest {
         vm.connect()
 
         assertInstanceOf(ManualEntryUiState.Error::class.java, vm.uiState.value)
-        assertEquals("refused", (vm.uiState.value as ManualEntryUiState.Error).message)
+        assertEquals("refused (RuntimeException)", (vm.uiState.value as ManualEntryUiState.Error).message)
+    }
+
+    @Test
+    fun `percent in a non-IPv6 host is rejected`() {
+        vm.onHostChange("gw%foo")
+        vm.connect()
+        assertEquals(null, vm.form.value.portError)
+        assertTrue(vm.form.value.hostError != null)
+    }
+
+    @Test
+    fun `IPv6 host with zone id still validates`() {
+        vm.onHostChange("fe80::1%wlan0")
+        vm.connect()
+        assertNull(vm.form.value.hostError)
     }
 
     @Test
@@ -215,5 +241,85 @@ class ManualEntryViewModelTest {
         assertTrue(!rendered.contains("hunter2-token"), rendered)
         assertTrue(rendered.contains("token=[REDACTED]"), rendered)
         assertTrue(ManualEntryFormState().toString().contains("token=,"))
+    }
+
+    @Test
+    fun `profile save failure after a successful connect sets Error instead of crashing`() = runTest {
+        coEvery { connectionManager.connect(any(), any()) } returns Unit
+        coEvery { profileRepository.saveProfile(any(), any()) } throws ProfileNeedsReauthException("p1")
+        vm.onHostChange("192.168.0.23")
+
+        vm.connect()
+
+        val state = vm.uiState.value as ManualEntryUiState.Error
+        assertTrue(state.message.contains("ProfileNeedsReauthException"))
+    }
+
+    @Test
+    fun `IPv6 prefill keeps the bare host and assembles a bracketed URL`() {
+        vm.setPrefillUrl("http://[fe80::1]:18789")
+        assertEquals("fe80::1", vm.form.value.host)
+        assertEquals("http://[fe80::1]:18789", vm.form.value.assembledUrl)
+    }
+
+    @Test
+    fun `IPv6 literal host passes validation and connects`() = runTest {
+        coEvery { connectionManager.connect(any(), any()) } returns Unit
+        vm.setPrefillUrl("http://[fe80::1]:18789")
+
+        vm.connect()
+
+        assertNull(vm.form.value.hostError)
+        coVerify { connectionManager.connect("http://[fe80::1]:18789", null) }
+    }
+
+    @Test
+    fun `https prefill without port defaults to 443`() {
+        vm.setPrefillUrl("https://abc-xyz.trycloudflare.com")
+        assertEquals("443", vm.form.value.port)
+    }
+
+    @Test
+    fun `consumePendingPairing prefills host, port and token without connecting`() {
+        val handoff = PairingHandoff().apply {
+            offer(PairBundle(GatewayUrl("https", "gw.example", 8443), token = "tkn", name = "Den"))
+        }
+        val pairedVm = ManualEntryViewModel(connectionManager, profileRepository, onboardingRepository, handoff)
+
+        assertTrue(pairedVm.consumePendingPairing())
+
+        val form = pairedVm.form.value
+        assertTrue(form.useHttps)
+        assertEquals("gw.example", form.host)
+        assertEquals("8443", form.port)
+        assertEquals("tkn", form.token)
+        assertFalse(pairedVm.consumePendingPairing())
+        coVerify(exactly = 0) { connectionManager.connect(any(), any()) }
+    }
+
+    @Test
+    fun `paired name is used for the saved profile`() = runTest {
+        val handoff = PairingHandoff().apply {
+            offer(PairBundle(GatewayUrl("http", "192.168.0.23", 18789), token = "tkn", name = "Den"))
+        }
+        val pairedVm = ManualEntryViewModel(connectionManager, profileRepository, onboardingRepository, handoff)
+        coEvery { connectionManager.connect(any(), any()) } returns Unit
+        pairedVm.consumePendingPairing()
+
+        pairedVm.connect()
+
+        coVerify { profileRepository.saveProfile(match { it.displayName == "Den" }, "tkn") }
+    }
+
+    @Test
+    fun `an offer made while the screen is open bumps pairingOffers`() {
+        val handoff = PairingHandoff()
+        val pairedVm = ManualEntryViewModel(connectionManager, profileRepository, onboardingRepository, handoff)
+        val before = pairedVm.pairingOffers.value
+
+        handoff.offer(PairBundle(GatewayUrl("http", "192.168.0.23", 18789), token = null, name = null))
+
+        assertEquals(before + 1, pairedVm.pairingOffers.value)
+        assertTrue(pairedVm.consumePendingPairing())
     }
 }

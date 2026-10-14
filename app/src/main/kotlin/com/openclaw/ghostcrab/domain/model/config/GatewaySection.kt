@@ -26,10 +26,27 @@ data class GatewaySection(
 /**
  * Decodes this [JsonElement] into a [GatewaySection].
  *
- * @return Parsed [GatewaySection], or a default instance if decoding fails.
+ * @return Parsed [GatewaySection].
+ * @throws IllegalArgumentException (incl. `SerializationException`) when the JSON does not fit the
+ *   model, e.g. an unknown `auth.mode`. UI code should use [toGatewaySectionOrNull].
  */
 fun JsonElement.toGatewaySection(): GatewaySection =
     configJson.decodeFromJsonElement(this)
+
+/**
+ * Decodes this [JsonElement] into a [GatewaySection], or returns `null` when the JSON cannot be
+ * represented by the typed model. Callers must then fall back to raw JSON editing — never to
+ * defaults, which would misrepresent the gateway's real settings.
+ *
+ * @return Parsed [GatewaySection], or `null` when decoding fails (`SerializationException` is an
+ *   [IllegalArgumentException]).
+ */
+fun JsonElement.toGatewaySectionOrNull(): GatewaySection? =
+    try {
+        configJson.decodeFromJsonElement<GatewaySection>(this)
+    } catch (_: IllegalArgumentException) {
+        null
+    }
 
 /**
  * Encodes this [GatewaySection] to a [JsonElement] suitable for use as a config patch body.

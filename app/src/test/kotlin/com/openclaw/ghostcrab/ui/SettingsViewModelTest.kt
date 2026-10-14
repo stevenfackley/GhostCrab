@@ -1,5 +1,7 @@
 package com.openclaw.ghostcrab.ui
 
+import com.openclaw.ghostcrab.domain.exception.GatewayException
+import com.openclaw.ghostcrab.domain.exception.ProfileNeedsReauthException
 import com.openclaw.ghostcrab.domain.model.ConnectionProfile
 import com.openclaw.ghostcrab.domain.model.OnboardingStep
 import com.openclaw.ghostcrab.domain.repository.ConnectionProfileRepository
@@ -113,7 +115,7 @@ class SettingsViewModelTest {
     }
 
     @Test
-    fun `confirmClearAllProfiles deletes all profiles`() = runTest {
+    fun `confirmClearAllProfiles clears the whole store in one call`() = runTest {
         val profiles = listOf(profile("a"), profile("b"), profile("c"))
         val profileRepo = FakeSettingsProfileRepository(profiles)
         val vm = makeVm(profileRepo = profileRepo)
@@ -121,7 +123,7 @@ class SettingsViewModelTest {
         vm.requestClearAllProfiles()
         vm.confirmClearAllProfiles()
 
-        assertEquals(3, profileRepo.deletedIds.size)
+        assertEquals(1, profileRepo.clearAllCalls)
     }
 
     @Test
@@ -195,6 +197,64 @@ class SettingsViewModelTest {
         assertNotNull(saved)
         assertEquals("New Name", saved?.first?.displayName)
     }
+
+    @Test
+    fun `saveProfileEdit adding a token flips hasToken to true`() = runTest {
+        val p = profile("9", "NoTok") // hasToken = false
+        val profileRepo = FakeSettingsProfileRepository(listOf(p))
+        val vm = makeVm(profileRepo = profileRepo)
+
+        vm.startEditProfile(p)
+        vm.saveProfileEdit("NoTok", "fresh-token")
+
+        val (saved, token) = profileRepo.savedProfiles.last()
+        assertTrue(saved.hasToken)
+        assertEquals("fresh-token", token)
+    }
+
+    @Test
+    fun `saveProfileEdit clearing the token flips hasToken to false`() = runTest {
+        val p = profile("10", "Tok").copy(hasToken = true)
+        val profileRepo = FakeSettingsProfileRepository(listOf(p)).apply { tokens["10"] = "old" }
+        val vm = makeVm(profileRepo = profileRepo)
+
+        vm.startEditProfile(p)
+        vm.saveProfileEdit("Tok", "")
+
+        val (saved, token) = profileRepo.savedProfiles.last()
+        assertFalse(saved.hasToken)
+        assertNull(token)
+    }
+
+    @Test
+    fun `saveProfileEdit with unchanged token keeps the stored token`() = runTest {
+        val p = profile("11", "Keep").copy(hasToken = true)
+        val profileRepo = FakeSettingsProfileRepository(listOf(p)).apply { tokens["11"] = "kept" }
+        val vm = makeVm(profileRepo = profileRepo)
+
+        vm.startEditProfile(p)
+        vm.saveProfileEdit("Keep", null)
+
+        val (saved, token) = profileRepo.savedProfiles.last()
+        assertTrue(saved.hasToken)
+        assertEquals("kept", token)
+    }
+
+    @Test
+    fun `saveProfileEdit on tokenless profile never reads the keystore`() = runTest {
+        val p = profile("12", "Plain") // hasToken = false
+        val profileRepo = FakeSettingsProfileRepository(listOf(p))
+            .apply { tokenError = ProfileNeedsReauthException("12") }
+        val vm = makeVm(profileRepo = profileRepo)
+
+        vm.startEditProfile(p)
+        vm.saveProfileEdit("Renamed", null)
+
+        val (saved, token) = profileRepo.savedProfiles.last()
+        assertFalse(saved.hasToken)
+        assertNull(token)
+        assertEquals(0, profileRepo.getTokenCalls)
+    }
 }
 
 // ── Fakes ─────────────────────────────────────────────────────────────────────
@@ -205,6 +265,7 @@ private class FakeSettingsProfileRepository(
 
     private val flow = MutableStateFlow(initial)
     val deletedIds = mutableListOf<String>()
+    var clearAllCalls = 0
     val savedProfiles = mutableListOf<Pair<ConnectionProfile, String?>>()
 
     override fun getProfiles(): Flow<List<ConnectionProfile>> = flow
@@ -214,11 +275,24 @@ private class FakeSettingsProfileRepository(
         flow.value = flow.value.map { if (it.id == profile.id) profile else it }
     }
 
-    override suspend fun getToken(profileId: String): String? = null
+    val tokens = mutableMapOf<String, String>()
+    var tokenError: GatewayException? = null
+    var getTokenCalls = 0
+
+    override suspend fun getToken(profileId: String): String? {
+        getTokenCalls++
+        tokenError?.let { throw it }
+        return tokens[profileId]
+    }
 
     override suspend fun deleteProfile(profileId: String) {
         deletedIds += profileId
         flow.value = flow.value.filter { it.id != profileId }
+    }
+
+    override suspend fun clearAll() {
+        clearAllCalls++
+        flow.value = emptyList()
     }
 }
 

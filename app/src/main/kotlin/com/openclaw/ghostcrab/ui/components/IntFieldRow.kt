@@ -77,9 +77,9 @@ fun IntFieldRow(
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
-            if (errorText != null) {
+            errorText?.let { message ->
                 Text(
-                    text = errorText!!,
+                    text = message,
                     color = BrandTokens.colorCrimsonError,
                     style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
                     modifier = Modifier.padding(start = Spacing.xs, top = Spacing.xs),

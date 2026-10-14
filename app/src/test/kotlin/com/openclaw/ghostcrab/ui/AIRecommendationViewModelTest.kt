@@ -29,11 +29,13 @@ import io.mockk.coEvery
 import io.mockk.mockk
 import com.openclaw.ghostcrab.ui.airecommend.AIRecommendationUiState
 import com.openclaw.ghostcrab.ui.airecommend.AIRecommendationViewModel
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
@@ -78,11 +80,15 @@ class AIRecommendationViewModelTest {
 
     private val connectedNoSkill = connectedWithSkill.copy(capabilities = emptyList())
 
-    private fun change(section: String = "models", key: String = "timeout_ms") = SuggestedChange(
+    private fun change(
+        section: String = "models",
+        key: String = "timeout_ms",
+        value: String = "60000",
+    ) = SuggestedChange(
         section = section,
         key = key,
         currentValue = "30000",
-        suggestedValue = "60000",
+        suggestedValue = value,
         rationale = "Longer timeout for large models",
     )
 
@@ -128,7 +134,7 @@ class AIRecommendationViewModelTest {
     }
 
     @Test
-    fun `submitQuery transitions to Loading then Ready`() = runTest {
+    fun `submitQuery transitions to Loading then Ready with nothing selected`() = runTest {
         val rec = recommendation(change())
         val service = FakeAIService(available = true, recommendation = rec)
         val (vm, _) = makeVm(service = service)
@@ -138,8 +144,7 @@ class AIRecommendationViewModelTest {
         val state = assertInstanceOf(AIRecommendationUiState.Ready::class.java, vm.state.value)
         assertEquals(rec.recommendation, state.recommendation.recommendation)
         assertEquals(1, state.recommendation.suggestedChanges.size)
-        // All changes selected by default
-        assertEquals(state.recommendation.suggestedChanges.toSet(), state.selectedChanges)
+        assertTrue(state.selectedChanges.isEmpty())
     }
 
     @Test
@@ -181,43 +186,32 @@ class AIRecommendationViewModelTest {
     }
 
     @Test
-    fun `toggleChange removes a selected change then re-adds it`() = runTest {
+    fun `toggleChange selects an unselected change then deselects it`() = runTest {
         val c = change()
-        val rec = recommendation(c)
-        val service = FakeAIService(available = true, recommendation = rec)
-        val (vm, _) = makeVm(service = service)
-
+        val (vm, _) = makeVm(service = FakeAIService(available = true, recommendation = recommendation(c)))
         vm.submitQuery("query")
 
-        // Change starts selected
-        val readyBefore = vm.state.value as AIRecommendationUiState.Ready
-        assertTrue(c in readyBefore.selectedChanges)
-
-        // Toggle off
         vm.toggleChange(c)
-        val readyAfterRemove = vm.state.value as AIRecommendationUiState.Ready
-        assertFalse(c in readyAfterRemove.selectedChanges)
+        assertTrue(c in (vm.state.value as AIRecommendationUiState.Ready).selectedChanges)
 
-        // Toggle back on
         vm.toggleChange(c)
-        val readyAfterAdd = vm.state.value as AIRecommendationUiState.Ready
-        assertTrue(c in readyAfterAdd.selectedChanges)
+        assertFalse(c in (vm.state.value as AIRecommendationUiState.Ready).selectedChanges)
     }
 
     @Test
     fun `applySelectedChanges calls updateConfig for each selected change`() = runTest {
         val c1 = change("models", "timeout_ms")
         val c2 = change("gateway", "max_connections")
-        val rec = recommendation(c1, c2)
-        val service = FakeAIService(available = true, recommendation = rec)
+        val service = FakeAIService(available = true, recommendation = recommendation(c1, c2))
         val configRepo = FakeAIConfigRepository()
         val (vm, _) = makeVm(service = service, config = configRepo)
 
         vm.submitQuery("query")
+        vm.toggleChange(c1)
+        vm.toggleChange(c2)
         vm.applySelectedChanges()
 
-        val state = vm.state.value as AIRecommendationUiState.Ready
-        assertTrue(state.applySuccess)
+        assertTrue((vm.state.value as AIRecommendationUiState.Ready).applySuccess)
         assertEquals(2, configRepo.updateCallCount)
     }
 
@@ -225,14 +219,12 @@ class AIRecommendationViewModelTest {
     fun `applySelectedChanges with only one change selected applies only that one`() = runTest {
         val c1 = change("models", "timeout_ms")
         val c2 = change("gateway", "max_connections")
-        val rec = recommendation(c1, c2)
-        val service = FakeAIService(available = true, recommendation = rec)
+        val service = FakeAIService(available = true, recommendation = recommendation(c1, c2))
         val configRepo = FakeAIConfigRepository()
         val (vm, _) = makeVm(service = service, config = configRepo)
 
         vm.submitQuery("query")
-        // Deselect c2
-        vm.toggleChange(c2)
+        vm.toggleChange(c1)
         vm.applySelectedChanges()
 
         assertEquals(1, configRepo.updateCallCount)
@@ -260,6 +252,7 @@ class AIRecommendationViewModelTest {
         val (vm, _) = makeVm(service = service)
 
         vm.submitQuery("query")
+        vm.toggleChange(c)
         vm.applySelectedChanges()
 
         val stateWithSuccess = vm.state.value as AIRecommendationUiState.Ready
@@ -279,8 +272,6 @@ class AIRecommendationViewModelTest {
         val (vm, _) = makeVm(service = service, config = configRepo)
 
         vm.submitQuery("query")
-        // Deselect the only change
-        vm.toggleChange(c)
         vm.applySelectedChanges()
 
         assertEquals(0, configRepo.updateCallCount)
@@ -420,7 +411,7 @@ class AIRecommendationViewModelTest {
             error = AIServiceUnavailableException(gatewayUrl)
         }
         val repo = FakeInstallRepo().apply {
-            scripted = flowOf(SkillInstallProgress.Failed(SkillInstallError.Network("timeout")))
+            scripted = flowOf(SkillInstallProgress.Failed(SkillInstallError.Network(java.io.IOException("timeout"))))
         }
         val (vm, _) = makeVm(service = service, installRepo = repo)
 
@@ -439,7 +430,7 @@ class AIRecommendationViewModelTest {
             error = AIServiceUnavailableException(gatewayUrl)
         }
         val repo = FakeInstallRepo().apply {
-            scripted = flowOf(SkillInstallProgress.Failed(SkillInstallError.Network("x")))
+            scripted = flowOf(SkillInstallProgress.Failed(SkillInstallError.Network(java.io.IOException("x"))))
         }
         val (vm, _) = makeVm(service = service, installRepo = repo)
 
@@ -451,6 +442,190 @@ class AIRecommendationViewModelTest {
         val s = vm.state.value as AIRecommendationUiState.SkillUnavailable
         assertNull(s.installError)
         assertTrue(s.canInstall)
+    }
+
+    @Test
+    fun `security-affecting selection is confirmed before anything is written`() = runTest {
+        val risky = change("gateway", "auth.mode")
+        val configRepo = FakeAIConfigRepository()
+        val (vm, _) = makeVm(
+            service = FakeAIService(available = true, recommendation = recommendation(risky)),
+            config = configRepo,
+        )
+        vm.submitQuery("query")
+        vm.toggleChange(risky)
+
+        vm.applySelectedChanges()
+        assertEquals(listOf(risky), (vm.state.value as AIRecommendationUiState.Ready).confirmSecurityChanges)
+        assertEquals(0, configRepo.updateCallCount)
+
+        vm.applySelectedChanges(securityConfirmed = true)
+        assertEquals(1, configRepo.updateCallCount)
+        assertTrue((vm.state.value as AIRecommendationUiState.Ready).confirmSecurityChanges.isEmpty())
+    }
+
+    @Test
+    fun `dismissSecurityConfirmation applies nothing`() = runTest {
+        val risky = change("gateway", "auth.mode")
+        val configRepo = FakeAIConfigRepository()
+        val (vm, _) = makeVm(
+            service = FakeAIService(available = true, recommendation = recommendation(risky)),
+            config = configRepo,
+        )
+        vm.submitQuery("query")
+        vm.toggleChange(risky)
+        vm.applySelectedChanges()
+
+        vm.dismissSecurityConfirmation()
+
+        assertTrue((vm.state.value as AIRecommendationUiState.Ready).confirmSecurityChanges.isEmpty())
+        assertEquals(0, configRepo.updateCallCount)
+    }
+
+    @Test
+    fun `suggestions echoing the redaction placeholder never reach updateConfig`() = runTest {
+        val echoed = change("gateway", "auth.token", "[REDACTED]")
+        val echoedObject = change("gateway", "auth", """{"token":"[REDACTED]","x":1}""")
+        val configRepo = FakeAIConfigRepository()
+        val (vm, _) = makeVm(
+            service = FakeAIService(available = true, recommendation = recommendation(echoed, echoedObject)),
+            config = configRepo,
+        )
+        vm.submitQuery("query")
+        assertTrue((vm.state.value as AIRecommendationUiState.Ready).recommendation.suggestedChanges.isEmpty())
+
+        vm.toggleChange(echoed)
+        vm.toggleChange(echoedObject)
+        vm.applySelectedChanges()
+        vm.applySelectedChanges(securityConfirmed = true)
+
+        assertEquals(0, configRepo.updateCallCount)
+    }
+
+    @Test
+    fun `submitQuery counts suggestions dropped for echoing the placeholder`() = runTest {
+        val echoed = change("gateway", "auth.token", "[REDACTED]")
+        val safe = change()
+        val (vm, _) = makeVm(
+            service = FakeAIService(available = true, recommendation = recommendation(echoed, safe)),
+        )
+
+        vm.submitQuery("query")
+
+        val ready = vm.state.value as AIRecommendationUiState.Ready
+        assertEquals(listOf(safe), ready.recommendation.suggestedChanges)
+        assertEquals(1, ready.droppedSuggestionCount)
+    }
+
+    @Test
+    fun `applySelectedChanges ignores a second tap while an apply is in flight`() = runTest {
+        val c = change()
+        val gate = CompletableDeferred<Unit>()
+        val configRepo = FakeAIConfigRepository().apply { this.gate = gate }
+        val (vm, _) = makeVm(
+            service = FakeAIService(available = true, recommendation = recommendation(c)),
+            config = configRepo,
+        )
+        vm.submitQuery("query")
+        vm.toggleChange(c)
+
+        vm.applySelectedChanges(securityConfirmed = true)
+        vm.applySelectedChanges(securityConfirmed = true)
+        gate.complete(Unit)
+        advanceUntilIdle()
+
+        assertEquals(1, configRepo.updateCallCount)
+    }
+
+    @Test
+    fun `apply sends one patch per section and reconciles after each write`() = runTest {
+        val c1 = change("gateway", "http.port")
+        val c2 = change("gateway", "max_connections")
+        val c3 = change("models", "timeout_ms")
+        val configRepo = FakeAIConfigRepository()
+        val (vm, _) = makeVm(
+            service = FakeAIService(available = true, recommendation = recommendation(c1, c2, c3)),
+            config = configRepo,
+        )
+        vm.submitQuery("query")
+        listOf(c1, c2, c3).forEach(vm::toggleChange)
+        val readsBeforeApply = configRepo.getConfigCalls
+
+        vm.applySelectedChanges()
+
+        assertEquals(listOf("gateway", "models"), configRepo.updatedSections)
+        assertEquals(2, configRepo.getConfigCalls - readsBeforeApply)
+        assertTrue((vm.state.value as AIRecommendationUiState.Ready).applySuccess)
+    }
+
+    @Test
+    fun `a failed write reports the gateway error and no success`() = runTest {
+        val c = change()
+        val configRepo = FakeAIConfigRepository()
+        val (vm, _) = makeVm(
+            service = FakeAIService(available = true, recommendation = recommendation(c)),
+            config = configRepo,
+        )
+        vm.submitQuery("query")
+        vm.toggleChange(c)
+        val error = GatewayApiException("$gatewayUrl/config/models", 503)
+        configRepo.updateError = error
+
+        vm.applySelectedChanges()
+
+        val ready = vm.state.value as AIRecommendationUiState.Ready
+        assertFalse(ready.applySuccess)
+        assertEquals(
+            "Gateway API error at $gatewayUrl/config/models: HTTP 503 (GatewayApiException)",
+            ready.applyError,
+        )
+    }
+
+    @Test
+    fun `a reload failure after every write landed is success with a warning`() = runTest {
+        val c1 = change("gateway", "max_connections")
+        val c2 = change("models", "timeout_ms")
+        val configRepo = FakeAIConfigRepository()
+        val (vm, _) = makeVm(
+            service = FakeAIService(available = true, recommendation = recommendation(c1, c2)),
+            config = configRepo,
+        )
+        vm.submitQuery("query")
+        vm.toggleChange(c1)
+        vm.toggleChange(c2)
+        val error = GatewayApiException("$gatewayUrl/config", 503)
+        configRepo.getConfigError = error
+
+        vm.applySelectedChanges()
+
+        val ready = vm.state.value as AIRecommendationUiState.Ready
+        assertEquals(listOf("gateway", "models"), configRepo.updatedSections)
+        assertTrue(ready.applySuccess)
+        assertEquals(
+            "All 2 sections applied; reloading config failed: " +
+                "Gateway API error at $gatewayUrl/config: HTTP 503 (GatewayApiException)",
+            ready.applyError,
+        )
+    }
+
+    @Test
+    fun `a suggestion with an empty path segment is reported instead of crashing`() = runTest {
+        val malformed = change("gateway", "http..port")
+        val configRepo = FakeAIConfigRepository()
+        val (vm, _) = makeVm(
+            service = FakeAIService(available = true, recommendation = recommendation(malformed)),
+            config = configRepo,
+        )
+        vm.submitQuery("query")
+        vm.toggleChange(malformed)
+
+        vm.applySelectedChanges()
+
+        val ready = vm.state.value as AIRecommendationUiState.Ready
+        assertEquals(0, configRepo.updateCallCount)
+        assertFalse(ready.applySuccess)
+        assertFalse(ready.isApplying)
+        assertTrue(ready.applyError.orEmpty().startsWith("Cannot apply suggestions:"))
     }
 
 }
@@ -488,13 +663,23 @@ private class FakeAIConfigRepository : ConfigRepository {
     var updateCallCount = 0
     var lastSectionUpdated: String? = null
     var updateError: Exception? = null
+    var gate: CompletableDeferred<Unit>? = null
+    val updatedSections = mutableListOf<String>()
+    var getConfigCalls = 0
+    var getConfigError: Exception? = null
 
-    override suspend fun getConfig(): OpenClawConfig = OpenClawConfig(emptyMap())
+    override suspend fun getConfig(): OpenClawConfig {
+        getConfigCalls++
+        getConfigError?.let { throw it }
+        return OpenClawConfig(emptyMap())
+    }
 
     override suspend fun updateConfig(section: String, value: JsonElement) {
+        gate?.await()
         updateError?.let { throw it }
         updateCallCount++
         lastSectionUpdated = section
+        updatedSections += section
     }
 }
 

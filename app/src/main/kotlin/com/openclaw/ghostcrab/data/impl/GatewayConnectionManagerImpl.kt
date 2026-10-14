@@ -3,20 +3,29 @@ package com.openclaw.ghostcrab.data.impl
 import com.openclaw.ghostcrab.data.api.OpenClawApiClient
 import com.openclaw.ghostcrab.domain.exception.GatewayAuthException
 import com.openclaw.ghostcrab.domain.exception.GatewayException
-import com.openclaw.ghostcrab.domain.exception.GatewayUnreachableException
+import com.openclaw.ghostcrab.domain.exception.GatewayNotConnectedException
+import com.openclaw.ghostcrab.domain.exception.GatewayProtocolException
 import com.openclaw.ghostcrab.domain.model.AuthRequirement
 import com.openclaw.ghostcrab.domain.model.GatewayConnection
 import com.openclaw.ghostcrab.domain.repository.GatewayConnectionManager
+import com.openclaw.ghostcrab.domain.repository.GatewayHealthChecker
 import com.openclaw.ghostcrab.domain.repository.SettingsRepository
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Production implementation of [GatewayConnectionManager].
@@ -25,21 +34,43 @@ import kotlinx.coroutines.withContext
  * and released on [disconnect].
  *
  * @param clientFactory Creates [OpenClawApiClient] instances. Injectable for testing.
+ * @param ioDispatcher Dispatcher for blocking client work; injected via the Koin IoDispatcher qualifier.
  */
 class GatewayConnectionManagerImpl(
     private val clientFactory: OpenClawApiClientFactory = DefaultClientFactory,
     private val settingsRepository: SettingsRepository = AlwaysBlockCleartextSettingsRepository,
-) : GatewayConnectionManager {
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+) : GatewayConnectionManager, GatewayHealthChecker {
 
     private val _connectionState = MutableStateFlow<GatewayConnection>(GatewayConnection.Disconnected)
     override val connectionState: StateFlow<GatewayConnection> = _connectionState.asStateFlow()
 
-    private var activeClient: OpenClawApiClient? = null
+    // Written under [mutex] on the IO dispatcher, read lock-free by repositories on any thread.
+    @Volatile private var activeClient: OpenClawApiClient? = null
     private val mutex = Mutex()
 
-    override suspend fun probeAuth(url: String): AuthRequirement = withContext(Dispatchers.IO) {
-        val allowCleartext = settingsRepository.allowCleartextPublicIPs.firstOrNull() ?: false
-        val probe = clientFactory.unauthenticated(url, allowCleartext)
+    /** Live copy of the user's cleartext opt-in; every request's interceptor reads it. */
+    private val allowCleartext = AtomicBoolean(false)
+
+    // Fail closed: a settings read error (e.g. DataStore IOException) means "not allowed", never a crash.
+    private val cleartextSetting: Flow<Boolean> =
+        settingsRepository.allowCleartextPublicIPs.catch { emit(false) }
+
+    init {
+        // App-lifetime singleton: keep the opt-in current so a Settings change applies to the live session.
+        CoroutineScope(SupervisorJob() + ioDispatcher).launch {
+            cleartextSetting.collect { allowCleartext.set(it) }
+        }
+    }
+
+    /** Reads the current opt-in before building clients, so the first request never races the collector. */
+    private suspend fun primeCleartextSetting() {
+        allowCleartext.set(cleartextSetting.firstOrNull() ?: false)
+    }
+
+    override suspend fun probeAuth(url: String): AuthRequirement = withContext(ioDispatcher) {
+        primeCleartextSetting()
+        val probe = clientFactory.unauthenticated(url, allowCleartext::get)
         try {
             probe.health() // throws GatewayUnreachableException if down
             try {
@@ -53,7 +84,7 @@ class GatewayConnectionManagerImpl(
         }
     }
 
-    override suspend fun connect(url: String, token: String?) = withContext(Dispatchers.IO) {
+    override suspend fun connect(url: String, token: String?) = withContext(ioDispatcher) {
         mutex.withLock {
             // Disconnect any existing session silently
             activeClient?.close()
@@ -65,12 +96,11 @@ class GatewayConnectionManagerImpl(
             // it only becomes activeClient once status() has succeeded.
             var client: OpenClawApiClient? = null
             try {
-                val allowCleartext = settingsRepository.allowCleartextPublicIPs.firstOrNull() ?: false
                 val authReq = probeAuth(url)
                 client = if (token != null) {
-                    clientFactory.authenticated(url, token, allowCleartext)
+                    clientFactory.authenticated(url, token, allowCleartext::get)
                 } else {
-                    clientFactory.unauthenticated(url, allowCleartext)
+                    clientFactory.unauthenticated(url, allowCleartext::get)
                 }
                 val statusResponse = client.status()
                 val isHttps = url.startsWith("https://", ignoreCase = true)
@@ -96,9 +126,11 @@ class GatewayConnectionManagerImpl(
                 _connectionState.value = GatewayConnection.Disconnected
                 throw e
             } catch (@Suppress("TooGenericExceptionCaught") e: Exception) {
-                // Anything the client layer did not classify (e.g. a URL the engine rejects)
-                // must still land in Error, never a stuck Connecting.
-                val wrapped = GatewayUnreachableException(url, e)
+                // Anything the client layer did not classify (client factory, settings read, a URL
+                // the engine rejects) is a client bug, not a connectivity problem: report it as a
+                // non-retryable protocol error, and still land in Error, never a stuck Connecting.
+                val detail = e::class.java.simpleName + (e.message?.let { ": $it" } ?: "")
+                val wrapped = GatewayProtocolException(url, detail, e)
                 failConnect(url, wrapped, client)
                 throw wrapped
             }
@@ -125,9 +157,18 @@ class GatewayConnectionManagerImpl(
         }
     }
 
-    /** Returns the active client, or null if not connected. Internal use for repositories. */
-    fun requireClient(): OpenClawApiClient =
-        activeClient ?: error("No active gateway connection")
+    /** One `/health` call on the active session client (see [GatewayHealthChecker]). */
+    override suspend fun check() {
+        requireClient().health()
+    }
+
+    /**
+     * The live session client, for repository implementations.
+     *
+     * @return The client of the current session.
+     * @throws GatewayNotConnectedException if no session is active.
+     */
+    fun requireClient(): OpenClawApiClient = activeClient ?: throw GatewayNotConnectedException()
 }
 
 // ── Fail-safe default settings (no cleartext to public IPs) ──────────────────
@@ -140,13 +181,17 @@ private object AlwaysBlockCleartextSettingsRepository : com.openclaw.ghostcrab.d
 // ── Factory interface for testability ────────────────────────────────────────
 
 interface OpenClawApiClientFactory {
-    fun unauthenticated(baseUrl: String, allowCleartextPublicIPs: Boolean = false): OpenClawApiClient
-    fun authenticated(baseUrl: String, token: String, allowCleartextPublicIPs: Boolean = false): OpenClawApiClient
+    fun unauthenticated(baseUrl: String, allowCleartextPublicIPs: () -> Boolean = { false }): OpenClawApiClient
+    fun authenticated(
+        baseUrl: String,
+        token: String,
+        allowCleartextPublicIPs: () -> Boolean = { false },
+    ): OpenClawApiClient
 }
 
 object DefaultClientFactory : OpenClawApiClientFactory {
-    override fun unauthenticated(baseUrl: String, allowCleartextPublicIPs: Boolean) =
+    override fun unauthenticated(baseUrl: String, allowCleartextPublicIPs: () -> Boolean) =
         OpenClawApiClient.unauthenticated(baseUrl, allowCleartextPublicIPs)
-    override fun authenticated(baseUrl: String, token: String, allowCleartextPublicIPs: Boolean) =
+    override fun authenticated(baseUrl: String, token: String, allowCleartextPublicIPs: () -> Boolean) =
         OpenClawApiClient.authenticated(baseUrl, token, allowCleartextPublicIPs)
 }

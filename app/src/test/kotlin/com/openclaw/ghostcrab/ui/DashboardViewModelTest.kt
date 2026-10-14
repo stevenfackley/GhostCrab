@@ -1,10 +1,10 @@
 package com.openclaw.ghostcrab.ui
 
-import com.openclaw.ghostcrab.data.api.dto.HealthResponse
 import com.openclaw.ghostcrab.domain.model.AuthRequirement
 import com.openclaw.ghostcrab.domain.model.GatewayConnection
 import com.openclaw.ghostcrab.domain.model.ModelInfo
 import com.openclaw.ghostcrab.domain.repository.GatewayConnectionManager
+import com.openclaw.ghostcrab.domain.repository.GatewayHealthChecker
 import com.openclaw.ghostcrab.domain.repository.ModelRepository
 import com.openclaw.ghostcrab.ui.dashboard.DashboardUiState
 import com.openclaw.ghostcrab.ui.dashboard.DashboardViewModel
@@ -72,13 +72,13 @@ class DashboardViewModelTest {
     private fun makeVm(
         initialConnection: GatewayConnection = GatewayConnection.Disconnected,
         models: List<ModelInfo> = emptyList(),
-        healthResult: suspend () -> HealthResponse = { HealthResponse("ok") },
+        healthResult: suspend () -> Unit = {},
     ): Pair<DashboardViewModel, MutableStateFlow<GatewayConnection>> {
         val connFlow = MutableStateFlow(initialConnection)
         val vm = DashboardViewModel(
             connectionManager = FakeDashboardConnectionManager(connFlow),
             modelRepository = FakeModelRepository(models),
-            healthChecker = { healthResult() },
+            healthChecker = healthChecker { healthResult() },
         )
         return vm to connFlow
     }
@@ -144,7 +144,7 @@ class DashboardViewModelTest {
         var callCount = 0
         val (vm, connFlow) = makeVm(healthResult = {
             callCount++
-            if (callCount == 1) throw RuntimeException("timeout") else HealthResponse("ok")
+            if (callCount == 1) throw RuntimeException("timeout")
         })
         connFlow.value = connectedState
         val afterFirstFail = vm.state.value as DashboardUiState.Ready
@@ -192,7 +192,7 @@ class DashboardViewModelTest {
         val vm = DashboardViewModel(
             connectionManager = manager,
             modelRepository = FakeModelRepository(),
-            healthChecker = { HealthResponse("ok") },
+            healthChecker = healthChecker {},
         )
         // Eager: disconnect triggers the launch in viewModelScope synchronously
         vm.disconnect()
@@ -208,9 +208,8 @@ class DashboardViewModelTest {
         vm = DashboardViewModel(
             connectionManager = FakeDashboardConnectionManager(connFlow),
             modelRepository = FakeModelRepository(),
-            healthChecker = {
+            healthChecker = healthChecker {
                 readySeenBeforeHealth = vm.state.value is DashboardUiState.Ready
-                HealthResponse("ok")
             },
         )
         connFlow.value = connectedState
@@ -247,4 +246,8 @@ private class FakeModelRepository(
 ) : ModelRepository {
     override suspend fun getModels(): List<ModelInfo> = models
     override suspend fun setActiveModel(modelId: String) = Unit
+}
+
+private fun healthChecker(block: suspend () -> Unit): GatewayHealthChecker = object : GatewayHealthChecker {
+    override suspend fun check() = block()
 }

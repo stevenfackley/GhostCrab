@@ -2,6 +2,7 @@ package com.openclaw.ghostcrab.ui.navigation
 
 import android.net.Uri
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -21,8 +22,13 @@ import com.openclaw.ghostcrab.ui.model.ModelManagerScreen
 import com.openclaw.ghostcrab.ui.onboarding.OnboardingScreen
 
 @Composable
-fun NavGraph() {
+fun NavGraph(pairRequest: Int = 0) {
     val navController = rememberNavController()
+
+    // A `ghostcrab://pair` deep link was accepted (bundle waiting in PairingHandoff): open ManualEntry.
+    LaunchedEffect(pairRequest) {
+        if (pairRequest > 0) navController.navigate("manual_entry") { launchSingleTop = true }
+    }
 
     NavHost(
         navController = navController,
@@ -39,8 +45,12 @@ fun NavGraph() {
                     }
                 },
                 onNavigateToOnboarding = {
-                    navController.navigate("onboarding") {
-                        popUpTo("connection_picker") { inclusive = false }
+                    // First-run redirect only while the picker is on top: if a deep link already pushed
+                    // ManualEntry, popUpTo would pop the prefilled form.
+                    if (navController.currentDestination?.route == "connection_picker") {
+                        navController.navigate("onboarding") {
+                            popUpTo("connection_picker") { inclusive = false }
+                        }
                     }
                 },
             )
@@ -51,6 +61,11 @@ fun NavGraph() {
                 onNavigateToManualEntry = { url ->
                     val encoded = android.net.Uri.encode(url)
                     navController.navigate("manual_entry?prefillUrl=$encoded") {
+                        popUpTo("qr_scan") { inclusive = true }
+                    }
+                },
+                onNavigateToPairedEntry = {
+                    navController.navigate("manual_entry") {
                         popUpTo("qr_scan") { inclusive = true }
                     }
                 },
@@ -141,8 +156,10 @@ fun NavGraph() {
         composable("model_manager") {
             ModelManagerScreen(onNavigateBack = { navController.popBackStack() })
         }
-        composable("ai_recommendation") {
-            AIRecommendationScreen(onNavigateBack = { navController.popBackStack() })
+        if (BuildConfig.AI_PRO_ENABLED) {
+            composable("ai_recommendation") {
+                AIRecommendationScreen(onNavigateBack = { navController.popBackStack() })
+            }
         }
         composable("settings") {
             SettingsScreen(

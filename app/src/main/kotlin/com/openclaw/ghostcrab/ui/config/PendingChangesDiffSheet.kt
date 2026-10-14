@@ -19,7 +19,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
+import com.openclaw.ghostcrab.R
+import com.openclaw.ghostcrab.domain.util.redactSecrets
 import com.openclaw.ghostcrab.ui.theme.BrandTokens
 import com.openclaw.ghostcrab.ui.theme.MonoFontFamily
 import com.openclaw.ghostcrab.ui.theme.Spacing
@@ -51,8 +54,9 @@ fun PendingChangesDiffSheet(
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
-    val oldText = prettyJson.encodeToString(JsonElement.serializer(), oldValue)
-    val newText = prettyJson.encodeToString(JsonElement.serializer(), newValue)
+    // Secrets never render in clear, even in a confirmation sheet.
+    val oldText = prettyJson.encodeToString(JsonElement.serializer(), oldValue.redactSecrets())
+    val newText = prettyJson.encodeToString(JsonElement.serializer(), newValue.redactSecrets())
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -66,14 +70,14 @@ fun PendingChangesDiffSheet(
                 .verticalScroll(rememberScrollState()),
         ) {
             Text(
-                text = "Review changes: $sectionKey",
+                text = stringResource(R.string.config_editor_diff_title, sectionKey),
                 style = MaterialTheme.typography.titleLarge,
             )
             Spacer(modifier = Modifier.height(Spacing.md))
 
             // Before block
             Text(
-                text = "Before",
+                text = stringResource(R.string.config_editor_diff_before),
                 style = MaterialTheme.typography.labelMedium,
                 color = BrandTokens.colorAmberWarn,
             )
@@ -89,7 +93,7 @@ fun PendingChangesDiffSheet(
 
             // After block
             Text(
-                text = "After",
+                text = stringResource(R.string.config_editor_diff_after),
                 style = MaterialTheme.typography.labelMedium,
                 color = BrandTokens.colorCyanPrimary,
             )
@@ -121,7 +125,7 @@ fun PendingChangesDiffSheet(
                         contentColor = BrandTokens.colorAbyss,
                     ),
                 ) {
-                    Text("Save")
+                    Text(stringResource(R.string.config_editor_save))
                 }
             }
         }
