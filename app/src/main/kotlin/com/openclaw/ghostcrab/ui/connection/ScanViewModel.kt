@@ -2,6 +2,7 @@ package com.openclaw.ghostcrab.ui.connection
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.openclaw.ghostcrab.domain.exception.GatewayException
 import com.openclaw.ghostcrab.domain.model.DiscoveredGateway
 import com.openclaw.ghostcrab.domain.repository.ConnectionProfileRepository
 import com.openclaw.ghostcrab.domain.repository.DiscoveryService
@@ -160,12 +161,17 @@ class ScanViewModel(
             val match = profiles.find { it.url == gateway.url }
 
             if (match != null) {
-                val token = profileRepository.getToken(match.id)
-                runCatching { connectionManager.connect(match.url, token) }
-                    .onSuccess { _events.emit(ScanEvent.NavigateToDashboard) }
-                    .onFailure { e ->
-                        _state.value = ScanState.Error(e.message ?: "Connection failed")
-                    }
+                try {
+                    val token = if (match.hasToken) profileRepository.getToken(match.id) else null
+                    connectionManager.connect(match.url, token)
+                    _events.emit(ScanEvent.NavigateToDashboard)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: GatewayException) {
+                    // connect() and getToken() both report failures as GatewayException
+                    // (ProfileNeedsReauthException after a Keystore reset).
+                    _state.value = ScanState.Error(e.message ?: "Connection failed")
+                }
             } else {
                 _events.emit(ScanEvent.NavigateToManualEntry(gateway.url))
             }
