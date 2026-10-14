@@ -26,7 +26,14 @@ public final class ConfigEditorViewModel {
 
     // MARK: - Background tasks
 
+    @ObservationIgnored
     private var connectionTask: Task<Void, Never>?
+
+    /// In-flight config load. Read-only outside the VM so tests can await it.
+    @ObservationIgnored private(set) var loadTask: Task<Void, Never>?
+
+    /// In-flight section save. Read-only outside the VM so tests can await it.
+    @ObservationIgnored private(set) var saveTask: Task<Void, Never>?
 
     // MARK: - Init / lifecycle
 
@@ -62,10 +69,13 @@ public final class ConfigEditorViewModel {
         }
     }
 
-    /// Cancel background subscriptions. Call from `.task` cancellation.
+    /// Cancel background subscriptions and an in-flight load. Call from `.task` cancellation.
+    /// An in-flight save is left to finish so the gateway write is not abandoned mid-way.
     public func stop() {
         connectionTask?.cancel()
         connectionTask = nil
+        loadTask?.cancel()
+        loadTask = nil
     }
 
     deinit {
@@ -79,9 +89,12 @@ public final class ConfigEditorViewModel {
     /// Transitions through ``ConfigEditorUiState/loading`` then resolves to
     /// either ``ConfigEditorUiState/ready(config:pendingChanges:fieldErrors:pendingSaveSection:saveSuccess:concurrentEditSection:)``,
     /// ``ConfigEditorUiState/noConfigApi``, or ``ConfigEditorUiState/error(message:)``.
+    /// Ignored while a load is already in flight.
     public func loadConfig() {
-        Task { [weak self] in
+        guard loadTask == nil else { return }
+        loadTask = Task { [weak self] in
             guard let self else { return }
+            defer { if !Task.isCancelled { self.loadTask = nil } }
             self.state = .loading
             do {
                 let config = try await self.configRepository.getConfig()
@@ -90,10 +103,16 @@ public final class ConfigEditorViewModel {
                 } else {
                     self.state = .ready(config: config)
                 }
-            } catch let e as GatewayError {
-                self.state = .error(message: e.errorDescription ?? "Unknown error")
             } catch {
-                self.state = .error(message: error.localizedDescription)
+                // Cancelled by stop() (the screen went away): whatever the
+                // repository threw is about the abandoned request, not the
+                // gateway, so publish no error.
+                guard !Task.isCancelled else { return }
+                if let e = error as? GatewayError {
+                    self.state = .error(message: e.errorDescription ?? "Unknown error")
+                } else {
+                    self.state = .error(message: error.localizedDescription)
+                }
             }
         }
     }
@@ -184,16 +203,20 @@ public final class ConfigEditorViewModel {
     /// - On HTTP 412: reloads config and surfaces a concurrent-edit warning.
     /// - On `configValidation`: sets the field error inline.
     /// - On any other error: transitions to ``ConfigEditorUiState/error(message:)``.
+    ///
+    /// Ignored while a save is already in flight.
     public func confirmSave(_ section: String) {
-        guard case .ready(_, let pending, _, _, _, _) = state,
+        guard saveTask == nil,
+              case .ready(_, let pending, _, _, _, _) = state,
               let newValue = pending[section] else {
             return
         }
         // Clear the pending-save flag immediately so the sheet closes.
         cancelSave()
 
-        Task { [weak self] in
+        saveTask = Task { [weak self] in
             guard let self else { return }
+            defer { self.saveTask = nil }
             do {
                 try await self.configRepository.updateConfig(section: section, value: newValue)
                 let updated = try await self.configRepository.getConfig()

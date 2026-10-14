@@ -48,9 +48,19 @@ public final class DashboardViewModel {
     /// when available). `nil` when no error is pending.
     public var lastError: String?
 
-    // MARK: - Internal observation tasks
+    /// `true` once the user asked to disconnect; repeat taps are ignored.
+    public private(set) var isDisconnecting: Bool = false
 
+    // MARK: - Internal tasks
+
+    @ObservationIgnored
     private var connectionObservationTask: Task<Void, Never>?
+
+    /// In-flight model load from `onAppear`. Read-only outside the VM so tests can await it.
+    @ObservationIgnored private(set) var loadTask: Task<Void, Never>?
+
+    /// In-flight AI availability probe. Read-only outside the VM so tests can await it.
+    @ObservationIgnored private(set) var aiTask: Task<Void, Never>?
 
     // MARK: - Init
 
@@ -72,11 +82,33 @@ public final class DashboardViewModel {
     // MARK: - Lifecycle
 
     /// Call from the screen's `.task` modifier. Starts observing the connection
-    /// stream, loads the active model, and probes AI availability.
+    /// stream, loads the active model, and probes AI availability. Loads that
+    /// are already running are not started again.
     public func onAppear() {
         startObservingConnection()
-        Task { await loadActiveModel() }
-        Task { await probeAIAvailability() }
+        if loadTask == nil {
+            loadTask = Task {
+                await self.loadActiveModel()
+                if !Task.isCancelled { self.loadTask = nil }
+            }
+        }
+        if aiTask == nil {
+            aiTask = Task {
+                await self.probeAIAvailability()
+                if !Task.isCancelled { self.aiTask = nil }
+            }
+        }
+    }
+
+    /// Call from the screen's `.onDisappear` (e.g. pushing Models / Config).
+    /// Cancels in-flight work; `onAppear()` restarts it on return.
+    public func onDisappear() {
+        connectionObservationTask?.cancel()
+        connectionObservationTask = nil
+        loadTask?.cancel()
+        loadTask = nil
+        aiTask?.cancel()
+        aiTask = nil
     }
 
     /// Manual refresh — invoked by `.refreshable`. Reloads the model list.
@@ -84,10 +116,15 @@ public final class DashboardViewModel {
         await loadActiveModel()
     }
 
-    /// Disconnects from the gateway. Caller is responsible for popping the
-    /// nav stack after this completes (the screen pops via `dismiss()`).
-    public func disconnect() async {
+    /// Disconnects from the gateway once. The caller pops the nav stack only
+    /// when this returns `true`, so a double tap cannot dismiss twice.
+    ///
+    /// - Returns: `true` for the call that disconnected; `false` for repeats.
+    public func disconnect() async -> Bool {
+        guard !isDisconnecting else { return false }
+        isDisconnecting = true
         await gateway.disconnect()
+        return true
     }
 
     // MARK: - Connection observation
@@ -115,18 +152,26 @@ public final class DashboardViewModel {
         defer { isLoading = false }
         do {
             let list = try await models.getModels()
+            guard !Task.isCancelled else { return }
             self.modelCount = list.count
             self.activeModel = list.first(where: { $0.isActive })
             self.lastError = nil
-        } catch let error as GatewayError {
-            self.lastError = describe(error: error)
         } catch {
-            self.lastError = "\(type(of: error)): \(error.localizedDescription)"
+            // A cancelled load (left the screen) is not an error worth a banner:
+            // URLSession reports cancellation as `URLError.cancelled`, which the
+            // client maps to `.unreachable`.
+            guard !Task.isCancelled else { return }
+            if let gatewayError = error as? GatewayError {
+                self.lastError = describe(error: gatewayError)
+            } else {
+                self.lastError = "\(type(of: error)): \(error.localizedDescription)"
+            }
         }
     }
 
     private func probeAIAvailability() async {
         let available = await ai.isAvailable()
+        guard !Task.isCancelled else { return }
         self.aiAvailable = available
     }
 

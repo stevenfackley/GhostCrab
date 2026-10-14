@@ -6,7 +6,7 @@
 
 **Architecture:** Pure SwiftUI with `@Observable @MainActor` ViewModels and hand-rolled DI in `AppContainer`. The frozen `Domain/Repository` protocols are not touched; every new type is additive. Secrets cross screens only through an in-memory one-shot `PairingHandoff` owned by `AppContainer`, never through `Route`. Networking stays in the `OpenClawAPIClient` actor, and per-request policy (timeouts, cleartext opt-in) moves from process-global state onto each `URLRequest`.
 
-**Tech Stack:** Swift 6 (`SWIFT_STRICT_CONCURRENCY: complete`), SwiftUI, iOS 18 / Mac Catalyst 14, XcodeGen, Swift Testing (`import Testing`) for unit tests, XCTest/XCUITest for the launch smoke test, GitHub Actions on the self-hosted Mac Mini runner.
+**Tech Stack:** Swift 6 (`SWIFT_STRICT_CONCURRENCY: complete`), SwiftUI, iOS 18 / Mac Catalyst 17 (macOS 14 Sonoma deployment target), XcodeGen, Swift Testing (`import Testing`) for unit tests, XCTest/XCUITest for the launch smoke test, GitHub Actions on the self-hosted Mac Mini runner.
 
 ---
 
@@ -76,7 +76,7 @@
 | `ios/project.yml` | modify | Test-target plist settings, URL scheme, fonts, privacy resource, ATS, version |
 | `ios/ExportOptions.plist` | modify | `destination=export`; drops `compileBitcode` |
 | `.github/workflows/ios-release.yml` | modify | Roster runner label; key wipe that works on macOS |
-| `.github/workflows/ios-pr.yml` | create | PR lane: xcodegen + `xcodebuild test` on `mac-mini-ios` |
+| `.github/workflows/ios-pr.yml` | create | PR lane: xcodegen + `xcodebuild test` on `[self-hosted, macOS, ARM64]` |
 
 ---
 
@@ -1601,7 +1601,7 @@ In `ios/GhostCrab/App/RootView.swift`, add a state property under `@State privat
     @State private var deepLinkError: String?
 ```
 
-Replace `body`:
+Replace `body`. Keep the `.environment(\.navigate, …)` modifier that sits on the `NavigationStack`: dropping it strips the navigator from every pushed screen, and the launch smoke test (start screen only) would stay green.
 
 ```swift
     var body: some View {
@@ -1609,6 +1609,7 @@ Replace `body`:
             startGate
                 .navigationDestination(for: Route.self) { destination(for: $0) }
         }
+        .environment(\.navigate, NavigateAction { route in path.append(route) })
         .task { await resolveStartRoute() }
         .onOpenURL { handleOpenURL($0) }
         .alert(
@@ -1661,7 +1662,7 @@ Expected: `ghostcrab`, then `** BUILD SUCCEEDED **`.
 - [ ] **Step 4: Open a link in the simulator** ⚠ manual (simulator with the app installed)
 
 ```bash
-P=$(printf '%s' '{"url":"http://192.168.1.20:18789","token":"tok_demo"}' | base64 | tr '+/' '-_' | tr -d '=\n')
+P=$(printf '%s' '{"v":1,"url":"http://192.168.1.20:18789","token":"tok_demo"}' | base64 | tr '+/' '-_' | tr -d '=\n')
 xcrun simctl openurl booted "ghostcrab://pair?p=$P"
 xcrun simctl openurl booted "ghostcrab://pair?p=!!!!"
 ```
@@ -4761,7 +4762,7 @@ git commit -m "fix(ios): track AI and Settings tasks; persist toggles in tap ord
 
 **Files:**
 - Modify: `ios/ExportOptions.plist` (whole file)
-- Modify: `.github/workflows/ios-release.yml:25` (runner), `:175-179` (wipe)
+- Modify: `.github/workflows/ios-release.yml:175-179` (wipe). Line 25 (runner) stays as is.
 
 Decision: the workflow uploads with `altool`, using the explicit API-key secrets, and `ExportOptions` only exports. With `destination=upload`, `xcodebuild -exportArchive` uploads during export itself and writes no `GhostCrab.ipa`, so the following `altool` step had nothing to upload. `compileBitcode` has been obsolete since Xcode 14. `manageAppVersionAndBuildNumber` is set to `false` so the CI-provided `CURRENT_PROJECT_VERSION` (the run number) stays authoritative. On the key wipe: macOS has no `shred`, so `shred -u … || rm -f …` only ever reached its `rm -f` fallback. The fallback did delete the key, but the `shred` call was dead code. On APFS (copy-on-write, SSD) overwriting before deleting gives no extra guarantee, so the step now does a plain `rm -f` and asserts the file is gone.
 
@@ -4802,11 +4803,7 @@ Replace the whole content of `ios/ExportOptions.plist`:
 
 - [ ] **Step 2: Fix the release workflow**
 
-In `.github/workflows/ios-release.yml`, change line 25 from `runs-on: [self-hosted, macOS, ARM64]` to:
-
-```yaml
-    runs-on: [self-hosted, macOS, mac-mini-ios]
-```
+In `.github/workflows/ios-release.yml`, keep line 25 as `runs-on: [self-hosted, macOS, ARM64]`. Those are the only labels on this repo's runner; there is no `mac-mini-ios` label here, so switching to it would leave release jobs queued forever with no runner to pick them up.
 
 Replace the `Wipe ASC API key` step (lines 175-179):
 
@@ -4836,7 +4833,7 @@ Expected: `ios/ExportOptions.plist: OK`.
 ```bash
 git checkout -- ios/GhostCrab/App/BuildInfo.swift
 git add ios/ExportOptions.plist .github/workflows/ios-release.yml
-git commit -m "ci(ios): export-then-altool upload, roster runner label, working key wipe" -m "ExportOptions destination=upload uploaded during export and left no .ipa for the altool step; it now only exports. Drops obsolete compileBitcode and lets CI own the build number. Runs on mac-mini-ios and replaces the dead shred call with rm -f plus a presence check."
+git commit -m "ci(ios): export-then-altool upload, working key wipe" -m "ExportOptions destination=upload uploaded during export and left no .ipa for the altool step; it now only exports. Drops obsolete compileBitcode and lets CI own the build number. Replaces the dead shred call with rm -f plus a presence check."
 ```
 
 - [ ] **Step 5: First TestFlight run** ⚠ manual (after the PR merges; needs App Store Connect access)
@@ -4847,7 +4844,7 @@ Complete the unchecked items in `docs/IOS_RELEASE_CHECKLIST.md`: the ASC app rec
 gh workflow run ios-release.yml --ref main -f skip_macos=true
 gh run watch "$(gh run list --workflow ios-release.yml --limit 1 --json databaseId -q '.[0].databaseId')"
 ```
-Expected: the job is green on `mac-mini-ios`, a `ghostcrab-build-<run>` artifact contains `GhostCrab.ipa`, and the build appears in App Store Connect under TestFlight with no ITMS-91053 privacy-manifest warning.
+Expected: the job is green on the `[self-hosted, macOS, ARM64]` Mac Mini runner, a `ghostcrab-build-<run>` artifact contains `GhostCrab.ipa`, and the build appears in App Store Connect under TestFlight with no ITMS-91053 privacy-manifest warning.
 
 ---
 
@@ -4882,7 +4879,7 @@ jobs:
   test:
     name: Unit + UI tests (simulator)
     # Mac Mini self-hosted runner: free minutes. Hosted macOS minutes are what the invoice is.
-    runs-on: [self-hosted, macOS, mac-mini-ios]
+    runs-on: [self-hosted, macOS, ARM64]  # the only labels on this repo's runner
     timeout-minutes: 45
     env:
       DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
@@ -4937,7 +4934,7 @@ jobs:
 ```bash
 git checkout -- ios/GhostCrab/App/BuildInfo.swift
 git add .github/workflows/ios-pr.yml
-git commit -m "ci(ios): add PR test lane on the Mac Mini runner" -m "Runs xcodegen + xcodebuild test (unit + UI smoke) on pull_request for ios/** changes, on the self-hosted mac-mini-ios runner, with cancel-in-progress and the xcresult uploaded on failure."
+git commit -m "ci(ios): add PR test lane on the Mac Mini runner" -m "Runs xcodegen + xcodebuild test (unit + UI smoke) on pull_request for ios/** changes, on the self-hosted Mac Mini runner, with cancel-in-progress and the xcresult uploaded on failure."
 git push -u origin feat/ios-finish
 gh pr create --fill --base main
 gh run watch "$(gh run list --workflow ios-pr.yml --limit 1 --json databaseId -q '.[0].databaseId')"

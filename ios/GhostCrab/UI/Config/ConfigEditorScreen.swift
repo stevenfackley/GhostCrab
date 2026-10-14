@@ -76,7 +76,7 @@ public struct ConfigEditorScreen: View {
                 icon: "wifi.slash",
                 title: "Not connected",
                 message: "Reconnect to a gateway to edit its configuration.",
-                action: ("Pick a gateway", { navigate(.connectionPicker) })
+                action: ("Pick a gateway", { navigate.toPicker() })
             )
             .frame(maxHeight: .infinity)
 

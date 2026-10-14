@@ -52,9 +52,11 @@ public struct DashboardScreen: View {
                         .foregroundStyle(DesignTokens.Color.crimsonError)
                 }
                 .accessibilityLabel("Disconnect")
+                .disabled(vm.isDisconnecting)
             }
         }
         .task { vm.onAppear() }
+        .onDisappear { vm.onDisappear() }
     }
 
     // MARK: - Content
@@ -356,8 +358,9 @@ public struct DashboardScreen: View {
     // MARK: - Actions
 
     private func disconnectAndPop() async {
-        await vm.disconnect()
-        dismiss()
+        if await vm.disconnect() {
+            dismiss()
+        }
     }
 }
 

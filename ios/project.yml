@@ -14,7 +14,7 @@ settings:
     DEVELOPMENT_TEAM: QJW4S8BDFX
     ENABLE_USER_SCRIPT_SANDBOXING: YES
     CODE_SIGN_STYLE: Automatic
-    MARKETING_VERSION: "1.0.0"
+    MARKETING_VERSION: "0.2.0"  # mirrors Android versionName (app/build.gradle.kts)
     CURRENT_PROJECT_VERSION: "1"
     PRODUCT_BUNDLE_IDENTIFIER: com.qavren.ghostcrab
 
@@ -26,11 +26,18 @@ targets:
       - path: GhostCrab
         excludes:
           - "**/.DS_Store"
+          - "Resources/PrivacyInfo.xcprivacy"
+      # Explicit resources phase: XcodeGen's file-type detection for
+      # .xcprivacy varies by version.
+      - path: GhostCrab/Resources/PrivacyInfo.xcprivacy
+        buildPhase: resources
     preBuildScripts:
+      # BuildInfo.swift is an output only: listing it as an input too makes the
+      # phase mutate its own input, which Xcode rejects as a dependency cycle.
+      # Runs every build so the SHA tracks HEAD across commits.
       - script: ${SRCROOT}/Scripts/inject-build-info.sh
         name: "Inject build info (Git SHA)"
-        inputFiles:
-          - $(SRCROOT)/GhostCrab/App/BuildInfo.swift
+        basedOnDependencyAnalysis: false
         outputFiles:
           - $(SRCROOT)/GhostCrab/App/BuildInfo.swift
     info:
@@ -55,19 +62,50 @@ targets:
         NSLocalNetworkUsageDescription: "Discover OpenClaw gateways on your network."
         NSBonjourServices:
           - "_openclaw-gw._tcp"
+        # ghostcrab://pair?p=… deep links (OS camera, Safari, other apps).
+        # RootView.onOpenURL pre-fills Manual Entry only; nothing auto-connects.
+        CFBundleURLTypes:
+          - CFBundleURLName: com.qavren.ghostcrab.pairing
+            CFBundleTypeRole: Viewer
+            CFBundleURLSchemes:
+              - ghostcrab
         ITSAppUsesNonExemptEncryption: false
+        # Local networking only; never NSAllowsArbitraryLoads.
+        # See docs/adr/0006-ios-ats-local-networking.md.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
         LSApplicationCategoryType: "public.app-category.developer-tools"  # macOS App Store category
+        # Bundle-root file names; each file is <PostScriptName>.ttf (AppFont.PostScriptName).
+        UIAppFonts:
+          - Inter-Regular.ttf
+          - Inter-Medium.ttf
+          - Inter-SemiBold.ttf
+          - Inter-Bold.ttf
+          - JetBrainsMono-Regular.ttf
+          - JetBrainsMono-Medium.ttf
+    # XcodeGen writes this file from `properties` on every generate, so every
+    # entitlement must be listed here: keys only in the .entitlements file are
+    # dropped. The sandbox keys apply to Mac Catalyst (the Mac App Store
+    # rejects an unsandboxed app); iOS ignores them. ios-pr.yml checks the
+    # generated file still has App Sandbox.
     entitlements:
       path: GhostCrab/Resources/GhostCrab.entitlements
       properties:
         keychain-access-groups:
           - "$(AppIdentifierPrefix)com.qavren.ghostcrab"
+        com.apple.security.app-sandbox: true
+        # Outbound gateway HTTP and Bonjour browsing (NWBrowser/NWConnection).
+        # No listener, so no network.server.
+        com.apple.security.network.client: true
     settings:
       base:
+        # The build-info script reads .git and rewrites a source file in place;
+        # the user-script sandbox denies both.
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
         TARGETED_DEVICE_FAMILY: "1,2,6"  # iPhone + iPad + Mac (Catalyst)
         SUPPORTS_MACCATALYST: YES
         DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER: NO  # same bundle id on Mac
-        MACOSX_DEPLOYMENT_TARGET: "14.0"  # Sonoma — required for iOS-18-equivalent APIs
+        MACOSX_DEPLOYMENT_TARGET: "14.0"  # Sonoma = Mac Catalyst 17; iOS-18-only APIs need #available on Catalyst
         SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: NO  # use real Catalyst on Mac Silicon, not iOS-on-Mac shim
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
@@ -80,6 +118,8 @@ targets:
       - target: GhostCrab
     settings:
       base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.qavren.ghostcrab.tests
         BUNDLE_LOADER: "$(TEST_HOST)"
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/GhostCrab.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/GhostCrab"
 
@@ -91,6 +131,8 @@ targets:
       - target: GhostCrab
     settings:
       base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.qavren.ghostcrab.uitests
         TEST_TARGET_NAME: GhostCrab
 
 schemes:

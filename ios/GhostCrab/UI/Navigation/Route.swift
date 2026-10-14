@@ -3,7 +3,7 @@ import Foundation
 /// Typed navigation destinations for the GhostCrab iOS app.
 ///
 /// Mirrors the Compose Navigation `Routes` sealed-class on Android. Each case is
-/// `Hashable`, so it can be pushed onto a `NavigationPath` and pattern-matched in a
+/// `Hashable`, so it can be pushed onto ``Navigator/path`` and pattern-matched in a
 /// `navigationDestination(for:)` block.
 ///
 /// Add a case here whenever a new destination is added — there is intentionally no

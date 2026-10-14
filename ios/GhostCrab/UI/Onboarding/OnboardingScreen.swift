@@ -7,7 +7,7 @@ import SwiftUI
 /// we lean on `TabView(.page)` for the swipeable pager and overlay our own
 /// top-of-screen controls (back / skip / dot indicator). The six visible steps
 /// map 1:1 to the Kotlin sealed-enum cases; `.completed` is never rendered —
-/// it triggers a route push to `.connectionPicker` via `OnboardingViewModel.isFinished`.
+/// it makes `.connectionPicker` the only screen via `OnboardingViewModel.isFinished`.
 public struct OnboardingScreen: View {
 
     @Environment(\.navigate) private var navigate
@@ -56,7 +56,9 @@ public struct OnboardingScreen: View {
         .toolbarColorScheme(.dark, for: .navigationBar)
         #endif
         .onChange(of: vm.isFinished) { _, finished in
-            if finished { navigate(.connectionPicker) }
+            // Replaces the stack: a replay pushed from Settings must not
+            // leave a second picker (and dashboard) underneath.
+            if finished { navigate.toPicker() }
         }
     }
 
@@ -465,6 +467,7 @@ private struct FindOnNetworkStepView: View {
 
 // MARK: - Shared shell-command block
 
+@MainActor
 @ViewBuilder
 private func shellBlock(_ code: String) -> some View {
     GlassSurface {

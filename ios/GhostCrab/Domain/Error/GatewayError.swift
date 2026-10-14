@@ -69,15 +69,42 @@ public enum GatewayError: Error, Sendable {
     ///   - reason: Human-readable reason for the failure.
     case configValidation(field: String, reason: String)
 
+    /// A cleartext (`http://`) request to a public IP literal was refused by
+    /// the app's own policy (`CleartextPublicIPGuard`) before it left the
+    /// device. Not retryable as-is: the user must switch to HTTPS or turn on
+    /// Settings → Security → "Allow HTTP to public IPs" and reconnect.
+    ///
+    /// Mirrors Kotlin's `CleartextBlockedException`.
+    ///
+    /// - Parameters:
+    ///   - url: The URL that was blocked.
+    ///   - host: The public IP literal that triggered the block.
+    case cleartextBlocked(url: String, host: String)
+
     /// Whether the operation that produced this error is safe to retry.
     public var isRetryable: Bool {
         switch self {
         case .unreachable, .timeout:
             return true
         case .auth, .api, .tls, .profileNeedsReauth,
-             .aiServiceUnavailable, .aiQuotaExceeded, .configValidation:
+             .aiServiceUnavailable, .aiQuotaExceeded, .configValidation,
+             .cleartextBlocked:
             return false
         }
+    }
+
+    /// The cleartext policy text, shared with `CleartextPublicIPGuard`'s own
+    /// error so the advice is worded identically everywhere. Names the exact
+    /// iOS Settings section and toggle that lift the block.
+    ///
+    /// Mirrors Kotlin's `CleartextBlockedException.policyMessage`, with the
+    /// iOS Settings path ("Security", not Android's "Connections").
+    ///
+    /// - Parameter host: The public IP literal that was blocked.
+    /// - Returns: One sentence naming the host, then the two ways out.
+    public static func cleartextPolicyMessage(host: String) -> String {
+        "Cleartext HTTP to public IP \(host) blocked by app policy. "
+            + "Use HTTPS or enable Settings \u{2192} Security \u{2192} Allow HTTP to public IPs."
     }
 }
 
@@ -107,6 +134,8 @@ extension GatewayError: LocalizedError {
             return "AI recommendation quota exceeded at \(url)"
         case .configValidation(let field, let reason):
             return "Invalid value for '\(field)': \(reason)"
+        case .cleartextBlocked(let url, let host):
+            return "\(GatewayError.cleartextPolicyMessage(host: host)) URL: \(url)"
         }
     }
 }

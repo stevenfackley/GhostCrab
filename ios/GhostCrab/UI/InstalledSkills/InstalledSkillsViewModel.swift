@@ -50,7 +50,9 @@ public final class InstalledSkillsViewModel {
 
     // MARK: - Background tasks
 
+    @ObservationIgnored
     private var observeTask: Task<Void, Never>?
+    @ObservationIgnored
     private var installTasks: [String: Task<Void, Never>] = [:]
 
     // MARK: - Init / lifecycle

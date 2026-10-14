@@ -15,6 +15,8 @@ public final class ConnectionProfileRepositoryImpl: ConnectionProfileRepository,
 
     private let store: ProfileStore
 
+    private static let log = PrivacySafeLogger(category: "profiles")
+
     /// - Parameter store: Backing profile + token store.
     public init(store: ProfileStore) {
         self.store = store
@@ -44,15 +46,23 @@ public final class ConnectionProfileRepositoryImpl: ConnectionProfileRepository,
     /// - Returns: The bearer token, or `nil` if none was stored.
     /// - Throws: ``GatewayError/profileNeedsReauth(profileId:)`` if the Keychain
     ///   entry exists but cannot be read back (e.g. after a factory reset). The
-    ///   corrupted entry is cleared before throwing.
+    ///   profile and its token are cleared first. If that cleanup itself fails,
+    ///   the failure is logged and the same contract error is still thrown; the
+    ///   orphaned token is overwritten by the next save or removed by the next
+    ///   delete of this profile.
     public func getToken(profileId: String) async throws -> String? {
         do {
             return try store.getToken(for: profileId)
         } catch {
-            // Best-effort cleanup of a corrupted entry, mirroring the Kotlin
-            // `ProfileNeedsReauthException` heal-then-throw flow. Ignore any
-            // delete failure — we're already in an error path.
-            try? await store.delete(id: profileId)
+            // Heal-then-throw, mirroring Kotlin's `ProfileNeedsReauthException`
+            // flow. A cleanup failure is logged, never swallowed, and does not
+            // replace the contract error callers rely on to prompt a reconnect.
+            Self.log.error("Token for profile \(profileId) is unreadable; clearing the profile", error: error)
+            do {
+                try await store.delete(id: profileId)
+            } catch let cleanupError {
+                Self.log.error("Clearing profile \(profileId) failed; its token stays orphaned until the next save or delete", error: cleanupError)
+            }
             throw GatewayError.profileNeedsReauth(profileId: profileId)
         }
     }
@@ -65,5 +75,16 @@ public final class ConnectionProfileRepositoryImpl: ConnectionProfileRepository,
     ///   other than "not found".
     public func deleteProfile(profileId: String) async throws {
         try await store.delete(id: profileId)
+    }
+
+    /// Removes every saved profile, any quarantined backup of an unreadable
+    /// list, and every stored token, even when the live list cannot be decoded.
+    ///
+    /// Additive (v1.1) — see docs/adr/0005-additive-repository-methods.md
+    ///
+    /// - Throws: ``KeychainError`` if the token wipe fails. Profile metadata is
+    ///   removed first, so none of it survives that failure.
+    public func clearAll() async throws {
+        try await store.clearAll()
     }
 }

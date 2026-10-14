@@ -5,6 +5,56 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### iOS
+
+The iOS / Mac Catalyst app (`ios/`) has not shipped a build yet. These changes come from `feat/ios-finish` (PR #127).
+
+#### Added
+
+- **Pairing links**: `ghostcrab://pair?p=…` QR codes and deep links (the `ghostcrab` URL scheme is registered, so the OS camera and Safari open them) prefill Manual Entry with the gateway URL, token and suggested profile name. Nothing connects until you tap Connect. Manual Entry also has a Pairing link field that takes a pasted link or gateway URL; on Mac Catalyst, where QR scanning is unavailable, this field is how you pair.
+- **Model activation asks first**: tapping a model opens a confirmation, and repeat taps send one request.
+- **Bundled fonts**: Inter (Regular, Medium, SemiBold, Bold) and JetBrains Mono (Regular, Medium) ship in the app with their OFL licenses. A test fails if any face falls back to the system font.
+- **Clear all saved gateways** in Settings, behind a destructive confirmation. It removes saved profiles, corrupt-list backups and Keychain tokens.
+- **ATS warning** under the Manual Entry host field when iOS will block plain HTTP to that host.
+- **IPv6 literals** in Manual Entry, bare or bracketed. A zone id is dropped from the URL.
+- **CI lane**: `.github/workflows/ios-pr.yml` runs on every PR that touches `ios/`, on the self-hosted Mac Mini. It runs the unit suite (Swift Testing) and an XCUITest launch smoke test on the iOS simulator, 223 tests in all, and compiles the Mac Catalyst build.
+
+#### Changed
+
+- Version 0.2.0 (`MARKETING_VERSION`), matching Android. CI still sets the build number.
+- Each request sets its own idle timeout: 15 s, or 120 s for skill install and AI recommendations, with a 180 s cap per transfer. The old 15 s connect timeout was never applied, and a 30 s overall cap cut off long calls.
+- Navigation: finishing onboarding and Config Editor's "Pick a gateway" land on one gateway picker, and a connect shows one dashboard directly on the picker instead of stacking screens. Each screen builds its ViewModel once.
+- TestFlight release: `ExportOptions.plist` only exports (`destination=export`) and `altool` is the one upload path. `compileBitcode` is gone and CI owns the build number.
+
+#### Fixed
+
+- The app builds on Xcode 27 under Swift 6 strict concurrency. CI had never compiled it before, and the build-info script phase failed with a dependency cycle.
+- Double taps no longer start parallel connects, deletes, onboarding steps, model activations, config saves or AI applies. Leaving a screen cancels its pending work.
+- An unreadable saved-profile list is backed up and reported instead of being overwritten by the next save.
+- Undecodable `/status`, `/models`, `/config` and `/api/skills` JSON reports the URL, HTTP status and decoding error instead of looking like a gateway with no models or config. HTML bodies (the upstream `/status` quirk) still connect.
+- A failed Keychain token cleanup is logged instead of swallowed.
+- QR scanner: Scan again, and coming back from Manual Entry, restart the camera; the first scan asks for camera access instead of saying "unavailable"; a scanner that cannot start shows why. A camera blocked by Screen Time or device management says so instead of pointing to the camera switch in Settings.
+- Back while connecting no longer leaves "Error connecting to …" on the gateway picker: a cancelled connect ends disconnected, and a session the gateway had already accepted is disconnected.
+- A pairing link re-delivered just as Manual Entry opens keeps its token instead of losing it to the first prefill.
+- Leaving the config editor mid-load no longer shows an error.
+- A skill install blocked by the cleartext policy shows the policy message instead of "Protocol error 0: …".
+- A pairing link's name is saved as the profile name.
+- Mac Catalyst builds no longer reference the iOS-only VisionKit scanner bridge.
+- Mac Catalyst keeps its App Sandbox and network client entitlements: `xcodegen generate` rewrote the entitlements file from `project.yml` and dropped them, and the Mac App Store rejects an unsandboxed app. The unused `network.server` entitlement is gone.
+- An IPv6 zone id (`%en0`) in a pairing link or pasted URL is dropped from the gateway URL, like Android.
+- The release workflow's API key wipe called `shred`, which macOS does not ship. It now deletes the key and fails if the file is still there.
+
+#### Security
+
+- **Pairing token never in navigation state**: the token goes to an in-memory, one-shot `PairingHandoff` (scoped to the gateway's origin, expires after two minutes, redacted from descriptions), never into `Route` or the `NavigationPath`. A prefill for another host drops it, and so does editing the scheme, host or port by hand (unless the user typed the token), so one gateway's token is never sent to another. A hand edit also drops the link's suggested profile name.
+- **Pairing links validated**: payloads over 4096 characters are rejected before parsing; only schema v1, `http`/`https` with a host, no userinfo and a port in 1–65535 are accepted; error text never echoes the payload.
+- **Cleartext block typed**: a request the public-IP cleartext guard refuses reports `GatewayError.cleartextBlocked`, naming Settings > Security > Allow HTTP to public IPs, instead of "unreachable". The opt-in now travels on each request, so one client's setting no longer applies to every client.
+- **ATS local-only**: `Info.plist` declares `NSAllowsLocalNetworking` and never `NSAllowsArbitraryLoads` ([ADR-006](docs/adr/0006-ios-ats-local-networking.md)). Plain HTTP works only to IP addresses, unqualified host names and `.local` names.
+- **Privacy manifest**: `PrivacyInfo.xcprivacy` declares no tracking, no collected data and one required-reason API, UserDefaults (CA92.1). A test checks it ships in the bundle.
+- **Host validation** rejects `@`, `?`, `#` and `\` in the Manual Entry host field.
+- **Connection state redacted**: `print`, `dump` and string interpolation of the connection state show the session token as `<redacted>`.
+- **Self-hosted CI**: the PR lane skips fork PRs and checks out without persisting the token. The release workflow validates the build number input and reads it, and the App Store Connect key id and issuer id, as shell variables instead of inline expressions; its checkout no longer persists the token either.
+
 ## [0.2.0] - 2026-10-14
 
 ### Added

@@ -28,6 +28,12 @@ public final class AIRecommendationViewModel {
     /// Whether the screen should present the "apply suggested patch" sheet.
     public var isPresentingPatch: Bool = false
 
+    /// In-flight recommendation request. Read-only outside the VM so tests can await it.
+    @ObservationIgnored private(set) var submitTask: Task<Void, Never>?
+
+    /// In-flight patch write. Read-only outside the VM so tests can await it.
+    @ObservationIgnored private(set) var applyTask: Task<Void, Never>?
+
     // MARK: - Dependencies
 
     private let ai: any AIRecommendationService
@@ -65,18 +71,23 @@ public final class AIRecommendationViewModel {
         loading = true
         lastError = nil
 
-        Task { [weak self] in
+        submitTask = Task { [weak self] in
             guard let self else { return }
+            // A cancelled task leaves `submitTask` alone: `cancelInFlight()` already cleared it.
+            defer { if !Task.isCancelled { self.submitTask = nil } }
             let context = await self.buildContext()
             do {
                 let result = try await self.ai.getRecommendation(query: trimmed, context: context)
+                guard !Task.isCancelled else { return }
                 self.response = result
                 self.loading = false
             } catch let error as GatewayError {
+                guard !Task.isCancelled else { return }
                 self.lastError = AIRecommendationError(gatewayError: error)
                 self.response = nil
                 self.loading = false
             } catch {
+                guard !Task.isCancelled else { return }
                 self.lastError = .other(message: error.localizedDescription)
                 self.response = nil
                 self.loading = false
@@ -100,14 +111,16 @@ public final class AIRecommendationViewModel {
     ///
     /// On success: closes the patch sheet and leaves the response on screen
     /// for context. On any failure: surfaces ``lastError`` and keeps the sheet open
-    /// so the user can retry.
+    /// so the user can retry. Ignored while a write is already in flight.
     public func confirmApplyPatch() {
+        guard applyTask == nil else { return }
         guard let response, !response.suggestedChanges.isEmpty else {
             isPresentingPatch = false
             return
         }
-        Task { [weak self, config] in
+        applyTask = Task { [weak self, config] in
             guard let self else { return }
+            defer { self.applyTask = nil }
             do {
                 for change in response.suggestedChanges {
                     // Build a JSON merge-patch: `{ <key>: <suggestedValue> }`.
@@ -121,6 +134,15 @@ public final class AIRecommendationViewModel {
                 self.lastError = .other(message: error.localizedDescription)
             }
         }
+    }
+
+    /// Cancels an in-flight recommendation when the screen goes away. Patch
+    /// writes are left to finish; aborting between sections would leave the
+    /// config half-applied.
+    public func cancelInFlight() {
+        submitTask?.cancel()
+        submitTask = nil
+        loading = false
     }
 
     /// Clears the error banner after the view has shown it.

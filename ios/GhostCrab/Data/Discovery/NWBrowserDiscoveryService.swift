@@ -88,7 +88,7 @@ public final class NWBrowserDiscoveryService: DiscoveryService, @unchecked Senda
         // Replace any prior session — only one active browse at a time.
         teardown()
 
-        var seen = Set<String>()
+        let seen = QueueConfined(Set<String>())
 
         let descriptor = NWBrowser.Descriptor.bonjour(type: Self.serviceType, domain: nil)
         let params = NWParameters()
@@ -114,7 +114,7 @@ public final class NWBrowserDiscoveryService: DiscoveryService, @unchecked Senda
             guard let self else { return }
             for result in results {
                 guard case let .service(name, _, _, _) = result.endpoint else { continue }
-                guard seen.insert(name).inserted else { continue }
+                guard seen.value.insert(name).inserted else { continue }
                 self.resolve(result: result, instanceName: name, continuation: continuation)
             }
         }
@@ -134,16 +134,16 @@ public final class NWBrowserDiscoveryService: DiscoveryService, @unchecked Senda
         let (displayName, version) = txtFields(from: result.metadata, fallbackName: instanceName)
 
         let connection = NWConnection(to: result.endpoint, using: .tcp)
-        var didEmit = false
+        let didEmit = QueueConfined(false)
 
-        let finish: () -> Void = { [weak connection] in
+        let finish: @Sendable () -> Void = { [weak connection] in
             connection?.stateUpdateHandler = nil
             connection?.cancel()
         }
 
         // Timeout: cancel the resolution attempt after `resolveTimeout` seconds.
         queue.asyncAfter(deadline: .now() + Self.resolveTimeout) {
-            if !didEmit { finish() }
+            if !didEmit.value { finish() }
         }
 
         connection.stateUpdateHandler = { [weak self] state in
@@ -156,8 +156,8 @@ public final class NWBrowserDiscoveryService: DiscoveryService, @unchecked Senda
                     if state == .ready { finish() }
                     return
                 }
-                guard !didEmit else { return }
-                didEmit = true
+                guard !didEmit.value else { return }
+                didEmit.value = true
                 continuation.yield(
                     DiscoveredGateway(
                         instanceName: instanceName,
@@ -229,4 +229,12 @@ public final class NWBrowserDiscoveryService: DiscoveryService, @unchecked Senda
         activeContinuation?.finish()
         activeContinuation = nil
     }
+}
+
+/// Mutable state captured by `NWBrowser` / `NWConnection` callbacks. Those
+/// callbacks are `@Sendable`, so they cannot capture a local `var`; every
+/// access happens on the service's serial `queue`, hence `@unchecked`.
+private final class QueueConfined<Value>: @unchecked Sendable {
+    var value: Value
+    init(_ value: Value) { self.value = value }
 }

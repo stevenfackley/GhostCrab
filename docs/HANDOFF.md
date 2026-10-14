@@ -3,6 +3,7 @@
 **Date:** 2026-10-14 (refreshed; sections below dated April are historical)
 **Branch:** `refactor/finish-dev-plan` (PR to `main`)
 **Build status:** 401 unit tests green, detekt clean, lint 0 errors / 18 warnings. Version 0.2.0.
+**iOS:** `feat/ios-finish` (PR #127) completes roadmap M4 4.1–4.11; the `ios-pr` lane (iOS simulator tests + Mac Catalyst compile, Mac Mini runner) is green with 223 tests. No build has gone to TestFlight yet: App Store Connect record, ASC secrets and the first upload (4.12, `docs/IOS_RELEASE_CHECKLIST.md`) are open.
 **Roadmap:** [`docs/superpowers/plans/2026-10-13-finish-development-roadmap.md`](superpowers/plans/2026-10-13-finish-development-roadmap.md)
 
 ## Current State (2026-10-14)

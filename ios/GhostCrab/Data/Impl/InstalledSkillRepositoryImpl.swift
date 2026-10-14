@@ -186,7 +186,7 @@ private extension InstalledSkillDTO {
     }
 }
 
-private extension GatewayError {
+extension GatewayError {
     /// Maps REST-level ``GatewayError`` cases to the install-time
     /// ``SkillInstallError`` taxonomy used by the install progress stream.
     ///
@@ -195,9 +195,18 @@ private extension GatewayError {
     /// - api 404 → `.notFound(slug:)` (slug is unknown at this point; pass body)
     /// - api 409 → `.dependencyConflict(conflicts:)`
     /// - api 422 → `.verificationFailed(expected:actual:)`
-    /// - api other → `.protocol(rpcCode:message:)`
-    /// - timeout / unreachable → `.network(cause:)`
+    /// - api other → `.protocol(rpcCode:message:)`. REST has no RPC code, so
+    ///   the HTTP status stands in for it (existing convention). That includes
+    ///   a 200 whose body is not an installed skill: `installSkill` reports it
+    ///   as `.api(statusCode: 200, body: "Response deserialization failed …")`,
+    ///   which lands here as `.protocol(rpcCode: 200, message: <that body>)`.
+    /// - timeout / unreachable / tls → `.network(cause:)`
+    /// - configValidation → `.protocol(rpcCode: 0, message:)` (not retryable)
+    /// - cleartextBlocked → `.cleartextBlocked(message:)` (not retryable; the
+    ///   message carries the fix and is shown as is)
     /// - everything else → `.unknown(cause:)`
+    ///
+    /// Internal (not private) so tests can pin the mapping.
     func toSkillInstallError() -> SkillInstallError {
         switch self {
         case .auth:
@@ -222,6 +231,8 @@ private extension GatewayError {
             return .network(cause: "TLS error at \(url)")
         case let .configValidation(field, reason):
             return .protocol(rpcCode: 0, message: "\(field): \(reason)")
+        case .cleartextBlocked:
+            return .cleartextBlocked(message: errorDescription ?? "Cleartext HTTP blocked by app policy")
         case .profileNeedsReauth:
             return .unauthorized(missingScope: "operator.admin")
         case let .aiServiceUnavailable(url):

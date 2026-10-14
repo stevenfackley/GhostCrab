@@ -11,7 +11,10 @@ import Foundation
 /// and re-reading each key on every post. `UserDefaults` doesn't tell us *which*
 /// key changed, so observers fan out on every write — fine in practice since
 /// settings change rarely and the read is cheap.
-public final class SettingsStore: Sendable {
+///
+/// `@unchecked Sendable`: the only stored state is a `UserDefaults`, which
+/// Apple documents as thread-safe but which the SDK does not mark `Sendable`.
+public final class SettingsStore: @unchecked Sendable {
 
     // Namespaced keys — match the Android DataStore key names where possible.
     public static let keyAllowCleartextPublicIPs: String =
@@ -43,8 +46,8 @@ public final class SettingsStore: Sendable {
     /// Emits the current value on subscription and on every `UserDefaults`
     /// change notification.
     public func observeAllowCleartextPublicIPs() -> AsyncStream<Bool> {
-        observe(key: Self.keyAllowCleartextPublicIPs) { [defaults] in
-            defaults.bool(forKey: Self.keyAllowCleartextPublicIPs)
+        observe(key: Self.keyAllowCleartextPublicIPs) { [self] in
+            self.defaults.bool(forKey: Self.keyAllowCleartextPublicIPs)
         }
     }
 
@@ -63,8 +66,8 @@ public final class SettingsStore: Sendable {
 
     /// Emits the current value on subscription and on every change.
     public func observeOnboardingCompleted() -> AsyncStream<Bool> {
-        observe(key: Self.keyOnboardingCompleted) { [defaults] in
-            defaults.bool(forKey: Self.keyOnboardingCompleted)
+        observe(key: Self.keyOnboardingCompleted) { [self] in
+            self.defaults.bool(forKey: Self.keyOnboardingCompleted)
         }
     }
 
@@ -89,8 +92,8 @@ public final class SettingsStore: Sendable {
 
     /// Emits the current value on subscription and on every change.
     public func observeOnboardingCurrentStep() -> AsyncStream<String?> {
-        observe(key: Self.keyOnboardingCurrentStep) { [defaults] in
-            defaults.string(forKey: Self.keyOnboardingCurrentStep)
+        observe(key: Self.keyOnboardingCurrentStep) { [self] in
+            self.defaults.string(forKey: Self.keyOnboardingCurrentStep)
         }
     }
 
@@ -116,7 +119,9 @@ public final class SettingsStore: Sendable {
         AsyncStream { continuation in
             continuation.yield(read())
 
-            let observer = NotificationCenter.default.addObserver(
+            // `any NSObjectProtocol` is not Sendable; the token is only handed
+            // back to NotificationCenter, which is thread-safe.
+            nonisolated(unsafe) let observer = NotificationCenter.default.addObserver(
                 forName: UserDefaults.didChangeNotification,
                 object: defaults,
                 queue: nil

@@ -64,15 +64,45 @@ public struct AnyCodable: Codable, Sendable, Equatable {
         case let s as String: try container.encode(s)
         case let arr as [AnyCodable]: try container.encode(arr)
         case let obj as [String: AnyCodable]: try container.encode(obj)
-        case let arr as [Any]: try container.encode(arr.map { AnyCodable($0 as? any Sendable) })
+        case let arr as [Any]:
+            let path = container.codingPath
+            try container.encode(arr.map { try Self.wrap($0, codingPath: path) })
         case let obj as [String: Any]:
-            try container.encode(obj.mapValues { AnyCodable($0 as? any Sendable) })
+            let path = container.codingPath
+            try container.encode(obj.mapValues { try Self.wrap($0, codingPath: path) })
         default:
             throw EncodingError.invalidValue(
                 value,
                 EncodingError.Context(
                     codingPath: container.codingPath,
                     debugDescription: "AnyCodable: unsupported value type \(type(of: value))"
+                )
+            )
+        }
+    }
+
+    /// Re-wraps one element of a heterogeneous `[Any]` / `[String: Any]`
+    /// payload. `Sendable` is a marker protocol and cannot be the target of an
+    /// `as?` cast, so each supported JSON type is matched explicitly.
+    ///
+    /// - Throws: `EncodingError.invalidValue` for any other element type.
+    private static func wrap(_ element: Any, codingPath: [any CodingKey]) throws -> AnyCodable {
+        switch element {
+        case let v as AnyCodable: return v
+        case let v as Bool: return AnyCodable(v)
+        case let v as Int: return AnyCodable(v)
+        case let v as Double: return AnyCodable(v)
+        case let v as String: return AnyCodable(v)
+        case let v as [Any]:
+            return AnyCodable(try v.map { try wrap($0, codingPath: codingPath) })
+        case let v as [String: Any]:
+            return AnyCodable(try v.mapValues { try wrap($0, codingPath: codingPath) })
+        default:
+            throw EncodingError.invalidValue(
+                element,
+                EncodingError.Context(
+                    codingPath: codingPath,
+                    debugDescription: "AnyCodable: unsupported value type \(type(of: element))"
                 )
             )
         }

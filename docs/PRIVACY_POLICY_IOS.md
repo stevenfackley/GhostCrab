@@ -54,8 +54,7 @@ When you connect to a gateway, the app sends:
 | `NSBonjourServices` (`_openclaw-gw._tcp`) | mDNS browsing for OpenClaw gateways advertising on the LAN | Implicit, on Scan screen open |
 | `NSCameraUsageDescription` | QR code scanner for pairing with a gateway via Cloudflare Tunnel URL or `ghostcrab://pair` deep link | First time the QR Scan screen is opened |
 | App Sandbox (Mac Catalyst only) | Required by Apple for Mac App Store distribution | Always enabled |
-| `com.apple.security.network.client` (Mac Catalyst) | Outbound network requests to your gateway | Always enabled |
-| `com.apple.security.network.server` (Mac Catalyst) | Inbound mDNS responses for LAN discovery | Always enabled |
+| `com.apple.security.network.client` (Mac Catalyst) | Outbound network requests to your gateway and Bonjour browsing for LAN discovery | Always enabled |
 
 No location, microphone, contacts, photos, calendar, reminders, motion, health, or media library permissions are requested.
 
@@ -87,6 +86,7 @@ GhostCrab is a developer and infrastructure-operator utility. It is not directed
 - If a Keychain entry becomes unreadable (e.g. after a major iOS restore), the app deletes the corrupted entry and prompts you to re-authenticate. Tokens are never written to plaintext logs.
 - The `Authorization: Bearer …` header is automatically redacted from any text passed through the in-app logger (`PrivacySafeLogger`). URLs containing embedded credentials (`http://user:pass@host`) are similarly redacted.
 - HTTP (non-TLS) connections are permitted for LAN use; the app displays a prominent amber security banner when a connection is unencrypted. HTTP connections to **public** IP addresses are blocked by default; you must explicitly opt in via Settings → Security.
+- iOS App Transport Security blocks plain HTTP to every hostname except `.local` names, whatever the setting above, so a gateway reached by any other name (including LAN names such as `.lan`, `.home.arpa` or `*.ts.net`) needs HTTPS.
 
 ---
 

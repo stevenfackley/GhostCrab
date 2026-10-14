@@ -9,15 +9,36 @@ import os
 ///
 /// **Authorization headers are never logged.** Verify with Console.app.
 ///
-/// Timeouts: connect = 15s, request = 30s.
+/// Timeouts: see ``Timeouts``. Each request sets its own idle timeout: 15 s for
+/// short calls, 120 s for skill install / AI recommend. 180 s caps any transfer.
 ///
 /// Direct port of `OpenClawApiClient.kt`.
 public actor OpenClawAPIClient {
+
+    /// Request timeout policy.
+    ///
+    /// URLSession has no separate TCP-connect timeout. `URLRequest.timeoutInterval`
+    /// is an idle timeout (the longest gap between bytes, including the wait for
+    /// the first byte, so it covers connection setup), and
+    /// `timeoutIntervalForResource` caps a whole transfer. So a dead or
+    /// black-holed host fails after ``standard`` seconds on every short call
+    /// (Android's 15 s connect timeout), while slow gateway-side work gets
+    /// ``longOperation``.
+    enum Timeouts {
+        /// Probe, `/health`, `/status`, config, models, whoami, uninstall.
+        static let standard: TimeInterval = 15
+        /// Skill install and AI recommendation: the gateway works before it answers.
+        static let longOperation: TimeInterval = 120
+        /// Upper bound for any single transfer.
+        static let resource: TimeInterval = 180
+    }
 
     // MARK: - State
 
     public let baseURL: URL
     private let token: String?
+    /// This client's cleartext-to-public-IP opt-in; attached to every request in ``send(_:timeout:)``.
+    private let allowCleartextPublicIPs: Bool
     private let session: URLSession
     private let decoder: JSONDecoder
     private let encoder: JSONEncoder
@@ -27,31 +48,26 @@ public actor OpenClawAPIClient {
         category: "OpenClawAPIClient"
     )
 
-    private init(baseURL: URL, token: String?, allowCleartextPublicIPs: Bool) {
+    private init(
+        baseURL: URL,
+        token: String?,
+        allowCleartextPublicIPs: Bool,
+        additionalProtocolClasses: [AnyClass] = []
+    ) {
         self.baseURL = baseURL
         self.token = token
 
-        // Make sure the guard knows whether to permit cleartext public-IP calls.
-        // The closure is captured by value here so per-client setting wins for
-        // the lifetime of the configuration. If multiple clients exist with
-        // differing flags, the most recently constructed one wins — same
-        // semantics as Kotlin's per-engine interceptor closure.
-        CleartextPublicIPGuard.configure { allowCleartextPublicIPs }
+        // Per-client opt-in: attached to each request in send(_:timeout:);
+        // no process-global guard state.
+        self.allowCleartextPublicIPs = allowCleartextPublicIPs
 
         let config = URLSessionConfiguration.ephemeral
-        config.timeoutIntervalForRequest = 30      // request + socket idle
-        config.timeoutIntervalForResource = 30
+        // Ceiling only: `send(_:timeout:)` sets every request's own timeoutInterval.
+        config.timeoutIntervalForRequest = Timeouts.longOperation
+        config.timeoutIntervalForResource = Timeouts.resource
         config.waitsForConnectivity = false
         config.requestCachePolicy = .reloadIgnoringLocalCacheData
-        config.protocolClasses = [CleartextPublicIPGuard.self] + (config.protocolClasses ?? [])
-
-        // 15s connect timeout via the connection-establishment knob.
-        config.connectionProxyDictionary = nil
-        if #available(iOS 13, macOS 10.15, *) {
-            // URLSession lumps "connect" into timeoutIntervalForRequest; we
-            // approximate the 15s connect window by setting a tight
-            // first-byte timeout on a per-request basis below.
-        }
+        config.protocolClasses = [CleartextPublicIPGuard.self] + additionalProtocolClasses + (config.protocolClasses ?? [])
 
         self.session = URLSession(configuration: config)
 
@@ -100,6 +116,31 @@ public actor OpenClawAPIClient {
         )
     }
 
+    /// Test seam: the same client the production factories build, plus extra
+    /// `URLProtocol` classes (e.g. `MockURLProtocol`) that are consulted after
+    /// ``CleartextPublicIPGuard``, so guard behaviour stays under test.
+    /// Internal, so only reachable through `@testable import`.
+    ///
+    /// - Parameters:
+    ///   - baseURL: Gateway base URL.
+    ///   - token: Bearer token, or `nil` for an unauthenticated client.
+    ///   - allowCleartextPublicIPs: Same meaning as in the production factories.
+    ///   - protocolClasses: Protocol classes appended after the guard.
+    /// - Returns: A client whose session routes through `protocolClasses`.
+    static func makeForTesting(
+        baseURL: URL,
+        token: String? = nil,
+        allowCleartextPublicIPs: Bool = false,
+        protocolClasses: [AnyClass]
+    ) -> OpenClawAPIClient {
+        OpenClawAPIClient(
+            baseURL: baseURL,
+            token: token,
+            allowCleartextPublicIPs: allowCleartextPublicIPs,
+            additionalProtocolClasses: protocolClasses
+        )
+    }
+
     // MARK: - Public API
 
     /// `GET /health` — unauthenticated liveness check.
@@ -131,13 +172,18 @@ public actor OpenClawAPIClient {
     /// - Throws: `GatewayError.auth` if auth is required and no/invalid token is present.
     /// - Throws: `GatewayError.unreachable` if the host cannot be reached.
     /// - Throws: `GatewayError.timeout` if the request times out.
+    /// - Throws: `GatewayError.api` (the response's HTTP status, body
+    ///   "Response deserialization failed (DecodingError.…)") when the body is
+    ///   labelled JSON but is not a JSON object.
     public func status() async throws -> StatusResponse {
         let url = endpoint("/status")
         return try await safe(url: url) {
             let (data, response) = try await self.send(.init(url: url))
             try self.mapErrors(url: url, response: response)
+            // Non-JSON (upstream HTML admin page): lenient defaults, documented above.
             guard self.contentTypeIsJSON(response) else { return StatusResponse() }
-            return (try? self.decoder.decode(StatusResponse.self, from: data)) ?? StatusResponse()
+            // Labelled JSON but undecodable: a broken gateway, not an empty one.
+            return try self.decodeJSON(StatusResponse.self, from: data, url: url, response: response)
         }
     }
 
@@ -149,16 +195,23 @@ public actor OpenClawAPIClient {
     ///
     /// - Returns: `OpenClawConfig` with section map and optional ETag header.
     /// - Throws: `GatewayError.api` on unexpected HTTP errors.
+    /// - Throws: `GatewayError.api` (the response's HTTP status, body
+    ///   "Response deserialization failed (DecodingError.…)") when the body is
+    ///   labelled JSON but is not a JSON object. An empty config therefore
+    ///   always means the gateway sent `{}` or served non-JSON, never that a
+    ///   broken body was silently dropped.
     public func getConfig() async throws -> OpenClawConfig {
         let url = endpoint("/config")
         return try await safe(url: url) {
             let (data, response) = try await self.send(.init(url: url))
             try self.mapErrors(url: url, response: response)
+            // Non-JSON (upstream HTML admin page): empty config, documented above.
             guard self.contentTypeIsJSON(response) else {
                 return OpenClawConfig(sections: [:], etag: nil)
             }
             let etag = (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "ETag")
-            let sections = (try? self.decoder.decode([String: AnyCodable].self, from: data)) ?? [:]
+            // Labelled JSON but undecodable: a broken gateway, not an empty one.
+            let sections = try self.decodeJSON([String: AnyCodable].self, from: data, url: url, response: response)
             return OpenClawConfig(sections: sections, etag: etag)
         }
     }
@@ -211,13 +264,17 @@ public actor OpenClawAPIClient {
     /// - Throws: `GatewayError.api` on unexpected HTTP errors.
     /// - Throws: `GatewayError.unreachable` if the host cannot be reached.
     /// - Throws: `GatewayError.timeout` if the request times out.
+    /// - Throws: `GatewayError.api` (the response's HTTP status, body
+    ///   "Response deserialization failed (DecodingError.…)") when the body is
+    ///   labelled JSON but is not an array of models. An empty list therefore
+    ///   always means the gateway reported no models (or served non-JSON).
     public func getModels() async throws -> [ModelDTO] {
         let url = endpoint("/api/models/status")
         return try await safe(url: url) {
             let (data, response) = try await self.send(.init(url: url))
             try self.mapErrors(url: url, response: response)
             guard self.contentTypeIsJSON(response) else { return [] }
-            return (try? self.decoder.decode([ModelDTO].self, from: data)) ?? []
+            return try self.decodeJSON([ModelDTO].self, from: data, url: url, response: response)
         }
     }
 
@@ -264,11 +321,11 @@ public actor OpenClawAPIClient {
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
             req.httpBody = try self.encoder.encode(request)
 
-            let (data, response) = try await self.send(req)
+            let (data, response) = try await self.send(req, timeout: Timeouts.longOperation)
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             switch status {
             case 200:
-                return try self.decoder.decode(AIRecommendationResponseDTO.self, from: data)
+                return try self.decodeJSON(AIRecommendationResponseDTO.self, from: data, url: url, response: response)
             case 404:
                 throw GatewayError.aiServiceUnavailable(url: url.absoluteString)
             case 429:
@@ -292,7 +349,8 @@ public actor OpenClawAPIClient {
     /// - Throws: ``GatewayError/auth(url:statusCode:)`` if the endpoint
     ///   requires authentication.
     /// - Throws: ``GatewayError/api(url:statusCode:body:)`` on unexpected HTTP
-    ///   errors.
+    ///   errors, and for a JSON body that is neither shape (the body names
+    ///   the decoding error) instead of returning an empty list.
     /// - Throws: ``GatewayError/unreachable(url:underlying:)`` if the host
     ///   cannot be reached.
     /// - Throws: ``GatewayError/timeout(url:underlying:)`` if the request
@@ -304,14 +362,15 @@ public actor OpenClawAPIClient {
             try self.mapErrors(url: url, response: response)
             guard self.contentTypeIsJSON(response) else { return [] }
             // The gateway returns either a bare array or `{"skills":[...]}`
-            // depending on build. Tolerate both.
-            if let arr = try? self.decoder.decode([InstalledSkillDTO].self, from: data) {
-                return arr
+            // depending on build. The first non-whitespace byte picks the
+            // shape, which is then decoded strictly: a body that fails to
+            // decode reports the HTTP status and the decoding error instead
+            // of looking like a gateway with no skills installed.
+            let jsonWhitespace: [UInt8] = [0x20, 0x09, 0x0A, 0x0D]
+            if data.first(where: { !jsonWhitespace.contains($0) }) == UInt8(ascii: "[") {
+                return try self.decodeJSON([InstalledSkillDTO].self, from: data, url: url, response: response)
             }
-            if let envelope = try? self.decoder.decode(InstalledSkillsEnvelope.self, from: data) {
-                return envelope.skills
-            }
-            return []
+            return try self.decodeJSON(InstalledSkillsEnvelope.self, from: data, url: url, response: response).skills
         }
     }
 
@@ -351,11 +410,11 @@ public actor OpenClawAPIClient {
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
             req.httpBody = try JSONSerialization.data(withJSONObject: body)
 
-            let (data, response) = try await self.send(req)
+            let (data, response) = try await self.send(req, timeout: Timeouts.longOperation)
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             switch status {
             case 200, 201:
-                return try self.decoder.decode(InstalledSkillDTO.self, from: data)
+                return try self.decodeJSON(InstalledSkillDTO.self, from: data, url: url, response: response)
             case 401, 403:
                 throw GatewayError.auth(url: url.absoluteString, statusCode: status)
             default:
@@ -469,13 +528,77 @@ public actor OpenClawAPIClient {
         return ct.lowercased().contains("json")
     }
 
-    /// Sends a request with the Authorization header injected when a token is present.
+    /// Decodes a body the gateway labelled JSON. A body that does not match
+    /// `type` means a broken gateway, so this throws instead of defaulting.
+    ///
+    /// - Parameters:
+    ///   - type: Expected wire type.
+    ///   - data: Response body.
+    ///   - url: Request URL, carried into the error.
+    ///   - response: The response; its HTTP status is carried into the error.
+    /// - Returns: The decoded value.
+    /// - Throws: `GatewayError.api` with the URL, the response's HTTP status and
+    ///   a body naming the decoding error ("Response deserialization failed
+    ///   (DecodingError.typeMismatch): …").
+    private func decodeJSON<T: Decodable>(
+        _ type: T.Type,
+        from data: Data,
+        url: URL,
+        response: URLResponse
+    ) throws -> T {
+        do {
+            return try decoder.decode(type, from: data)
+        } catch let error as DecodingError {
+            throw GatewayError.api(
+                url: url.absoluteString,
+                statusCode: (response as? HTTPURLResponse)?.statusCode ?? 0,
+                body: Self.deserializationFailure(error)
+            )
+        }
+    }
+
+    /// Formats a decoding failure as
+    /// "Response deserialization failed (DecodingError.<kind>): <detail>".
+    nonisolated private static func deserializationFailure(_ error: DecodingError) -> String {
+        let kind: String
+        let detail: String
+        switch error {
+        case .typeMismatch(_, let context):
+            kind = "typeMismatch"
+            detail = context.debugDescription
+        case .valueNotFound(_, let context):
+            kind = "valueNotFound"
+            detail = context.debugDescription
+        case .keyNotFound(let key, let context):
+            kind = "keyNotFound"
+            detail = "\(key.stringValue): \(context.debugDescription)"
+        case .dataCorrupted(let context):
+            kind = "dataCorrupted"
+            detail = context.debugDescription
+        @unknown default:
+            kind = "unknown"
+            detail = String(describing: error)
+        }
+        return "Response deserialization failed (DecodingError.\(kind)): \(detail)"
+    }
+
+    /// Sends a request with the Authorization header injected when a token is present
+    /// and this client's cleartext opt-in attached for ``CleartextPublicIPGuard``.
     /// Logs at debug level with the Authorization header stripped.
-    private func send(_ request: URLRequest) async throws -> (Data, URLResponse) {
+    ///
+    /// - Parameters:
+    ///   - request: The request to send.
+    ///   - timeout: Idle timeout for this request. Defaults to ``Timeouts/standard``.
+    private func send(
+        _ request: URLRequest,
+        timeout: TimeInterval = Timeouts.standard
+    ) async throws -> (Data, URLResponse) {
         var req = request
+        req.timeoutInterval = timeout
         if let token {
             req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
+        req = CleartextPublicIPGuard.tagged(req, allowCleartextPublicIPs: allowCleartextPublicIPs)
         Self.logDebug(req)
         return try await session.data(for: req)
     }
@@ -494,7 +617,9 @@ public actor OpenClawAPIClient {
     }
 
     /// Wraps a request closure with the same error-translation policy as
-    /// Kotlin's `safeRequest` (`OpenClawApiClient.kt:308-340`).
+    /// Kotlin's `safeRequest` (`OpenClawApiClient.kt:308-340`). A request
+    /// ``CleartextPublicIPGuard`` refused becomes
+    /// ``GatewayError/cleartextBlocked(url:host:)``, never `.unreachable`.
     private func safe<T>(
         url: URL,
         _ block: () async throws -> T
@@ -507,6 +632,11 @@ public actor OpenClawAPIClient {
             throw e
         } catch let e as URLError {
             switch e.code {
+            case .cancelled where Task.isCancelled:
+                // URLSession reports a cancelled Swift task as URLError.cancelled.
+                // The caller went away (Back while connecting): that is a
+                // cancellation, not an unreachable gateway.
+                throw CancellationError()
             case .timedOut:
                 throw GatewayError.timeout(url: url.absoluteString, underlying: e)
             case .serverCertificateHasBadDate,
@@ -527,13 +657,22 @@ public actor OpenClawAPIClient {
                 throw GatewayError.unreachable(url: url.absoluteString, underlying: e)
             }
         } catch let e as DecodingError {
+            // Fallback only: decodes that know their response go through
+            // decodeJSON, which reports the real HTTP status.
             throw GatewayError.api(
                 url: url.absoluteString,
                 statusCode: 0,
-                body: "Response deserialization failed: \(e)"
+                body: Self.deserializationFailure(e)
             )
         } catch is CancellationError {
             throw CancellationError()
+        } catch let e as NSError where e.domain == CleartextPublicIPGuard.errorDomain {
+            // Refused by our own policy before leaving the device: say so, and
+            // say how to lift it, instead of blaming the network.
+            let host = (e.userInfo[CleartextPublicIPGuard.hostUserInfoKey] as? String)
+                ?? url.host
+                ?? "<unknown>"
+            throw GatewayError.cleartextBlocked(url: url.absoluteString, host: host)
         } catch {
             throw GatewayError.unreachable(url: url.absoluteString, underlying: error)
         }

@@ -53,6 +53,7 @@ This plan is designed for **stateless execution**. Each phase below is a self-co
 | 13 | R8 Release Build Verification | 🟢 Done | — | — | — | — | `assembleRelease` succeeds; 81 `$$serializer` classes retained; no missing R8 rules (per `docs/HANDOFF.md`) |
 | 14 | Release Signing | 🟢 Done | — | — | — | — | Signing config reads `local.properties` then env vars; release APK verified with `apksigner` (per `docs/HANDOFF.md`); see `docs/RELEASE_SIGNING.md` |
 | — | Hardening + refactor (v0.2.0) | 🟢 Done | 2026-10-13 | 2026-10-14 | PR #125 | — | Branch `refactor/finish-dev-plan`: AI redaction + security confirmations, token masking, live cleartext opt-in, WS timeouts + typed errors, `suspendRunCatching`, `GatewayUrl`, screen splits, lifecycle-aware collection, Koin graph tests, lint wiring, `ghostcrab://pair` deep links; 401 unit tests. See `CHANGELOG.md` |
+| — | iOS finish (roadmap M4 4.1–4.11) | 🟢 Done | 2026-10-14 | 2026-10-14 | PR #127 | — | Branch `feat/ios-finish`, plan `docs/superpowers/plans/2026-10-13-ios-finish.md`: QR + `ghostcrab://pair` deep-link pairing through the in-memory `PairingHandoff` (token never in `Route`), model-activation confirm, bundled Inter + JetBrains Mono, `PrivacyInfo.xcprivacy`, ATS local networking only (ADR-006), tracked VM tasks, typed errors instead of `try?`, per-request timeouts, per-client cleartext guard, Settings clear-all (ADR-005), export-then-`altool` TestFlight upload, version 0.2.0. New `ios-pr.yml` lane on the Mac Mini: 223 tests on the iOS simulator plus a Mac Catalyst compile. Open: 4.12 ⚠ manual (App Store Connect record, ASC secrets, first TestFlight upload). See `CHANGELOG.md` `[Unreleased]` → iOS |
 
 **Status legend:** ⬜ Not Started · 🟡 In Progress · 🟢 Done · 🔴 Blocked · ⚪ Skipped (with rationale)
 
@@ -616,12 +617,14 @@ WebSocket streaming · offline config cache · iOS · agent runtime on-device ·
 
 ## 7. Architecture Decision Records
 
-ADRs live under `docs/adr/NNNN-title.md`. The plan reserves these IDs:
+ADRs live under `docs/adr/NNNN-title.md`. IDs in use, plus the one still reserved:
 
 - ADR-001 — Kotlin + Compose over React Native
 - ADR-002 — Auth-mode probing via `/health` + `/status` asymmetry
 - ADR-003 — Stateless client; no offline config cache
 - ADR-004 — Gateway-proxied AI vs direct LLM API
-- ADR-005 — Onboarding does not execute privileged actions on user machines
+- ADR-005 — Additive methods on frozen repository interfaces (`0005-additive-repository-methods.md`, written 2026-10-14)
+- ADR-006 — iOS App Transport Security: local networking only, no arbitrary loads (`0006-ios-ats-local-networking.md`, written 2026-10-14)
+- Reserved, not yet written — Onboarding does not execute privileged actions on user machines. Takes the next free number (ADR-007 or later) when written; it originally held ADR-005.
 
 Backfilled in Phase 10; created earlier if a deviation forces the decision sooner.

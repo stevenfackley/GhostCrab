@@ -4,22 +4,42 @@ import SwiftUI
 /// onboarding state, then dispatches every named ``Route`` to its
 /// corresponding screen.
 ///
+/// Every VM-backed screen goes through ``LazyViewModelHost`` so its VM is
+/// built once per destination, not once per body evaluation.
+///
 /// On iPad and Mac Catalyst the content is width-capped so long lines stay
-/// readable in landscape — the Android single-pane layout maps to a
+/// readable in landscape. The Android single-pane layout maps to a
 /// max-width-constrained iOS single stack rather than `NavigationSplitView`
 /// in v1.
 struct RootView: View {
 
     @Environment(\.appContainer) private var container
-    @State private var path = NavigationPath()
-    @State private var startRoute: Route?
+    @State private var navigator = Navigator()
+    @State private var deepLinkError: String?
 
     var body: some View {
-        NavigationStack(path: $path) {
+        NavigationStack(path: $navigator.path) {
             startGate
                 .navigationDestination(for: Route.self) { destination(for: $0) }
         }
+        // Set on the whole stack so pushed destinations get it too. Set inside
+        // `startGate` it reached only the start screen, and every pushed screen
+        // (manual entry → dashboard, AI → installed skills) got the no-op default.
+        .environment(\.navigate, NavigateAction(navigator))
         .task { await resolveStartRoute() }
+        .onOpenURL { handleOpenURL($0) }
+        .alert(
+            "Pairing link rejected",
+            isPresented: Binding(
+                get: { deepLinkError != nil },
+                set: { if !$0 { deepLinkError = nil } }
+            ),
+            presenting: deepLinkError
+        ) { _ in
+            Button("OK", role: .cancel) { deepLinkError = nil }
+        } message: { message in
+            Text(message)
+        }
         .frame(maxWidth: .infinity)
     }
 
@@ -27,11 +47,10 @@ struct RootView: View {
 
     @ViewBuilder
     private var startGate: some View {
-        if let startRoute {
-            destination(for: startRoute)
-                .environment(\.navigate, NavigateAction { route in path.append(route) })
+        if let root = navigator.root {
+            destination(for: root)
         } else {
-            // Pre-resolution splash — solid abyss + lockup. Brief; resolves on first frame.
+            // Pre-resolution splash: solid abyss + spinner. Brief; resolves on first frame.
             DesignTokens.Color.abyss
                 .overlay {
                     ProgressView()
@@ -43,12 +62,26 @@ struct RootView: View {
 
     private func resolveStartRoute() async {
         let completed = await container.onboarding.isCompleted()
-        if !completed {
-            startRoute = .onboarding
-        } else {
-            // Future: if a stored profile auto-connects on launch, jump straight to dashboard.
-            // For now, always land on the connection picker so the user picks/resumes a profile.
-            startRoute = .connectionPicker
+        navigator.resolveRoot(completed ? .connectionPicker : .onboarding)
+    }
+
+    // MARK: - Deep links
+
+    /// Handles `ghostcrab://pair?p=…` from the OS camera, Safari or another app.
+    /// Other schemes are ignored.
+    ///
+    /// The token goes to the container's ``PairingHandoff``; only the gateway URL
+    /// enters the navigation path, and a repeated delivery for the gateway on
+    /// top never stacks a second Manual Entry (see
+    /// ``PairingDeepLink/open(_:handoff:navigator:)``). Nothing
+    /// connects until the user taps Connect, so a hostile link can at most
+    /// pre-fill a form the user can read and reject.
+    /// The alert never echoes the payload (it contains the token).
+    private func handleOpenURL(_ url: URL) {
+        do {
+            try PairingDeepLink.open(url, handoff: container.pairingHandoff, navigator: navigator)
+        } catch {
+            deepLinkError = PairingDeepLink.rejectionMessage(for: url, error: error)
         }
     }
 
@@ -58,75 +91,33 @@ struct RootView: View {
     private func destination(for route: Route) -> some View {
         switch route {
         case .onboarding:
-            OnboardingScreen(vm: container.makeOnboardingVM())
+            LazyViewModelHost(make: { container.makeOnboardingVM() }) { OnboardingScreen(vm: $0) }
         case .connectionPicker:
-            ConnectionPickerScreen(vm: container.makeConnectionPickerVM())
+            LazyViewModelHost(make: { container.makeConnectionPickerVM() }) { ConnectionPickerScreen(vm: $0) }
         case .manualEntry(let prefillURL):
-            ManualEntryScreen(vm: container.makeManualEntryVM(), prefillURL: prefillURL)
+            LazyViewModelHost(make: { container.makeManualEntryVM() }) {
+                ManualEntryScreen(vm: $0, prefillURL: prefillURL)
+            }
+            // A deep link that replaces the Manual Entry on top with another
+            // gateway's gets a fresh screen and ViewModel (so a fresh prefill
+            // and hand-off), not the replaced one's state.
+            .id(prefillURL)
         case .qrScan:
             QrScanScreen()
         case .scan:
-            ScanScreen(vm: container.makeScanVM())
+            LazyViewModelHost(make: { container.makeScanVM() }) { ScanScreen(vm: $0) }
         case .dashboard:
-            DashboardScreen(vm: container.makeDashboardVM())
+            LazyViewModelHost(make: { container.makeDashboardVM() }) { DashboardScreen(vm: $0) }
         case .configEditor:
-            ConfigEditorScreen(viewModel: container.makeConfigEditorVM())
+            LazyViewModelHost(make: { container.makeConfigEditorVM() }) { ConfigEditorScreen(viewModel: $0) }
         case .modelManager:
-            ModelManagerScreen(vm: container.makeModelManagerVM())
+            LazyViewModelHost(make: { container.makeModelManagerVM() }) { ModelManagerScreen(vm: $0) }
         case .aiRecommendation:
             AIRecommendationScreen()
         case .installedSkills:
-            InstalledSkillsScreen(viewModel: container.makeInstalledSkillsVM())
+            LazyViewModelHost(make: { container.makeInstalledSkillsVM() }) { InstalledSkillsScreen(viewModel: $0) }
         case .settings:
             SettingsScreen()
         }
-    }
-}
-
-// MARK: - Navigate action (passed down the tree)
-
-/// A lightweight typed-route navigator passed via Environment.
-/// Screens call `navigate(.dashboard)` to push without coupling to `NavigationPath`.
-public struct NavigateAction: Sendable {
-    private let push: @MainActor @Sendable (Route) -> Void
-    public init(_ push: @escaping @MainActor @Sendable (Route) -> Void) { self.push = push }
-    @MainActor public func callAsFunction(_ route: Route) { push(route) }
-}
-
-private struct NavigateKey: EnvironmentKey {
-    static let defaultValue = NavigateAction { _ in }
-}
-
-extension EnvironmentValues {
-    public var navigate: NavigateAction {
-        get { self[NavigateKey.self] }
-        set { self[NavigateKey.self] = newValue }
-    }
-}
-
-// MARK: - Wave-4 placeholder
-
-/// Shown for any route whose real screen hasn't landed yet (i3–i7).
-/// Wave-4 agents replace each `PendingScreen` call with the real screen view.
-private struct PendingScreen: View {
-    let title: String
-    let route: Route
-    var subtitle: String?
-
-    var body: some View {
-        ZStack {
-            DesignTokens.Color.abyss.ignoresSafeArea()
-            EmptyState(
-                icon: "hammer",
-                title: title,
-                message: subtitle ?? "Screen scaffolded — implementation lands in wave 4."
-            )
-        }
-        .navigationTitle(title)
-        #if os(iOS)
-        .toolbarBackground(DesignTokens.Color.abyssRaised, for: .navigationBar)
-        .toolbarBackground(.visible, for: .navigationBar)
-        .toolbarColorScheme(.dark, for: .navigationBar)
-        #endif
     }
 }

@@ -11,6 +11,10 @@ public enum SkillInstallError: Error, Sendable, Hashable {
     case network(cause: String)
     case `protocol`(rpcCode: Int, message: String)
     case verificationFailed(expected: String, actual: String)
+    /// The app's cleartext policy refused plain HTTP to a public IP before the
+    /// request left the device. `message` is the full user-facing text, with
+    /// the fix (HTTPS, or the Settings toggle). Not retryable as-is.
+    case cleartextBlocked(message: String)
     case unknown(cause: String)
 
     /// Whether retrying the install is likely to help.
@@ -18,7 +22,7 @@ public enum SkillInstallError: Error, Sendable, Hashable {
         switch self {
         case .network, .unknown:
             return true
-        case .unauthorized, .notFound, .dependencyConflict, .protocol, .verificationFailed:
+        case .unauthorized, .notFound, .dependencyConflict, .protocol, .verificationFailed, .cleartextBlocked:
             return false
         }
     }
