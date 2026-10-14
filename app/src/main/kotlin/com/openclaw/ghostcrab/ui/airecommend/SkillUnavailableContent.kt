@@ -239,6 +239,7 @@ private fun InstallErrorRow(
             error.rpcCode,
             error.message,
         )
+        SkillInstallError.NotConnected -> stringResource(R.string.ai_skill_install_error_not_connected)
         is SkillInstallError.Unknown -> stringResource(
             R.string.ai_skill_install_error_unknown,
             error.cause,

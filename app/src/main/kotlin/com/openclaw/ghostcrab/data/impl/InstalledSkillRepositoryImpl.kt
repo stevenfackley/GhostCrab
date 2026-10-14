@@ -1,6 +1,9 @@
 package com.openclaw.ghostcrab.data.impl
 
 import com.openclaw.ghostcrab.data.ws.GatewayWsClient
+import com.openclaw.ghostcrab.domain.exception.GatewayException
+import com.openclaw.ghostcrab.domain.exception.GatewayNotConnectedException
+import com.openclaw.ghostcrab.domain.exception.GatewayProtocolException
 import com.openclaw.ghostcrab.domain.model.InstalledSkill
 import com.openclaw.ghostcrab.domain.model.SkillInstallError
 import com.openclaw.ghostcrab.domain.model.SkillInstallProgress
@@ -27,7 +30,7 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import kotlinx.serialization.json.long
+import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 
 /**
@@ -66,13 +69,18 @@ class InstalledSkillRepositoryImpl(
 
     /**
      * Opens the live session for an install. On failure (disconnected, WS upgrade error)
-     * emits [SkillInstallProgress.Failed] with [SkillInstallError.Network] and returns `null`
+     * emits [SkillInstallProgress.Failed] ([SkillInstallError.NotConnected] while disconnected,
+     * [SkillInstallError.Network] otherwise) and returns `null`
      * so the collector never sees the exception.
      */
     private suspend fun ProducerScope<SkillInstallProgress>.openSessionOrReport(): GatewayWsClient? = try {
         wsFactory()
     } catch (e: CancellationException) {
         throw e
+    } catch (e: GatewayNotConnectedException) {
+        // Not retryable as-is: the user must reconnect first, so no Retry button.
+        send(SkillInstallProgress.Failed(SkillInstallError.NotConnected))
+        null
     } catch (e: Exception) {
         send(SkillInstallProgress.Failed(SkillInstallError.Network(e.message ?: e::class.java.simpleName)))
         null
@@ -127,6 +135,11 @@ class InstalledSkillRepositoryImpl(
             send(SkillInstallProgress.Succeeded(skill))
         } catch (e: GatewayWsClient.WsRpcException) {
             send(SkillInstallProgress.Failed(e.toInstallError()))
+        } catch (e: GatewayProtocolException) {
+            send(SkillInstallProgress.Failed(SkillInstallError.Protocol(rpcCode = 0, message = e.detail)))
+        } catch (e: GatewayException) {
+            // Timeout or socket closed mid-install: retryable transport failure.
+            send(SkillInstallProgress.Failed(SkillInstallError.Network(e.message ?: e::class.java.simpleName)))
         } catch (e: Exception) {
             send(SkillInstallProgress.Failed(SkillInstallError.Unknown(e.message ?: "unknown")))
         } finally {
@@ -158,18 +171,23 @@ class InstalledSkillRepositoryImpl(
             withContext(NonCancellable) { close() }
         }
 
-    private fun JsonObject.toInstalledSkill(): InstalledSkill = InstalledSkill(
-        slug = checkNotNull(this["slug"]) { "Installed skill entry has no slug" }.jsonPrimitive.content,
-        installedVersion = checkNotNull(this["installed_version"]) {
-            "Installed skill entry has no installed_version"
-        }.jsonPrimitive.content,
-        source = when (this["source"]?.jsonPrimitive?.contentOrNull) {
-            "ClawHub", "clawhub" -> SkillSource.ClawHub
-            "Local", "local" -> SkillSource.Local
-            else -> SkillSource.Unknown
-        },
-        installedAt = this["installed_at"]?.jsonPrimitive?.long ?: 0L,
-    )
+    private fun JsonObject.toInstalledSkill(): InstalledSkill {
+        val slug = this["slug"]?.jsonPrimitive?.contentOrNull
+        val version = this["installed_version"]?.jsonPrimitive?.contentOrNull
+        if (slug == null || version == null) {
+            throw GatewayProtocolException("ws:skills", "skill entry without slug/installed_version: $this")
+        }
+        return InstalledSkill(
+            slug = slug,
+            installedVersion = version,
+            source = when (this["source"]?.jsonPrimitive?.contentOrNull) {
+                "ClawHub", "clawhub" -> SkillSource.ClawHub
+                "Local", "local" -> SkillSource.Local
+                else -> SkillSource.Unknown
+            },
+            installedAt = this["installed_at"]?.jsonPrimitive?.longOrNull ?: 0L,
+        )
+    }
 
     private fun GatewayWsClient.WsRpcException.toInstallError(): SkillInstallError = when (code) {
         -32003 -> SkillInstallError.Unauthorized(missingScope = "operator.admin")

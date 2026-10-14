@@ -89,6 +89,7 @@
     <string name="ai_skill_install_error_verification">Signature mismatch — refusing to install.</string>
     <string name="ai_skill_install_error_network">Install failed (network): %1$s</string>
     <string name="ai_skill_install_error_protocol">Install failed (code %1$d): %2$s</string>
+    <string name="ai_skill_install_error_not_connected">Not connected to a gateway. Reconnect, then try again.</string>
     <string name="ai_skill_install_error_unknown">Install failed: %1$s</string>
     <string name="ai_skill_install_error_retry">Retry</string>
     <string name="ai_skill_install_error_dismiss">Dismiss</string>
