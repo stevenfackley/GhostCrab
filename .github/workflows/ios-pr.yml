@@ -56,7 +56,8 @@ jobs:
           # First iPhone simulator xcodebuild itself lists as an eligible
           # destination for the scheme, so the pick is one the test step accepts.
           # Resolved at runtime: an Xcode upgrade on the runner needs no edit here.
-          LINE=$(xcodebuild -showdestinations -project GhostCrab.xcodeproj -scheme GhostCrab 2>/dev/null \
+          DESTS=$(xcodebuild -showdestinations -project GhostCrab.xcodeproj -scheme GhostCrab 2>&1 || true)
+          LINE=$(printf '%s\n' "$DESTS" \
             | sed -n '/Available destinations/,/Ineligible destinations/p' \
             | grep 'platform:iOS Simulator' | grep 'name:iPhone' \
             | grep -E 'id:[0-9A-Fa-f-]{36}' | head -n 1 || true)
@@ -64,6 +65,9 @@ jobs:
           if [ -z "$UDID" ]; then
             # Fallback: last iPhone listed under the newest iOS runtime in simctl.
             echo "::warning::No iPhone simulator parsed from xcodebuild -showdestinations; falling back to simctl"
+            echo "::group::xcodebuild -showdestinations output"
+            printf '%s\n' "$DESTS"
+            echo "::endgroup::"
             LINE=$(xcrun simctl list devices available | awk '
               /^-- iOS / { ios = 1; next }
               /^-- /     { ios = 0; next }
@@ -153,7 +157,7 @@ jobs:
           xcodebuild build \
             -project GhostCrab.xcodeproj \
             -scheme GhostCrab \
-            -destination "platform=macOS,variant=Mac Catalyst" \
+            -destination "platform=macOS,variant=Mac Catalyst,arch=arm64" \
             -derivedDataPath "$RUNNER_TEMP/DerivedData-catalyst" \
             -skipPackagePluginValidation \
             -skipMacroValidation \
