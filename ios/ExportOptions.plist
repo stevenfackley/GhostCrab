@@ -8,8 +8,9 @@
     <key>teamID</key>
     <string>QJW4S8BDFX</string>
 
+    <!-- Export only. ios-release.yml uploads the .ipa/.pkg with altool and the ASC API key. -->
     <key>destination</key>
-    <string>upload</string>
+    <string>export</string>
 
     <key>signingStyle</key>
     <string>automatic</string>
@@ -20,10 +21,8 @@
     <key>uploadSymbols</key>
     <true/>
 
-    <key>compileBitcode</key>
-    <false/>
-
+    <!-- CI sets CURRENT_PROJECT_VERSION (run number); do not let Xcode rewrite it. -->
     <key>manageAppVersionAndBuildNumber</key>
-    <true/>
+    <false/>
 </dict>
 </plist>
