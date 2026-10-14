@@ -1,8 +1,15 @@
 # GhostCrab Dev Handoff
 
-**Date:** 2026-04-16  
-**Branch:** main  
-**Build status:** CI passing — lint fixed, all unit tests green
+**Date:** 2026-10-14 (refreshed; sections below dated April are historical)
+**Branch:** `refactor/finish-dev-plan` (PR to `main`)
+**Build status:** 401 unit tests green, detekt clean, lint 0 errors / 18 warnings. Version 0.2.0.
+**Roadmap:** [`docs/superpowers/plans/2026-10-13-finish-development-roadmap.md`](superpowers/plans/2026-10-13-finish-development-roadmap.md)
+
+## Current State (2026-10-14)
+
+The 0.2.0 hardening + refactor pass landed on this branch (see `CHANGELOG.md` `[0.2.0]`): secret redaction and confirmation for AI suggestions, masked tokens, live cleartext opt-in, WebSocket timeouts, `suspendRunCatching`, IPv6-safe `GatewayUrl`, screen splits, and `ghostcrab://pair` deep links. Open: Phase 12 on-device QA, instrumented tests on a device, R8 runtime smoke test. The April audit LOW/T items below were not re-verified in this refresh.
+
+---
 
 ---
 
@@ -39,7 +46,7 @@ Also created `CleartextPublicIpInterceptor` (OkHttp Interceptor) installed in ev
 | I4 | `DashboardViewModel` poll loop — documented asymmetric delay |
 | I5 | `OnboardingRepositoryImpl.stepFromName()` — documented silent `Welcome` fallback |
 | I6 | `AIRecommendationViewModel.applySelectedChanges()` — partial-failure reports "Applied N of M" |
-| I7 | Health-check lambda moved from `UiModule` to `DataModule.gatewayHealthCheck()` |
+| I7 | Health-check lambda moved from `UiModule` to `GatewayHealthChecker` (`domain/repository/`, wired in `DataModule`) |
 | I8 | `HealthSnapshot.isStale` — stored `Boolean` from ViewModel instead of live `currentTimeMillis()` |
 | I9 | `QrScanScreen` — `LaunchedEffect` keys changed from `Unit` to `"permission"` / `viewModel` |
 | I10 | `ManualEntryViewModel.connect()` — TOCTOU on `connectionState.value` documented |
@@ -137,7 +144,7 @@ All ViewModels use `_state.update {}`. No raw read-modify-write remains. Layer b
 | `data/api/OpenClawApiClient.kt` | HTTP client + exception mapping; `forTest()` for MockEngine |
 | `data/api/CleartextPublicIpInterceptor.kt` | OkHttp interceptor; cleartext policy |
 | `data/impl/GatewayConnectionManagerImpl.kt` | Connection state machine; `AlwaysBlockCleartextSettingsRepository` sentinel |
-| `di/DataModule.kt` | All singletons + `gatewayHealthCheck()` |
+| `di/DataModule.kt` | All singletons + `GatewayHealthChecker` wiring |
 | `di/UiModule.kt` | ViewModels; no data-layer imports |
 | `ui/connection/QrScanScreen.kt` | CameraX + ML Kit QR scan; `@SuppressLint("UnsafeOptInUsageError")` |
 | `ui/dashboard/DashboardUiState.kt` | `HealthSnapshot.isStale` is stored `Boolean` |
