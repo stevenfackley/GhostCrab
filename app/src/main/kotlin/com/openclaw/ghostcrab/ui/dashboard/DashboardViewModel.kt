@@ -2,9 +2,9 @@ package com.openclaw.ghostcrab.ui.dashboard
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.openclaw.ghostcrab.data.api.dto.HealthResponse
 import com.openclaw.ghostcrab.domain.model.GatewayConnection
 import com.openclaw.ghostcrab.domain.repository.GatewayConnectionManager
+import com.openclaw.ghostcrab.domain.repository.GatewayHealthChecker
 import com.openclaw.ghostcrab.domain.repository.ModelRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -28,12 +28,12 @@ import kotlinx.coroutines.launch
  *
  * @param connectionManager Source of [GatewayConnection] state transitions.
  * @param modelRepository Fetches the gateway's model list (best-effort; empty on failure).
- * @param healthChecker Performs a `/health` call against the given URL. Injected for testability.
+ * @param healthChecker Runs GET /health on the live session client. Injected for testability.
  */
 class DashboardViewModel(
     private val connectionManager: GatewayConnectionManager,
     private val modelRepository: ModelRepository,
-    private val healthChecker: suspend (url: String) -> HealthResponse,
+    private val healthChecker: GatewayHealthChecker,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow<DashboardUiState>(DashboardUiState.Loading)
@@ -80,7 +80,7 @@ class DashboardViewModel(
             var consecutiveFailures = 0
             while (isActive) {
                 try {
-                    healthChecker(conn.url)
+                    healthChecker.check()
                     consecutiveFailures = 0
                     _state.update {
                         if (it is DashboardUiState.Ready) it.copy(

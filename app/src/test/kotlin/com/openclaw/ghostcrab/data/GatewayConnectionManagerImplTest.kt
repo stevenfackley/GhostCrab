@@ -12,6 +12,7 @@ import com.openclaw.ghostcrab.domain.exception.GatewayUnreachableException
 import com.openclaw.ghostcrab.domain.model.AuthRequirement
 import com.openclaw.ghostcrab.domain.model.GatewayConnection
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
@@ -224,5 +225,17 @@ class GatewayConnectionManagerImplTest {
         assertTrue(rendered.startsWith("Connected("), rendered)
         assertTrue(!rendered.contains(secret), rendered)
         assertTrue(rendered.contains("tokenOrNull=[REDACTED]"), rendered)
+    }
+
+    @Test
+    fun `check probes health on the live session client`() = runTest {
+        coEvery { probeClient.health() } returns HealthResponse("ok")
+        coEvery { probeClient.status() } throws GatewayAuthException(url, 401)
+        coEvery { sessionClient.status() } returns statusOk
+        manager.connect(url, token)
+
+        manager.check()
+
+        coVerify { sessionClient.health() }
     }
 }

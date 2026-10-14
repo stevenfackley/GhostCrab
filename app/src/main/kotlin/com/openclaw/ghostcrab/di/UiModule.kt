@@ -22,7 +22,7 @@ val uiModule = module {
         DashboardViewModel(
             connectionManager = get(),
             modelRepository = get(),
-            healthChecker = ::gatewayHealthCheck,
+            healthChecker = get(),
         )
     }
     viewModel { OnboardingViewModel(get()) }

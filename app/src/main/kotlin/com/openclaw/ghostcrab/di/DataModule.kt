@@ -1,7 +1,5 @@
 package com.openclaw.ghostcrab.di
 
-import com.openclaw.ghostcrab.data.api.OpenClawApiClient
-import com.openclaw.ghostcrab.data.api.dto.HealthResponse
 import com.openclaw.ghostcrab.data.discovery.NsdDiscoveryServiceImpl
 
 import com.openclaw.ghostcrab.data.impl.AIRecommendationServiceImpl
@@ -17,6 +15,7 @@ import com.openclaw.ghostcrab.domain.repository.ConfigRepository
 import com.openclaw.ghostcrab.domain.repository.ConnectionProfileRepository
 import com.openclaw.ghostcrab.domain.repository.DiscoveryService
 import com.openclaw.ghostcrab.domain.repository.GatewayConnectionManager
+import com.openclaw.ghostcrab.domain.repository.GatewayHealthChecker
 import com.openclaw.ghostcrab.domain.repository.ModelRepository
 import com.openclaw.ghostcrab.domain.repository.OnboardingRepository
 import com.openclaw.ghostcrab.domain.repository.InstalledSkillRepository
@@ -35,6 +34,7 @@ val dataModule = module {
     // Register the concrete type first so dependent impls can get<GatewayConnectionManagerImpl>()
     single { GatewayConnectionManagerImpl(settingsRepository = get()) }
     single<GatewayConnectionManager> { get<GatewayConnectionManagerImpl>() }
+    single<GatewayHealthChecker> { get<GatewayConnectionManagerImpl>() }
     single<ConfigRepository> { ConfigRepositoryImpl(get<GatewayConnectionManagerImpl>()) }
     single<ModelRepository> { ModelRepositoryImpl(get<GatewayConnectionManagerImpl>()) }
     single<AIRecommendationService> { AIRecommendationServiceImpl(get<GatewayConnectionManagerImpl>()) }
@@ -76,10 +76,4 @@ val dataModule = module {
             )
         }
     }
-}
-
-/** Unauthenticated `/health` probe — creates and closes a client per call. */
-internal suspend fun gatewayHealthCheck(url: String): HealthResponse {
-    val client = OpenClawApiClient.unauthenticated(url)
-    return try { client.health() } finally { client.close() }
 }

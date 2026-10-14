@@ -7,6 +7,7 @@ import com.openclaw.ghostcrab.domain.exception.GatewayUnreachableException
 import com.openclaw.ghostcrab.domain.model.AuthRequirement
 import com.openclaw.ghostcrab.domain.model.GatewayConnection
 import com.openclaw.ghostcrab.domain.repository.GatewayConnectionManager
+import com.openclaw.ghostcrab.domain.repository.GatewayHealthChecker
 import com.openclaw.ghostcrab.domain.repository.SettingsRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -29,7 +30,7 @@ import kotlinx.coroutines.withContext
 class GatewayConnectionManagerImpl(
     private val clientFactory: OpenClawApiClientFactory = DefaultClientFactory,
     private val settingsRepository: SettingsRepository = AlwaysBlockCleartextSettingsRepository,
-) : GatewayConnectionManager {
+) : GatewayConnectionManager, GatewayHealthChecker {
 
     private val _connectionState = MutableStateFlow<GatewayConnection>(GatewayConnection.Disconnected)
     override val connectionState: StateFlow<GatewayConnection> = _connectionState.asStateFlow()
@@ -123,6 +124,11 @@ class GatewayConnectionManagerImpl(
             activeClient = null
             _connectionState.value = GatewayConnection.Disconnected
         }
+    }
+
+    /** One `/health` call on the active session client (see [GatewayHealthChecker]). */
+    override suspend fun check() {
+        requireClient().health()
     }
 
     /** Returns the active client, or null if not connected. Internal use for repositories. */
