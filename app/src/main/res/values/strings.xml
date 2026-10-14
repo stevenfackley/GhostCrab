@@ -247,4 +247,5 @@
     <string name="onboarding_troubleshoot_host_vs_lan_6">If clearing the app fixed it, you had a stale saved profile with a typo. Re-enter the IP carefully and use Scan LAN when possible — auto-discovery avoids manual-typing bugs.</string>
     <string name="field_secret_show">Show value</string>
     <string name="field_secret_hide">Hide value</string>
+    <string name="pair_deeplink_label">Pair with GhostCrab</string>
 </resources>

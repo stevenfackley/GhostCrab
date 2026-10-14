@@ -98,7 +98,7 @@
     <ID>LongMethod:ModelManagerContent.kt$@OptIn(ExperimentalLayoutApi::class) @Composable private fun ModelCard( model: ModelInfo, isSwapping: Boolean, onClick: () -&gt; Unit, onSetActive: () -&gt; Unit, )</ID>
     <ID>LongMethod:ModelManagerContent.kt$@OptIn(ExperimentalLayoutApi::class) @Composable internal fun ModelManagerReadyContent( state: ModelManagerUiState.Ready, onRetry: () -&gt; Unit, onRequestSwap: (String) -&gt; Unit, onCancelSwap: () -&gt; Unit, onConfirmSwap: (String) -&gt; Unit, )</ID>
     <ID>LongMethod:ModelManagerScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable public fun ModelManagerScreen( onNavigateBack: () -&gt; Unit, viewModel: ModelManagerViewModel = koinViewModel(), )</ID>
-    <ID>LongMethod:NavGraph.kt$@Composable fun NavGraph()</ID>
+    <ID>LongMethod:NavGraph.kt$@Composable fun NavGraph(pairRequest: Int = 0)</ID>
     <ID>LongMethod:OnboardingScaffold.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable public fun OnboardingScaffold( step: OnboardingStep, onBack: (() -&gt; Unit)?, onSkip: () -&gt; Unit, title: String, content: @Composable ColumnScope.() -&gt; Unit, )</ID>
     <ID>LongMethod:OnboardingScreen.kt$@Composable public fun OnboardingScreen( onSkip: () -&gt; Unit, onScan: () -&gt; Unit, onManualEntry: () -&gt; Unit, onDone: () -&gt; Unit, viewModel: OnboardingViewModel = koinViewModel(), )</ID>
     <ID>LongMethod:PendingChangesDiffSheet.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun PendingChangesDiffSheet( sectionKey: String, oldValue: JsonElement, newValue: JsonElement, onConfirm: () -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>

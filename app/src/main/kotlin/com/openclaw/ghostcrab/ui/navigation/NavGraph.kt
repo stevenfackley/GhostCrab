@@ -2,6 +2,7 @@ package com.openclaw.ghostcrab.ui.navigation
 
 import android.net.Uri
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -21,8 +22,13 @@ import com.openclaw.ghostcrab.ui.model.ModelManagerScreen
 import com.openclaw.ghostcrab.ui.onboarding.OnboardingScreen
 
 @Composable
-fun NavGraph() {
+fun NavGraph(pairRequest: Int = 0) {
     val navController = rememberNavController()
+
+    // A `ghostcrab://pair` deep link was accepted (bundle waiting in PairingHandoff): open ManualEntry.
+    LaunchedEffect(pairRequest) {
+        if (pairRequest > 0) navController.navigate("manual_entry")
+    }
 
     NavHost(
         navController = navController,
