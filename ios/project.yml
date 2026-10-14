@@ -26,6 +26,11 @@ targets:
       - path: GhostCrab
         excludes:
           - "**/.DS_Store"
+          - "Resources/PrivacyInfo.xcprivacy"
+      # Explicit resources phase: XcodeGen's file-type detection for
+      # .xcprivacy varies by version.
+      - path: GhostCrab/Resources/PrivacyInfo.xcprivacy
+        buildPhase: resources
     preBuildScripts:
       # BuildInfo.swift is an output only: listing it as an input too makes the
       # phase mutate its own input, which Xcode rejects as a dependency cycle.
