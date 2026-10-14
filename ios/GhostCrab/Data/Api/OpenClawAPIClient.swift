@@ -195,16 +195,23 @@ public actor OpenClawAPIClient {
     ///
     /// - Returns: `OpenClawConfig` with section map and optional ETag header.
     /// - Throws: `GatewayError.api` on unexpected HTTP errors.
+    /// - Throws: `GatewayError.api` (the response's HTTP status, body
+    ///   "Response deserialization failed (DecodingError.…)") when the body is
+    ///   labelled JSON but is not a JSON object. An empty config therefore
+    ///   always means the gateway sent `{}` or served non-JSON, never that a
+    ///   broken body was silently dropped.
     public func getConfig() async throws -> OpenClawConfig {
         let url = endpoint("/config")
         return try await safe(url: url) {
             let (data, response) = try await self.send(.init(url: url))
             try self.mapErrors(url: url, response: response)
+            // Non-JSON (upstream HTML admin page): empty config, documented above.
             guard self.contentTypeIsJSON(response) else {
                 return OpenClawConfig(sections: [:], etag: nil)
             }
             let etag = (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "ETag")
-            let sections = (try? self.decoder.decode([String: AnyCodable].self, from: data)) ?? [:]
+            // Labelled JSON but undecodable: a broken gateway, not an empty one.
+            let sections = try self.decodeJSON([String: AnyCodable].self, from: data, url: url, response: response)
             return OpenClawConfig(sections: sections, etag: etag)
         }
     }

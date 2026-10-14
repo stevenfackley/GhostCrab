@@ -71,14 +71,56 @@ struct ProfileStoreTests {
         do {
             try await store.save(makeProfile(), token: nil)
             Issue.record("expected ProfileStoreError.corruptProfileData")
-        } catch ProfileStoreError.corruptProfileData(let backupKey) {
+        } catch ProfileStoreError.corruptProfileData(let backupKey, let operation) {
             #expect(backupKey.hasPrefix(ProfileStore.corruptBackupKeyPrefix))
             #expect(defaults.data(forKey: backupKey) != nil)
-            let message = ProfileStoreError.corruptProfileData(backupKey: backupKey).errorDescription ?? ""
+            #expect(operation == .save)
+            let message = ProfileStoreError.corruptProfileData(backupKey: backupKey, operation: operation).errorDescription ?? ""
             #expect(message.contains(backupKey))
+            #expect(message.contains("Try again to save this gateway"))
         } catch {
             Issue.record("unexpected error: \(error)")
         }
+    }
+
+    @Test func corruptBlobOnDeleteSaysNothingWasDeleted() async throws {
+        let (suite, defaults) = try makeSuite()
+        defaults.set(Data("not json".utf8), forKey: ProfileStore.profilesKey)
+        let store = try makeStore(suite: suite)
+
+        do {
+            try await store.delete(id: UUID().uuidString)
+            Issue.record("expected ProfileStoreError.corruptProfileData")
+        } catch let error as ProfileStoreError {
+            switch error {
+            case .corruptProfileData(let backupKey, let operation):
+                #expect(operation == .delete)
+                let message = error.errorDescription ?? ""
+                #expect(message.contains(backupKey))
+                #expect(message.contains("Nothing was deleted"))
+                #expect(!message.contains("save this gateway"))
+            }
+        }
+    }
+
+    @Test func aNewerCorruptionPrunesTheOlderBackup() async throws {
+        let (suite, defaults) = try makeSuite()
+        let olderKey = ProfileStore.corruptBackupKeyPrefix + "1"
+        defaults.set(Data("older garbage".utf8), forKey: olderKey)
+        let garbage = Data("newer garbage".utf8)
+        defaults.set(garbage, forKey: ProfileStore.profilesKey)
+        let store = try makeStore(suite: suite)
+
+        await #expect(throws: ProfileStoreError.self) {
+            try await store.save(makeProfile(), token: nil)
+        }
+
+        let keys = backupKeys(in: defaults)
+        #expect(keys.count == 1)
+        let latest = try #require(keys.first)
+        #expect(latest != olderKey)
+        #expect(defaults.data(forKey: latest) == garbage)
+        #expect(defaults.data(forKey: olderKey) == nil)
     }
 
     @Test func corruptBlobReadsAsEmptyWithoutMutatingStorage() async throws {

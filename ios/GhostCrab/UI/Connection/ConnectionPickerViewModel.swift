@@ -127,7 +127,9 @@ public final class ConnectionPickerViewModel {
             do {
                 try await self.profileRepository.deleteProfile(profileId: profileId.uuidString)
             } catch {
-                self.lastError = "Failed to delete: \(String(describing: error))"
+                // Prefer the error's own copy (e.g. the corrupt-list advice for a delete).
+                let detail = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+                self.lastError = "Failed to delete: \(detail)"
             }
         }
     }

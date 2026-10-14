@@ -2,17 +2,33 @@ import Foundation
 
 /// Errors raised by ``ProfileStore`` writes.
 public enum ProfileStoreError: Error, Equatable, Sendable {
+
+    /// The write that ran into an unreadable list. Picks the advice in
+    /// ``errorDescription``.
+    public enum Operation: Sendable, Equatable {
+        /// ``ProfileStore/save(_:token:)``.
+        case save
+        /// ``ProfileStore/delete(id:)``.
+        case delete
+    }
+
     /// The stored profile blob could not be decoded. It was copied to
     /// `backupKey` and removed from the live key, so a retry starts clean
     /// without destroying the unreadable data.
-    case corruptProfileData(backupKey: String)
+    ///
+    /// - Parameters:
+    ///   - backupKey: `UserDefaults` key now holding the unreadable blob.
+    ///   - operation: The write that was refused.
+    case corruptProfileData(backupKey: String, operation: Operation)
 }
 
 extension ProfileStoreError: LocalizedError {
     public var errorDescription: String? {
         switch self {
-        case .corruptProfileData(let backupKey):
+        case .corruptProfileData(let backupKey, .save):
             return "Saved gateway list was unreadable and has been backed up (\(backupKey)). Try again to save this gateway."
+        case .corruptProfileData(let backupKey, .delete):
+            return "Saved gateway list was unreadable and has been backed up (\(backupKey)). Nothing was deleted; the list now starts empty."
         }
     }
 }
@@ -29,9 +45,11 @@ extension ProfileStoreError: LocalizedError {
 ///
 /// Writes never discard a profile list they could not decode: the first
 /// write after corruption copies the blob to a backup key, clears the live
-/// key and throws ``ProfileStoreError/corruptProfileData(backupKey:)``, so a
-/// retry succeeds and the old data stays recoverable. ``clearAll()`` is the
-/// only operation that removes backups.
+/// key and throws ``ProfileStoreError/corruptProfileData(backupKey:operation:)``,
+/// so a retry succeeds and the old data stays recoverable. Only the latest
+/// backup is kept: quarantining a newer unreadable list prunes older backups
+/// (Android keeps a single replaceable backup key), so they cannot pile up.
+/// ``clearAll()`` removes the remaining one.
 ///
 /// All public methods are safe to call from any task. Mutations post a
 /// `ProfileStoreChanged` notification on `NotificationCenter.default`, which
@@ -89,11 +107,11 @@ public actor ProfileStore {
     ///   write is still committed on Keychain failure — the caller is expected
     ///   to surface the error and let the user retry, mirroring the Kotlin
     ///   `runCatching` semantics around `saveToken`.
-    /// - Throws: ``ProfileStoreError/corruptProfileData(backupKey:)`` if the
-    ///   stored list could not be decoded. Nothing is written; the bad blob is
-    ///   backed up and cleared, so retrying succeeds.
+    /// - Throws: ``ProfileStoreError/corruptProfileData(backupKey:operation:)``
+    ///   (`.save`) if the stored list could not be decoded. Nothing is
+    ///   written; the bad blob is backed up and cleared, so retrying succeeds.
     public func save(_ profile: ConnectionProfile, token: String?) async throws {
-        var current = try loadProfilesForWrite()
+        var current = try loadProfilesForWrite(for: .save)
         current.removeAll { $0.id == profile.id }
         current.append(profile)
         writeProfiles(current)
@@ -124,11 +142,11 @@ public actor ProfileStore {
     ///   other than "not found". The metadata deletion still happens first, so
     ///   a leftover Keychain entry will not block UserDefaults cleanup — but
     ///   the caller should treat the throw as a partial failure.
-    /// - Throws: ``ProfileStoreError/corruptProfileData(backupKey:)`` if the
-    ///   stored list could not be decoded. Nothing is written; the bad blob is
-    ///   backed up and cleared, so retrying succeeds.
+    /// - Throws: ``ProfileStoreError/corruptProfileData(backupKey:operation:)``
+    ///   (`.delete`) if the stored list could not be decoded. Nothing is
+    ///   deleted; the bad blob is backed up and cleared, so the list starts empty.
     public func delete(id: String) async throws {
-        var current = try loadProfilesForWrite()
+        var current = try loadProfilesForWrite(for: .delete)
         let originalCount = current.count
         current.removeAll { $0.id.uuidString == id }
         if current.count != originalCount {
@@ -148,10 +166,7 @@ public actor ProfileStore {
     ///   are removed first, so no metadata survives a Keychain failure.
     public func clearAll() async throws {
         defaults.removeObject(forKey: Self.profilesKey)
-        for key in defaults.dictionaryRepresentation().keys
-        where key.hasPrefix(Self.corruptBackupKeyPrefix) {
-            defaults.removeObject(forKey: key)
-        }
+        removeCorruptBackups()
         NotificationCenter.default.post(name: Self.changedNotification, object: nil)
         try keychain.deleteAllTokens()
     }
@@ -220,11 +235,13 @@ public actor ProfileStore {
     }
 
     /// Read path for mutations. An undecodable blob is copied to a timestamped
-    /// backup key, the live key is removed, and the write is refused, so a
-    /// write never silently replaces data it could not read.
+    /// backup key (replacing any older backup), the live key is removed, and
+    /// the write is refused, so a write never silently replaces data it could
+    /// not read.
     ///
-    /// - Throws: ``ProfileStoreError/corruptProfileData(backupKey:)``.
-    private func loadProfilesForWrite() throws -> [ConnectionProfile] {
+    /// - Parameter operation: The refused write, carried into the error.
+    /// - Throws: ``ProfileStoreError/corruptProfileData(backupKey:operation:)``.
+    private func loadProfilesForWrite(for operation: ProfileStoreError.Operation) throws -> [ConnectionProfile] {
         guard let data = defaults.data(forKey: Self.profilesKey) else {
             return []
         }
@@ -232,11 +249,21 @@ public actor ProfileStore {
             return try decoder.decode([ConnectionProfile].self, from: data)
         } catch {
             let backupKey = Self.corruptBackupKeyPrefix + String(Int(Date().timeIntervalSince1970 * 1000))
+            // Keep only the latest backup, like Android's single backup key.
+            removeCorruptBackups()
             defaults.set(data, forKey: backupKey)
             defaults.removeObject(forKey: Self.profilesKey)
             NotificationCenter.default.post(name: Self.changedNotification, object: nil)
             Self.log.error("Quarantined unreadable profile list to \(backupKey)", error: error)
-            throw ProfileStoreError.corruptProfileData(backupKey: backupKey)
+            throw ProfileStoreError.corruptProfileData(backupKey: backupKey, operation: operation)
+        }
+    }
+
+    /// Removes every quarantined backup (keys under ``corruptBackupKeyPrefix``).
+    private func removeCorruptBackups() {
+        for key in defaults.dictionaryRepresentation().keys
+        where key.hasPrefix(Self.corruptBackupKeyPrefix) {
+            defaults.removeObject(forKey: key)
         }
     }
 

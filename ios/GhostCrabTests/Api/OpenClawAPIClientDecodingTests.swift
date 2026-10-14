@@ -88,6 +88,33 @@ struct OpenClawAPIClientDecodingTests {
         #expect(models.first?.isActive == true)
     }
 
+    // MARK: - Config (HTML: `OpenClawAPIClientTests.configHTMLMeansNoConfigAPI`)
+
+    @Test func configEmptyJSONObjectIsEmptyConfig() async throws {
+        let (client, _) = makeClient { _ in .init(status: 200, json: "{}") }
+        #expect(try await client.getConfig().sections.isEmpty)
+    }
+
+    @Test func configJSONThatIsNotAnObjectIsAnError() async {
+        let (client, base) = makeClient { _ in .init(status: 200, json: "[1,2,3]") }
+        await expectDeserializationFailure(url: base.absoluteString + "/config", kind: "typeMismatch") {
+            _ = try await client.getConfig()
+        }
+    }
+
+    @Test func configJSONDecodesSectionsAndETag() async throws {
+        let (client, _) = makeClient { _ in
+            .init(
+                status: 200,
+                json: #"{"gateway":{"port":18789}}"#,
+                headers: ["Content-Type": "application/json", "ETag": "\"v7\""]
+            )
+        }
+        let config = try await client.getConfig()
+        #expect(Array(config.sections.keys) == ["gateway"])
+        #expect(config.etag == "\"v7\"")
+    }
+
     // MARK: - Skill install
 
     /// Pins the convention: REST has no RPC code, so a 200 whose body is not
