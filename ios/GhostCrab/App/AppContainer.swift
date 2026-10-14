@@ -43,6 +43,12 @@ public final class AppContainer {
     public let scopeProbe: any ScopeProbe
     public let discovery: any DiscoveryService
 
+    // MARK: - In-memory pairing hand-off
+
+    /// One-shot token hand-off from QR scan / deep link to manual entry.
+    /// In memory only; never persisted and never placed in `Route`.
+    public let pairingHandoff: PairingHandoff
+
     // MARK: - Init
 
     /// Production wiring. Call once from `GhostCrabApp`.
@@ -75,6 +81,9 @@ public final class AppContainer {
 
         // Discovery is independent — wraps NWBrowser directly.
         self.discovery = NWBrowserDiscoveryService()
+
+        // Pairing hand-off: shared by QrScan, the deep-link handler and ManualEntry.
+        self.pairingHandoff = PairingHandoff()
     }
 
     // MARK: - ViewModel factories
@@ -98,12 +107,14 @@ public final class AppContainer {
     }
 
     /// Manual entry VM. The `prefillURL` flows through the screen so this factory
-    /// stays parameter-free; the screen calls `vm.setPrefillURL(_:)` on appear.
+    /// stays parameter-free; the screen calls `vm.setPrefillURL(_:)` on appear,
+    /// which also consumes any pairing token stashed in ``pairingHandoff``.
     public func makeManualEntryVM() -> ManualEntryViewModel {
         ManualEntryViewModel(
             connectionManager: self.gateway,
             profileRepository: self.profiles,
-            onboardingRepository: self.onboarding
+            onboardingRepository: self.onboarding,
+            pairingHandoff: self.pairingHandoff
         )
     }
 

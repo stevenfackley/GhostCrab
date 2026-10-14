@@ -20,6 +20,7 @@ public final class ManualEntryViewModel {
     private let connectionManager: any GatewayConnectionManager
     private let profileRepository: any ConnectionProfileRepository
     private let onboardingRepository: any OnboardingRepository
+    private let pairingHandoff: PairingHandoff
 
     // MARK: - Form state
 
@@ -40,14 +41,21 @@ public final class ManualEntryViewModel {
 
     // MARK: - Init
 
+    /// - Parameters:
+    ///   - connectionManager: Drives the connect flow.
+    ///   - profileRepository: Persists the profile + token after a successful connect.
+    ///   - onboardingRepository: Marked completed after a successful connect.
+    ///   - pairingHandoff: One-shot source of a token from QR / deep-link pairing.
     public init(
         connectionManager: any GatewayConnectionManager,
         profileRepository: any ConnectionProfileRepository,
-        onboardingRepository: any OnboardingRepository
+        onboardingRepository: any OnboardingRepository,
+        pairingHandoff: PairingHandoff
     ) {
         self.connectionManager = connectionManager
         self.profileRepository = profileRepository
         self.onboardingRepository = onboardingRepository
+        self.pairingHandoff = pairingHandoff
     }
 
     // MARK: - Derived
@@ -77,6 +85,13 @@ public final class ManualEntryViewModel {
     }
 
     /// Parses a URL and populates scheme/host/port (e.g. from a QR scan or LAN result).
+    ///
+    /// If a pairing token was stashed for this URL's origin (QR or deep link),
+    /// it is moved into ``token``. The hand-off is one-shot, so later calls
+    /// (the screen calls this on every appear) leave ``token`` alone. Never
+    /// connects: the user still reviews the form and taps Connect.
+    ///
+    /// - Parameter url: Gateway base URL.
     public func setPrefillURL(_ url: URL) {
         let scheme = url.scheme?.lowercased()
         let host = url.host ?? ""
@@ -86,6 +101,9 @@ public final class ManualEntryViewModel {
         self.port = parsedPort
         self.hostError = nil
         self.portError = nil
+        if let pairedToken = pairingHandoff.take(for: url) {
+            self.token = pairedToken
+        }
     }
 
     // MARK: - Connect
