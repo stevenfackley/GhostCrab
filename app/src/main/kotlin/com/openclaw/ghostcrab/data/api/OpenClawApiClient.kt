@@ -65,7 +65,7 @@ import javax.net.ssl.SSLException
  *
  * **Authorization headers are never logged.** Verify with `adb logcat | grep -i bearer`.
  *
- * Timeouts: connect = 15s, request = 30s.
+ * Timeouts: [CONNECT_TIMEOUT_MS], [REQUEST_TIMEOUT_MS], [SOCKET_TIMEOUT_MS].
  */
 class OpenClawApiClient private constructor(
     val baseUrl: String,
@@ -105,12 +105,7 @@ class OpenClawApiClient private constructor(
     suspend fun status(): StatusResponse = safeRequest(baseUrl) {
         val response = httpClient.get("$baseUrl/status")
         response.mapErrors(baseUrl)
-        val contentType = response.headers["Content-Type"].orEmpty()
-        if (contentType.contains("json", ignoreCase = true)) {
-            response.body()
-        } else {
-            StatusResponse()
-        }
+        if (response.isJson()) response.body() else StatusResponse()
     }
 
     /**
@@ -126,8 +121,7 @@ class OpenClawApiClient private constructor(
     suspend fun getConfig(): Pair<Map<String, JsonElement>, String?> = safeRequest(baseUrl) {
         val response = httpClient.get("$baseUrl/config")
         response.mapErrors(baseUrl)
-        val contentType = response.headers["Content-Type"].orEmpty()
-        if (contentType.contains("json", ignoreCase = true)) {
+        if (response.isJson()) {
             val etag = response.headers["ETag"]
             val body: JsonObject = response.body()
             body to etag
@@ -191,12 +185,7 @@ class OpenClawApiClient private constructor(
         val url = "$baseUrl/api/models/status"
         val response = httpClient.get(url)
         response.mapErrors(url)
-        val contentType = response.headers["Content-Type"].orEmpty()
-        if (contentType.contains("json", ignoreCase = true)) {
-            response.body()
-        } else {
-            emptyList()
-        }
+        if (response.isJson()) response.body() else emptyList()
     }
 
     /**
@@ -300,6 +289,10 @@ class OpenClawApiClient private constructor(
         ): OpenClawApiClient =
             OpenClawApiClient(baseUrl, buildHttpClient(baseUrl, token = token, allowCleartextPublicIPs))
 
+        private const val CONNECT_TIMEOUT_MS = 15_000L
+        private const val REQUEST_TIMEOUT_MS = 30_000L
+        private const val SOCKET_TIMEOUT_MS = 30_000L
+
         private fun buildHttpClient(
             baseUrl: String,
             token: String?,
@@ -316,9 +309,9 @@ class OpenClawApiClient private constructor(
                 })
             }
             install(HttpTimeout) {
-                connectTimeoutMillis = 15_000
-                requestTimeoutMillis = 30_000
-                socketTimeoutMillis = 30_000
+                connectTimeoutMillis = CONNECT_TIMEOUT_MS
+                requestTimeoutMillis = REQUEST_TIMEOUT_MS
+                socketTimeoutMillis = SOCKET_TIMEOUT_MS
             }
             // Header-level request logging is a debug-only diagnostic. Release builds install
             // no logger at all (and R8 strips Log.d call sites — see proguard-rules.pro).
@@ -413,3 +406,7 @@ private suspend fun <T> safeRequest(url: String, block: suspend () -> T): T {
         throw GatewayProtocolException(url, e::class.java.simpleName + (e.message?.let { ": $it" } ?: ""), e)
     }
 }
+
+/** `true` when the gateway answered with a JSON content type (upstream serves HTML at /status and /config). */
+private fun io.ktor.client.statement.HttpResponse.isJson(): Boolean =
+    headers[HttpHeaders.ContentType].orEmpty().contains("json", ignoreCase = true)

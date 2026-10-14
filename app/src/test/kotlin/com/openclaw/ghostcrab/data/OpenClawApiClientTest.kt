@@ -294,4 +294,12 @@ class OpenClawApiClientTest {
     @Test fun `GatewayApiException is not retryable`() {
         assertTrue(!GatewayApiException("http://x", 500).isRetryable)
     }
+
+    @Test fun `getModels treats an HTML answer as no models`() = runTest {
+        val engine = MockEngine {
+            respond("<html></html>", HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "text/html"))
+        }
+        val client = OpenClawApiClient.forTest(BASE, HttpClient(engine))
+        assertTrue(client.getModels().isEmpty())
+    }
 }
