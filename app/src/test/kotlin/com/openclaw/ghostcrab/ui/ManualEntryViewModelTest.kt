@@ -210,6 +210,21 @@ class ManualEntryViewModelTest {
     }
 
     @Test
+    fun `percent in a non-IPv6 host is rejected`() {
+        vm.onHostChange("gw%foo")
+        vm.connect()
+        assertEquals(null, vm.form.value.portError)
+        assertTrue(vm.form.value.hostError != null)
+    }
+
+    @Test
+    fun `IPv6 host with zone id still validates`() {
+        vm.onHostChange("fe80::1%wlan0")
+        vm.connect()
+        assertNull(vm.form.value.hostError)
+    }
+
+    @Test
     fun `host with at-sign question-mark hash or backslash is rejected`() {
         for (bad in listOf("user@192.168.1.5", "gw?x=1", "gw#frag", "gw" + 92.toChar() + "evil")) {
             vm.onHostChange(bad)

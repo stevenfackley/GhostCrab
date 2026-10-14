@@ -193,6 +193,10 @@ private fun validateHost(host: String): String? {
     if (trimmed.contains('/')) return "Host must not contain '/'"
     // IPv6 literal (from LAN discovery or QR): hex digits, dots and at least two colons, no brackets.
     if (isIpv6Literal(trimmed)) return null
+    // Zone ids (fe80::1%wlan0) are IPv6-only; elsewhere GatewayUrl would drop '%...' silently.
+    if (trimmed.contains('%')) {
+        return if (isIpv6WithZone(trimmed)) null else "Host must not contain '%' (IPv6 zone ids only)"
+    }
     if (trimmed.contains(':')) return "Port goes in the Port field, not the Host field"
     if (trimmed.any { it.isWhitespace() }) return "Host must not contain whitespace"
     // '@' would smuggle userinfo into the assembled URL; '?' and '#' would truncate the host.
@@ -202,6 +206,12 @@ private fun validateHost(host: String): String? {
 
 private fun isIpv6Literal(host: String): Boolean =
     host.count { it == ':' } >= 2 && host.all { it == ':' || it == '.' || isHexDigit(it) }
+
+private fun isIpv6WithZone(host: String): Boolean {
+    val zone = host.substringAfter('%')
+    return isIpv6Literal(host.substringBefore('%')) && zone.isNotEmpty() &&
+        zone.all { it.isLetterOrDigit() || it in "-_." }
+}
 
 private fun isHexDigit(c: Char): Boolean = c in '0'..'9' || c in 'a'..'f' || c in 'A'..'F'
 
