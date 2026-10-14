@@ -8,7 +8,7 @@ import com.openclaw.ghostcrab.domain.model.RecommendationContext
 /**
  * Submits AI recommendation queries through the gateway's proxied CLI skill.
  *
- * The gateway must have the `skill-ai-recommend` capability; check [isAvailable] first.
+ * The gateway must have the `ai.recommend` capability; check [isAvailable] first.
  *
  * **Contract frozen at v1.0.**
  */

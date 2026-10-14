@@ -63,14 +63,6 @@ public class OnboardingViewModel(
         viewModelScope.launch { complete() }
     }
 
-    /**
-     * Called when the user successfully connects to a gateway during onboarding.
-     * Marks onboarding as completed.
-     */
-    public fun markOnboardingConnected() {
-        viewModelScope.launch { complete() }
-    }
-
     private suspend fun advance(forward: Boolean) {
         val current = _step.value
         val next = when {

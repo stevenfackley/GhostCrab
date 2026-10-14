@@ -30,7 +30,7 @@ import kotlinx.coroutines.launch
 /**
  * ViewModel for the AI Recommendations screen.
  *
- * On initialization, checks whether the connected gateway advertises the `skill-ai-recommend`
+ * On initialization, checks whether the connected gateway advertises the `ai.recommend`
  * capability. Exposes [state] as an immutable [StateFlow] of [AIRecommendationUiState].
  *
  * Context for each query is auto-collected from [configRepository] and [modelRepository] —

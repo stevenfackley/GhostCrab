@@ -28,7 +28,7 @@ sealed interface GatewayConnection {
      * @param version Gateway version string.
      * @param authRequirement The auth mode reported by the gateway.
      * @param isHttps Whether the connection uses TLS.
-     * @param capabilities Capability keys advertised by the gateway (e.g. `"skill-ai-recommend"`).
+     * @param capabilities Capability keys advertised by the gateway (e.g. `"ai.recommend"`).
      * @param hardwareInfo Optional hardware description reported by the gateway's `/status` (e.g. RAM, GPU). `null` if not reported.
      * @param tokenOrNull Bearer token for the active session, or null if auth is not required. Sensitive — never log.
      */

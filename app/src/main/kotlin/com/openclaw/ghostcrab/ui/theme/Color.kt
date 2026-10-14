@@ -1,7 +1,6 @@
 package com.openclaw.ghostcrab.ui.theme
 
 import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
 
 /**
  * Material3 color schemes built entirely from [BrandTokens].
@@ -36,17 +35,4 @@ internal val GhostCrabDarkColorScheme = darkColorScheme(
     inverseSurface = BrandTokens.colorTextPrimary,
     inverseOnSurface = BrandTokens.colorAbyss,
     inversePrimary = BrandTokens.colorCyanPrimary,
-)
-
-/** Light scheme mirrors dark — not used in v1.0. Kept for completeness. */
-internal val GhostCrabLightColorScheme = lightColorScheme(
-    primary = BrandTokens.colorCyanPrimary,
-    onPrimary = BrandTokens.colorAbyss,
-    secondary = BrandTokens.colorCyanPulse,
-    onSecondary = BrandTokens.colorAbyss,
-    error = BrandTokens.colorCrimsonError,
-    background = BrandTokens.colorAbyss,
-    onBackground = BrandTokens.colorTextPrimary,
-    surface = BrandTokens.colorAbyssRaised,
-    onSurface = BrandTokens.colorTextPrimary,
 )

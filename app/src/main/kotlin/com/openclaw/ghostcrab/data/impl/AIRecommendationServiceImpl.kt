@@ -27,12 +27,12 @@ class AIRecommendationServiceImpl(
 ) : AIRecommendationService {
 
     /**
-     * Returns `true` if the currently-connected gateway advertises the `skill-ai-recommend`
+     * Returns `true` if the currently-connected gateway advertises the `ai.recommend`
      * capability in its `/status` response.
      *
      * Reads the in-memory connection state — no network call is made.
      *
-     * @return `true` when [GatewayConnection.Connected.capabilities] contains `"skill-ai-recommend"`.
+     * @return `true` when [GatewayConnection.Connected.capabilities] contains `"ai.recommend"`.
      */
     override suspend fun isAvailable(): Boolean {
         val state = connectionManager.connectionState.value
