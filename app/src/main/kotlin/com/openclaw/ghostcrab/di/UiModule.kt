@@ -28,7 +28,16 @@ val uiModule = module {
     viewModel { OnboardingViewModel(get()) }
     viewModel { ConfigEditorViewModel(get(), get()) }
     viewModel { ModelManagerViewModel(get(), get()) }
-    viewModel { AIRecommendationViewModel(get(), get(), get(), get(), getOrNull(), getOrNull()) }
+    viewModel {
+        AIRecommendationViewModel(
+            aiService = get(),
+            connectionManager = get(),
+            configRepository = get(),
+            modelRepository = get(),
+            scopeProbe = getOrNull(),
+            installRepo = getOrNull(),
+        )
+    }
     viewModel { SettingsViewModel(get(), get(), get()) }
     viewModel { QrScanViewModel() }
     if (com.openclaw.ghostcrab.BuildConfig.SKILLS_INSTALL_ENABLED) {
