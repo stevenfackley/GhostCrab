@@ -3,7 +3,7 @@ package com.openclaw.ghostcrab.data.impl
 import com.openclaw.ghostcrab.data.api.OpenClawApiClient
 import com.openclaw.ghostcrab.domain.exception.GatewayAuthException
 import com.openclaw.ghostcrab.domain.exception.GatewayException
-import com.openclaw.ghostcrab.domain.exception.GatewayUnreachableException
+import com.openclaw.ghostcrab.domain.exception.GatewayProtocolException
 import com.openclaw.ghostcrab.domain.model.AuthRequirement
 import com.openclaw.ghostcrab.domain.model.GatewayConnection
 import com.openclaw.ghostcrab.domain.repository.GatewayConnectionManager
@@ -97,9 +97,11 @@ class GatewayConnectionManagerImpl(
                 _connectionState.value = GatewayConnection.Disconnected
                 throw e
             } catch (@Suppress("TooGenericExceptionCaught") e: Exception) {
-                // Anything the client layer did not classify (e.g. a URL the engine rejects)
-                // must still land in Error, never a stuck Connecting.
-                val wrapped = GatewayUnreachableException(url, e)
+                // Anything the client layer did not classify (client factory, settings read, a URL
+                // the engine rejects) is a client bug, not a connectivity problem: report it as a
+                // non-retryable protocol error, and still land in Error, never a stuck Connecting.
+                val detail = e::class.java.simpleName + (e.message?.let { ": $it" } ?: "")
+                val wrapped = GatewayProtocolException(url, detail, e)
                 failConnect(url, wrapped, client)
                 throw wrapped
             }

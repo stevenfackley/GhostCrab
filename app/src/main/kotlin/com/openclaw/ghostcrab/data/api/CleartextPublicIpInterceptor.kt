@@ -1,5 +1,6 @@
 package com.openclaw.ghostcrab.data.api
 
+import com.openclaw.ghostcrab.domain.exception.CleartextBlockedException
 import okhttp3.Interceptor
 import okhttp3.Response
 import java.io.IOException
@@ -80,5 +81,5 @@ internal class CleartextPublicIpInterceptor(
  * @param host The public IP literal that was blocked.
  */
 internal class CleartextBlockedIOException(val host: String) : IOException(
-    "Cleartext HTTP to public IP $host is blocked. Enable it in Settings → Security or use HTTPS.",
+    CleartextBlockedException.policyMessage(host),
 )

@@ -16,6 +16,7 @@ import androidx.compose.ui.text.TextStyle
 import com.openclaw.ghostcrab.ui.theme.BrandTokens
 import com.openclaw.ghostcrab.ui.theme.MonoFontFamily
 import com.openclaw.ghostcrab.ui.theme.Spacing
+import com.openclaw.ghostcrab.ui.toUserMessage
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 
@@ -56,7 +57,7 @@ fun RawJsonSectionEditor(
                     parseError = null
                     onEdit(parsed.getOrThrow())
                 } else {
-                    parseError = parsed.exceptionOrNull()?.message ?: "Invalid JSON"
+                    parseError = parsed.exceptionOrNull()?.toUserMessage()
                 }
             },
             label = { Text(sectionKey) },

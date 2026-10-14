@@ -126,7 +126,7 @@ class ConfigValidationException(
 
 /**
  * A cleartext (`http://`) request to a public IP literal was refused by the app's own policy before
- * it left the device. Fix: use HTTPS, or enable Settings → Security → "Allow cleartext to public IPs".
+ * it left the device. Fix: use HTTPS, or enable Settings → Connections → "Allow HTTP to public IPs".
  *
  * @param url The URL that was blocked.
  * @param host The public IP literal that triggered the block.
@@ -135,12 +135,21 @@ class CleartextBlockedException(
     val url: String,
     val host: String,
     cause: Throwable? = null,
-) : GatewayException(
-    "Cleartext HTTP to public IP $host blocked by app policy ($url). " +
-        "Use HTTPS or enable Settings → Security → Allow cleartext to public IPs.",
-    cause,
-) {
+) : GatewayException("${policyMessage(host)} URL: $url", cause) {
     override val isRetryable: Boolean = false
+
+    companion object {
+        /**
+         * The policy text, shared with the data-layer interceptor's `IOException` so the advice is
+         * worded identically on both and is printed only once when the cause chain is rendered.
+         *
+         * @param host The public IP literal that was blocked.
+         * @return A sentence naming the host and the exact Settings toggle that lifts the block.
+         */
+        fun policyMessage(host: String): String =
+            "Cleartext HTTP to public IP $host blocked by app policy. " +
+                "Use HTTPS or enable Settings → Connections → Allow HTTP to public IPs."
+    }
 }
 
 /**

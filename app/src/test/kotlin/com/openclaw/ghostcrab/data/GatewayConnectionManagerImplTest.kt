@@ -7,6 +7,7 @@ import com.openclaw.ghostcrab.data.api.dto.StatusResponse
 import com.openclaw.ghostcrab.data.impl.GatewayConnectionManagerImpl
 import com.openclaw.ghostcrab.data.impl.OpenClawApiClientFactory
 import com.openclaw.ghostcrab.domain.exception.GatewayAuthException
+import com.openclaw.ghostcrab.domain.exception.GatewayProtocolException
 import com.openclaw.ghostcrab.domain.exception.GatewayTimeoutException
 import com.openclaw.ghostcrab.domain.exception.GatewayUnreachableException
 import com.openclaw.ghostcrab.domain.model.AuthRequirement
@@ -205,7 +206,7 @@ class GatewayConnectionManagerImplTest {
 
         val exception = runCatching { manager.connect(url, null) }.exceptionOrNull()
 
-        assertInstanceOf(GatewayUnreachableException::class.java, exception)
+        assertInstanceOf(GatewayProtocolException::class.java, exception)
         assertInstanceOf(IllegalStateException::class.java, exception!!.cause)
         val state = manager.connectionState.value as GatewayConnection.Error
         assertEquals(url, state.url)

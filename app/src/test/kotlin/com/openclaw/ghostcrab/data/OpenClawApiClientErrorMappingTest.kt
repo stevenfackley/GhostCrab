@@ -63,7 +63,7 @@ class OpenClawApiClientErrorMappingTest {
             throwingClient(CleartextBlockedIOException("8.8.8.8")).health()
         }
         assertEquals("8.8.8.8", ex.host)
-        assertTrue(ex.message.orEmpty().contains("Settings"))
+        assertTrue(ex.message.orEmpty().contains("Settings → Connections → Allow HTTP to public IPs"))
     }
 
     @Test fun `non-IO failure maps to GatewayProtocolException, not Unreachable`() = runTest {
