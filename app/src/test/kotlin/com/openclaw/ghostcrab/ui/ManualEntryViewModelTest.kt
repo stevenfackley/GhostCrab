@@ -365,6 +365,16 @@ class ManualEntryViewModelTest {
     }
 
     @Test
+    fun `re-applying the same prefill url keeps a typed token, a different one clears it`() {
+        vm.setPrefillUrl("http://gw-a.example:18789")
+        vm.onTokenChange("T")
+        vm.setPrefillUrl("http://gw-a.example:18789")
+        assertEquals("T", vm.form.value.token)
+        vm.setPrefillUrl("http://gw-b.example:18789")
+        assertEquals("", vm.form.value.token)
+    }
+
+    @Test
     fun `setPrefillUrl clears a token and name left over from an earlier pairing`() {
         val vm = pairedVm()
         vm.setPrefillUrl("http://gw-b.example:18789")

@@ -193,10 +193,22 @@ class ConnectionProfileStoreTest {
     @Test
     fun `wipeTokens clears the encrypted prefs`() = runTest {
         val editor = mockk<SharedPreferences.Editor>(relaxed = true)
+        every { editor.clear() } returns editor
+        every { editor.commit() } returns true
         val prefs = mockk<SharedPreferences> { every { edit() } returns editor }
 
         makeStore(prefs).wipeTokens()
 
         verify { editor.clear() }
+    }
+
+    @Test
+    fun `wipeTokens throws TokenWipeFailedException when commit returns false`() {
+        val editor = mockk<SharedPreferences.Editor>(relaxed = true)
+        every { editor.clear() } returns editor
+        every { editor.commit() } returns false
+        val prefs = mockk<SharedPreferences> { every { edit() } returns editor }
+
+        assertThrows(TokenWipeFailedException::class.java) { runBlocking { makeStore(prefs).wipeTokens() } }
     }
 }

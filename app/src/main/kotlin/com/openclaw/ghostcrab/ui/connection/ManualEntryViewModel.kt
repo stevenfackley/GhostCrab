@@ -72,6 +72,9 @@ class ManualEntryViewModel(
     /** `true` while the form's token came from a pairing link and the user has not typed over it. */
     private var tokenFromPairing = false
 
+    /** Last URL applied by [setPrefillUrl]; re-applying the same one is a no-op. */
+    private var lastPrefillUrl: String? = null
+
     /** Bumped on every [PairingHandoff.offer]; the screen re-runs [consumePendingPairing] when it changes. */
     val pairingOffers: StateFlow<Int> = pairingHandoff.offers
 
@@ -116,6 +119,9 @@ class ManualEntryViewModel(
 
     /** Parses a full URL (LAN scan, QR) and populates scheme/host/port individually. */
     fun setPrefillUrl(url: String) {
+        // Rotation / theme change re-runs the screen's effect: the same URL again must not wipe a typed token.
+        if (url == lastPrefillUrl) return
+        lastPrefillUrl = url
         val parsed = GatewayUrl.parse(url)
         // Never carry a token (or a suggested name) to a different host.
         pairedName = null

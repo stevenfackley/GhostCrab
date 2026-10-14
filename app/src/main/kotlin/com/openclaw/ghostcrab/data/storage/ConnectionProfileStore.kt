@@ -149,11 +149,12 @@ class ConnectionProfileStore(
     }
 
     internal suspend fun wipeTokens() = withContext(ioDispatcher) {
-        try {
-            encryptedPrefs.edit().clear().apply()
+        val committed = try {
+            encryptedPrefs.edit().clear().commit()
         } catch (@Suppress("TooGenericExceptionCaught") e: Exception) {
             throw TokenWipeFailedException(e)
         }
+        if (!committed) throw TokenWipeFailedException(IllegalStateException("token store commit returned false"))
     }
 
     // ── EncryptedSharedPreferences ────────────────────────────────────────────
