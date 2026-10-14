@@ -85,7 +85,19 @@ class GatewayTlsException(
  */
 class ProfileNeedsReauthException(
     val profileId: String,
-) : GatewayException("Stored token for profile $profileId is no longer valid. Please reconnect.") {
+    cause: Throwable? = null,
+) : GatewayException("Stored token for profile $profileId is no longer valid. Please reconnect.", cause) {
+    override val isRetryable: Boolean = false
+}
+
+/**
+ * The saved-profiles store holds data this build cannot decode (corruption or a newer schema).
+ * Writes are refused so that data is never overwritten.
+ *
+ * @param cause The decoding failure.
+ */
+class ProfileStoreCorruptedException(cause: Throwable) :
+    GatewayException("Saved gateway profiles could not be read; refusing to overwrite them.", cause) {
     override val isRetryable: Boolean = false
 }
 

@@ -10,11 +10,13 @@ import androidx.datastore.preferences.preferencesDataStore
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import com.openclaw.ghostcrab.domain.exception.ProfileNeedsReauthException
+import com.openclaw.ghostcrab.domain.exception.ProfileStoreCorruptedException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
@@ -23,6 +25,29 @@ private val Context.profileDataStore: DataStore<Preferences> by preferencesDataS
 )
 
 private val KEY_PROFILES = stringPreferencesKey("profiles_json")
+
+/** Tolerates fields written by newer app versions; never used to swallow errors on write. */
+private val profileJson = Json { ignoreUnknownKeys = true }
+
+/** Decodes the stored list for display. Undecodable data reads as empty and is never written back. */
+internal fun decodeProfilesForRead(json: String?): List<StoredProfile> =
+    json?.let { runCatching { profileJson.decodeFromString<List<StoredProfile>>(it) }.getOrNull() }.orEmpty()
+
+/**
+ * Decodes the stored list before a read-modify-write.
+ *
+ * @param json The raw stored value, or `null` when nothing was stored yet.
+ * @return The stored profiles.
+ * @throws ProfileStoreCorruptedException if non-null data cannot be decoded; the write must abort.
+ */
+internal fun decodeProfilesForWrite(json: String?): List<StoredProfile> = when (json) {
+    null -> emptyList()
+    else -> try {
+        profileJson.decodeFromString<List<StoredProfile>>(json)
+    } catch (e: IllegalArgumentException) { // SerializationException is an IllegalArgumentException
+        throw ProfileStoreCorruptedException(e)
+    }
+}
 
 /**
  * Persists connection profile metadata in DataStore and bearer tokens in EncryptedSharedPreferences.
@@ -50,29 +75,20 @@ class ConnectionProfileStore(
     // ── DataStore ─────────────────────────────────────────────────────────────
 
     fun getProfilesFlow(): Flow<List<StoredProfile>> =
-        context.profileDataStore.data.map { prefs ->
-            val json = prefs[KEY_PROFILES] ?: return@map emptyList()
-            runCatching { Json.decodeFromString<List<StoredProfile>>(json) }.getOrElse { emptyList() }
-        }
+        context.profileDataStore.data.map { prefs -> decodeProfilesForRead(prefs[KEY_PROFILES]) }
 
     suspend fun saveProfile(profile: StoredProfile) {
         context.profileDataStore.edit { prefs ->
-            val current = run {
-                val json = prefs[KEY_PROFILES] ?: return@run emptyList()
-                runCatching { Json.decodeFromString<List<StoredProfile>>(json) }.getOrElse { emptyList() }
-            }
+            val current = decodeProfilesForWrite(prefs[KEY_PROFILES])
             val updated = current.filter { it.id != profile.id } + profile
-            prefs[KEY_PROFILES] = Json.encodeToString(updated)
+            prefs[KEY_PROFILES] = profileJson.encodeToString(updated)
         }
     }
 
     suspend fun deleteProfile(profileId: String) {
         context.profileDataStore.edit { prefs ->
-            val current = run {
-                val json = prefs[KEY_PROFILES] ?: return@run emptyList()
-                runCatching { Json.decodeFromString<List<StoredProfile>>(json) }.getOrElse { emptyList() }
-            }
-            prefs[KEY_PROFILES] = Json.encodeToString(current.filter { it.id != profileId })
+            val current = decodeProfilesForWrite(prefs[KEY_PROFILES])
+            prefs[KEY_PROFILES] = profileJson.encodeToString(current.filter { it.id != profileId })
         }
         clearToken(profileId)
     }
@@ -80,14 +96,17 @@ class ConnectionProfileStore(
     // ── EncryptedSharedPreferences ────────────────────────────────────────────
 
     /**
-     * Stores [token] encrypted in the Android Keystore for [profileId].
-     * Pass `null` to clear any existing token.
+     * Stores [token] encrypted in the Android Keystore for [profileId]. Pass `null` to clear it.
+     *
+     * @throws ProfileNeedsReauthException if the Keystore / encrypted prefs cannot be opened.
      */
     suspend fun saveToken(profileId: String, token: String?) = withContext(Dispatchers.IO) {
-        if (token == null) {
-            encryptedPrefs.edit().remove(tokenKey(profileId)).apply()
-        } else {
-            encryptedPrefs.edit().putString(tokenKey(profileId), token).apply()
+        try {
+            val editor = encryptedPrefs.edit()
+            if (token == null) editor.remove(tokenKey(profileId)) else editor.putString(tokenKey(profileId), token)
+            editor.apply()
+        } catch (@Suppress("TooGenericExceptionCaught") e: Exception) {
+            throw ProfileNeedsReauthException(profileId, e)
         }
     }
 
@@ -103,7 +122,7 @@ class ConnectionProfileStore(
         } catch (e: Exception) {
             // Keystore entry unreadable — clear it and force re-auth
             runCatching { clearToken(profileId) }
-            throw ProfileNeedsReauthException(profileId)
+            throw ProfileNeedsReauthException(profileId, e)
         }
     }
 
