@@ -200,7 +200,8 @@ public final class ConfigEditorViewModel {
     /// config.
     ///
     /// - On success: transitions to a fresh ready state with `saveSuccess = true`.
-    /// - On HTTP 412: reloads config and surfaces a concurrent-edit warning.
+    /// - On HTTP 412 (stale `baseHash`): reloads config, keeps every pending edit (the conflicting one included,
+    ///   so ``forceOverwrite(_:)`` can re-send it against the fresh hash) and surfaces a concurrent-edit warning.
     /// - On `configValidation`: sets the field error inline.
     /// - On any other error: transitions to ``ConfigEditorUiState/error(message:)``.
     ///
@@ -222,13 +223,26 @@ public final class ConfigEditorViewModel {
                 let updated = try await self.configRepository.getConfig()
                 self.state = .ready(config: updated, saveSuccess: true)
             } catch GatewayError.api(_, let statusCode, let body) where statusCode == 412 {
-                // Concurrent edit. Reload + surface dialog.
+                // Concurrent edit. Reload (the repository now holds the fresh hash) + surface dialog. The latest
+                // state's edits survive, including any made while the save was in flight.
                 do {
                     let reloaded = try await self.configRepository.getConfig()
-                    self.state = .ready(
-                        config: reloaded,
-                        concurrentEditSection: section
-                    )
+                    if case .ready(_, let pending, let fieldErrors, let saveSection, let saveSuccess, _) = self.state {
+                        self.state = .ready(
+                            config: reloaded,
+                            pendingChanges: pending,
+                            fieldErrors: fieldErrors,
+                            pendingSaveSection: saveSection,
+                            saveSuccess: saveSuccess,
+                            concurrentEditSection: section
+                        )
+                    } else {
+                        self.state = .ready(
+                            config: reloaded,
+                            pendingChanges: [section: newValue],
+                            concurrentEditSection: section
+                        )
+                    }
                 } catch {
                     self.state = .error(
                         message: "Concurrent edit detected and reload failed: \(body ?? "HTTP 412")"
@@ -305,7 +319,22 @@ public final class ConfigEditorViewModel {
         )
     }
 
-    /// Dismisses the concurrent-edit warning dialog.
+    /// The concurrent-edit dialog's "Reload and discard": the failed save already loaded the latest config, so this
+    /// closes the dialog and drops `section`'s pending edit and field errors. Other sections' edits stay. Takes the
+    /// section explicitly, so it works whether or not the alert binding cleared the dialog first.
+    public func discardConflictingEdit(_ section: String) {
+        acknowledgeConflict()
+        discardSection(section)
+    }
+
+    /// The concurrent-edit dialog's "Force overwrite": closes the dialog and writes `section`'s pending edit again,
+    /// against the hash of the config the conflict reloaded. No-op when the section has no pending edit.
+    public func forceOverwrite(_ section: String) {
+        acknowledgeConflict()
+        confirmSave(section)
+    }
+
+    /// Dismisses the concurrent-edit warning dialog; pending edits stay.
     public func acknowledgeConflict() {
         guard case .ready(let config, let pending, let fieldErrors, let saveSection, let saveSuccess, _) = state else {
             return

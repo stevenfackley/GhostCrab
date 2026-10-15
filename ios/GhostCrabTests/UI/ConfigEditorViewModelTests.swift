@@ -1,9 +1,90 @@
+import Foundation
 import Testing
 @testable import GhostCrab
 
 @MainActor
 @Suite("ConfigEditorViewModel")
 struct ConfigEditorViewModelTests {
+
+    private static let freshHash = "hmac-sha256:v1:after-someone-elses-write"
+
+    /// `res-config-get` with its `hash` replaced: the config as someone else's write left it.
+    private func configGetFrame(hash: String) throws -> String {
+        var frame = try jsonObject(try GatewayFixtures.text("res-config-get"))
+        var payload = try #require(frame["payload"] as? [String: Any])
+        payload["hash"] = hash
+        frame["payload"] = payload
+        return String(decoding: try JSONSerialization.data(withJSONObject: frame), as: UTF8.self)
+    }
+
+    /// An editor over the real repository whose `gateway` save just hit a stale `baseHash` (someone else wrote
+    /// first): `config.get` answers the loaded hash, then ``freshHash``; the first `config.patch` is rejected as
+    /// stale, every later one succeeds. Pending edits: `gateway.port` 18790 and an `agents` edit.
+    private func conflictedEditor() async throws -> (ConfigEditorViewModel, ScriptedGatewayWebSocket) {
+        let replies: [String: [String]] = [
+            "config.get": [try GatewayFixtures.text("res-config-get"), try configGetFrame(hash: Self.freshHash)],
+            "config.patch": [try GatewayFixtures.text("err-config-stale-hash"), try GatewayFixtures.text("res-config-patch")],
+        ]
+        let socket = try ScriptedGatewayWebSocket(challenge: false, replies: replies)
+        let rpc = await startedRPC(socket)
+        let vm = ConfigEditorViewModel(config: ConfigRepositoryImpl(session: { rpc }), gateway: FakeGatewayConnectionManager())
+        vm.loadConfig()
+        await vm.loadTask?.value
+        vm.editSection("gateway", value: AnyCodable(["port": AnyCodable(18790)]))
+        vm.editSection("agents", value: AnyCodable(["note": AnyCodable("kept")]))
+        vm.confirmSave("gateway")
+        await vm.saveTask?.value
+        return (vm, socket)
+    }
+
+    @Test func aConflictReloadsTheConfigAndKeepsThePendingEdits() async throws {
+        let (vm, _) = try await conflictedEditor()
+        guard case .ready(let config, let pending, _, _, _, let conflict) = vm.state else {
+            Issue.record("expected ready, got \(vm.state)")
+            return
+        }
+        #expect(conflict == "gateway")
+        #expect(config.etag == Self.freshHash)
+        #expect(pending["gateway"]?.objectValue?["port"]?.value as? Int == 18790)
+        #expect(pending["agents"] != nil)
+    }
+
+    @Test func forceOverwriteResendsThePendingEditAgainstTheFreshHash() async throws {
+        let (vm, socket) = try await conflictedEditor()
+
+        vm.forceOverwrite("gateway")
+        await vm.saveTask?.value
+
+        let patches = await socket.sentRequests("config.patch")
+        #expect(patches.count == 2)
+        let retry = try jsonObject(try #require(patches.last))
+        #expect((retry["params"] as? [String: Any])?["baseHash"] as? String == Self.freshHash)
+        #expect((retry["params"] as? [String: Any])?["raw"] as? String == #"{"gateway":{"port":18790}}"#)
+        guard case .ready(_, let pending, _, _, let saveSuccess, let conflict) = vm.state else {
+            Issue.record("expected ready, got \(vm.state)")
+            return
+        }
+        #expect(saveSuccess)
+        #expect(conflict == nil)
+        #expect(pending["gateway"] == nil)
+    }
+
+    @Test func reloadAndDiscardDropsOnlyTheConflictingEditAndWritesNothing() async throws {
+        let (vm, socket) = try await conflictedEditor()
+
+        vm.discardConflictingEdit("gateway")
+
+        guard case .ready(let config, let pending, _, _, _, let conflict) = vm.state else {
+            Issue.record("expected ready, got \(vm.state)")
+            return
+        }
+        #expect(conflict == nil)
+        #expect(config.etag == Self.freshHash) // the conflict already loaded the latest values
+        #expect(pending["gateway"] == nil)
+        #expect(pending["agents"] != nil)
+        #expect(await socket.sentRequests("config.patch").count == 1)
+        #expect(vm.saveTask == nil)
+    }
 
     @Test func secondConfirmWhileSavingIsIgnored() async {
         let repo = FakeConfigRepository(config: OpenClawConfig(sections: ["gateway": AnyCodable(["port": 18789])]))

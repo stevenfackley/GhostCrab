@@ -40,19 +40,17 @@ public struct ConfigEditorScreen: View {
             isPresented: concurrentEditBinding,
             presenting: concurrentEditSection
         ) { section in
-            Button("Reload") {
-                vm.acknowledgeConflict()
-                vm.loadConfig()
+            Button("Reload and discard") {
+                vm.discardConflictingEdit(section)
             }
             Button("Force overwrite", role: .destructive) {
-                vm.acknowledgeConflict()
-                vm.confirmSave(section)
+                vm.forceOverwrite(section)
             }
             Button("Dismiss", role: .cancel) {
                 vm.acknowledgeConflict()
             }
         } message: { section in
-            Text("Someone else updated this config since you loaded section \"\(section)\". The latest values have been loaded.")
+            Text("Someone else updated this config since you loaded section \"\(section)\". The latest values have been loaded; your edit to this section is still pending.")
         }
         .task {
             vm.start()
