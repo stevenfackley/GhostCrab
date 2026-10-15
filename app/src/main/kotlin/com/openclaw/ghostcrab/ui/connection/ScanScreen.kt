@@ -39,8 +39,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.openclaw.ghostcrab.R
 import com.openclaw.ghostcrab.domain.model.DiscoveredGateway
 import com.openclaw.ghostcrab.ui.components.GlassSurface
 import com.openclaw.ghostcrab.ui.components.ObserveAsEvents
@@ -333,8 +335,7 @@ private fun EmptyResultsContent(
         verticalArrangement = Arrangement.Center,
     ) {
         Text(
-            text = "No OpenClaw gateways detected on this network.\n" +
-                "mDNS may be blocked — try entering the URL manually.",
+            text = stringResource(R.string.scan_empty_results),
             style = MaterialTheme.typography.bodyMedium,
             color = BrandTokens.colorTextSecondary,
         )

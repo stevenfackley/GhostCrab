@@ -239,6 +239,8 @@
     <string name="onboarding_troubleshoot_scan_1">Is your phone on the same Wi-Fi as the host?</string>
     <string name="onboarding_troubleshoot_scan_2">Does your router allow mDNS / multicast?</string>
     <string name="onboarding_troubleshoot_scan_3">Is client isolation disabled on the access point?</string>
+    <string name="onboarding_troubleshoot_scan_4">Linux, Windows or Docker gateway? Bonjour is off by default there: run openclaw plugins enable bonjour on the gateway host.</string>
+    <string name="scan_empty_results">No OpenClaw gateways detected on this network. Gateways on Linux, Windows or Docker advertise only after: openclaw plugins enable bonjour. Docker bridge networking does not carry mDNS. Try entering the URL manually.</string>
     <string name="onboarding_troubleshoot_firewall_title">Firewall blocking port 18789</string>
     <string name="onboarding_troubleshoot_firewall_windows">Windows (PowerShell as Admin): New-NetFirewallRule -DisplayName "OpenClaw Gateway" -Direction Inbound -Protocol TCP -LocalPort 18789 -Action Allow -Profile Private</string>
     <string name="onboarding_troubleshoot_firewall_macos" tools:ignore="TypographyDashes">macOS: System Settings → Network → Firewall → Options → add openclaw, or run: sudo /usr/libexec/ApplicationFirewall/socketfilterfw --add $(which openclaw)</string>
