@@ -48,8 +48,10 @@ class ConfigRepositoryImpl(
     /**
      * @param section Top-level key, e.g. `gateway`.
      * @param value Merge-patch value for that section.
-     * @throws com.openclaw.ghostcrab.domain.exception.GatewayApiException 412 on a stale or missing hash, 422 on a
-     *   rejected value (the body is the server text, naming the first failing path).
+     * @throws com.openclaw.ghostcrab.domain.exception.ConfigValidationException when the gateway's schema check
+     *   rejects the value (`details.issues[0]`: its `path`, e.g. `gateway.port`, and `message`).
+     * @throws com.openclaw.ghostcrab.domain.exception.GatewayApiException 412 on a stale or missing hash, 422 on
+     *   any other rejected patch (the body is the server text, e.g. a JSON5 syntax error).
      * @throws com.openclaw.ghostcrab.domain.exception.GatewayMissingScopeException without `operator.admin`.
      * @throws com.openclaw.ghostcrab.domain.exception.GatewayNotConnectedException if no session is active.
      */

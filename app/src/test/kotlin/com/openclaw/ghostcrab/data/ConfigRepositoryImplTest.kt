@@ -3,6 +3,7 @@ package com.openclaw.ghostcrab.data
 import com.openclaw.ghostcrab.data.gateway.GatewayRpcClient
 import com.openclaw.ghostcrab.data.gateway.stringOrNull
 import com.openclaw.ghostcrab.data.impl.ConfigRepositoryImpl
+import com.openclaw.ghostcrab.domain.exception.ConfigValidationException
 import com.openclaw.ghostcrab.domain.exception.GatewayApiException
 import com.openclaw.ghostcrab.domain.exception.GatewayMissingScopeException
 import com.openclaw.ghostcrab.domain.exception.GatewayNotConnectedException
@@ -132,13 +133,30 @@ class ConfigRepositoryImplTest {
         assertEquals(412, e.statusCode)
     }
 
-    @Test fun `a validation rejection is HTTP-422 style with the server text`() = runTest {
+    @Test fun `a validation rejection names the field from details issues`() = runTest {
         val socket = rpc(configSession(GatewayFixtures.frame("err-config-invalid")))
         val repo = ConfigRepositoryImpl { socket }
         val patch = buildJsonObject { put("port", 99999) }
-        val e = assertThrows<GatewayApiException> { repo.updateConfig("gateway", patch) }
+        val e = assertThrows<ConfigValidationException> { repo.updateConfig("gateway", patch) }
+        assertEquals("gateway.port", e.field)
+        assertEquals("Too big: expected number to be <=65535 (maximum: 65535)", e.reason)
+    }
+
+    @Test fun `an INVALID_REQUEST without issues is HTTP-422 style with the server text`() = runTest {
+        val syntaxError = buildJsonObject {
+            put("type", "res")
+            put("ok", false)
+            putJsonObject("error") {
+                put("code", "INVALID_REQUEST")
+                put("message", "SyntaxError: JSON5: invalid end of input at 1:2")
+            }
+        }
+        val socket = rpc(configSession(syntaxError))
+        val e = assertThrows<GatewayApiException> {
+            ConfigRepositoryImpl { socket }.updateConfig("gateway", JsonObject(emptyMap()))
+        }
         assertEquals(422, e.statusCode)
-        assertTrue(e.body.orEmpty().startsWith("invalid config: gateway.port"))
+        assertEquals("SyntaxError: JSON5: invalid end of input at 1:2", e.body)
     }
 
     @Test fun `a write error other than INVALID_REQUEST passes through typed`() = runTest {

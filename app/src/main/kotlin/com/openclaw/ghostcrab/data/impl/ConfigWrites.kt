@@ -1,8 +1,11 @@
 package com.openclaw.ghostcrab.data.impl
 
+import com.openclaw.ghostcrab.data.gateway.stringOrNull
+import com.openclaw.ghostcrab.domain.exception.ConfigValidationException
 import com.openclaw.ghostcrab.domain.exception.GatewayApiException
 import com.openclaw.ghostcrab.domain.exception.GatewayException
 import com.openclaw.ghostcrab.domain.exception.GatewayRpcException
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -32,19 +35,30 @@ internal fun configPatchParams(patch: JsonObject, baseHash: String?): JsonObject
 private val STALE_HASH_PREFIXES = listOf("config changed since last load", "config base hash required")
 
 /**
- * Maps a rejected `config.patch` onto the frozen `ConfigRepository` contract: a stale, unknown or missing
- * `baseHash` becomes a 412-style [GatewayApiException] (callers reload), any other `INVALID_REQUEST` (schema
- * validation with `details.issues[{path, message, allowedValues?}]`, a JSON5 syntax error, array removal without
- * `replacePaths`) a 422-style one carrying the server text, which names the first failing path; anything else
- * passes through.
+ * Maps a rejected `config.patch` onto the frozen `ConfigRepository` contract:
+ * - a stale, unknown or missing `baseHash` → 412-style [GatewayApiException] (callers reload);
+ * - schema validation (`INVALID_REQUEST` with `details.issues[{path, message, allowedValues?}]`) →
+ *   [ConfigValidationException] for the first issue, so the editor shows it inline on that field;
+ * - any other `INVALID_REQUEST` (a JSON5 syntax error, array removal without `replacePaths`, issues without a
+ *   path and message) → 422-style [GatewayApiException] carrying the server text;
+ * - anything else passes through.
  *
  * @return The exception to throw.
  */
 internal fun GatewayRpcException.toConfigWriteException(): GatewayException = when {
     isStaleBaseHash() -> GatewayApiException(url, STATUS_PRECONDITION_FAILED, rpcMessage)
-    code == CODE_INVALID_REQUEST -> GatewayApiException(url, STATUS_UNPROCESSABLE, rpcMessage)
+    code == CODE_INVALID_REQUEST ->
+        firstIssue() ?: GatewayApiException(url, STATUS_UNPROCESSABLE, rpcMessage)
     else -> this
 }
 
 private fun GatewayRpcException.isStaleBaseHash(): Boolean =
     code == CODE_INVALID_REQUEST && STALE_HASH_PREFIXES.any { rpcMessage.startsWith(it) }
+
+/** `details.issues[0]` as a field error (e.g. `gateway.port` → `Too big: …`), or `null` without path and message. */
+private fun GatewayRpcException.firstIssue(): ConfigValidationException? {
+    val issue = (details?.get("issues") as? JsonArray)?.firstOrNull() as? JsonObject
+    val path = issue?.stringOrNull("path")?.takeIf { it.isNotBlank() }
+    val message = issue?.stringOrNull("message")?.takeIf { it.isNotBlank() }
+    return if (path != null && message != null) ConfigValidationException(path, message) else null
+}

@@ -9,6 +9,7 @@ import com.openclaw.ghostcrab.domain.exception.GatewayMissingScopeException
 import com.openclaw.ghostcrab.domain.exception.GatewayNotConnectedException
 import com.openclaw.ghostcrab.domain.exception.GatewayProtocolException
 import com.openclaw.ghostcrab.domain.exception.GatewayTimeoutException
+import com.openclaw.ghostcrab.domain.exception.GatewayUnreachableException
 import com.openclaw.ghostcrab.domain.model.SkillInstallError
 import com.openclaw.ghostcrab.domain.model.SkillInstallProgress
 import com.openclaw.ghostcrab.domain.model.SkillSource
@@ -145,6 +146,14 @@ class InstalledSkillRepositoryImplTest {
         assertEquals(SkillSource.ClawHub, installed.source)
     }
 
+    @Test fun `the stand-in entry of an install whose refresh failed lands in observeInstalled`() = runTest {
+        val session = ScriptedWsSession(respond = fixtures("skills.install" to "res-skills-install"))
+        val repo = skillsRepo(session, requestTimeoutMs = 1_000)
+        val installed = (repo.install("@steipete/weather", null).toList().last() as SkillInstallProgress.Succeeded)
+            .installed
+        assertEquals(listOf(installed), repo.observeInstalled().first())
+    }
+
     @Test fun `an unknown slug ends NotFound`() = runTest {
         val repo = skillsRepo(ScriptedWsSession(respond = fixtures("skills.install" to "err-skill-not-found")))
         repo.install("qa-nonexistent-skill-zz9", null).test {
@@ -232,7 +241,11 @@ class InstalledSkillRepositoryImplTest {
             },
         )
         val repo = skillsRepo(session)
+        val started = testScheduler.currentTime
         assertTrue(repo.setSkillEnabled("browser-automation", enabled = false).isSuccess)
+        // No virtual time passed: the early config.changed was observed (subscribed UNDISPATCHED before the
+        // write), not masked by the 2 s cap.
+        assertEquals(0L, testScheduler.currentTime - started)
         val params = session.paramsOf("skills.update")
         assertEquals("browser-automation", params.stringOrNull("skillKey"))
         assertEquals("false", params["enabled"].toString())
@@ -251,6 +264,18 @@ class InstalledSkillRepositoryImplTest {
         assertEquals(2_000L, testScheduler.currentTime - started)
         val methods = session.sent.map { it.stringOrNull("method") }
         assertEquals(listOf("skills.status", "skills.update", "skills.status"), methods)
+    }
+
+    @Test fun `the socket ending during the config changed wait fails typed without waiting out the cap`() = runTest {
+        val session = ScriptedWsSession(
+            closeAfterReplyTo = setOf("skills.update"),
+            respond = fixtures("skills.status" to "res-skills-status", "skills.update" to "res-skills-update"),
+        )
+        val repo = skillsRepo(session)
+        val started = testScheduler.currentTime
+        val result = repo.setSkillEnabled("browser-automation", enabled = false)
+        assertInstanceOf(GatewayUnreachableException::class.java, result.exceptionOrNull())
+        assertEquals(0L, testScheduler.currentTime - started)
     }
 
     @Test fun `an owner-qualified key is reduced to the bare skill key`() = runTest {

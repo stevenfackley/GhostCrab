@@ -1,5 +1,7 @@
 package com.openclaw.ghostcrab.ui
 
+import com.openclaw.ghostcrab.data.gateway.GatewayRpcClient
+import com.openclaw.ghostcrab.data.impl.ConfigRepositoryImpl
 import com.openclaw.ghostcrab.domain.exception.ConfigValidationException
 import com.openclaw.ghostcrab.domain.exception.GatewayApiException
 import com.openclaw.ghostcrab.domain.model.AuthRequirement
@@ -8,6 +10,8 @@ import com.openclaw.ghostcrab.domain.model.OpenClawConfig
 import com.openclaw.ghostcrab.domain.repository.ConfigRepository
 import com.openclaw.ghostcrab.domain.repository.GatewayConnectionManager
 import com.openclaw.ghostcrab.ui.config.ConfigEditorUiState
+import com.openclaw.ghostcrab.testutil.GatewayFixtures
+import com.openclaw.ghostcrab.testutil.ScriptedWsSession
 import com.openclaw.ghostcrab.ui.config.ConfigEditorViewModel
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -313,6 +317,36 @@ class ConfigEditorViewModelTest {
 
         val state = vm.state.value as ConfigEditorUiState.Ready
         assertEquals("Must be 1-65535", state.fieldErrors["gateway.http.port"])
+    }
+
+    @Test
+    fun `a gateway validation rejection becomes an inline field error, not a save error`() = runTest(testDispatcher) {
+        // The real repository over the captured 2026.10.3 frames: config.patch answers err-config-invalid.
+        val session = ScriptedWsSession(
+            respond = { method, _ ->
+                when (method) {
+                    "config.get" -> GatewayFixtures.frame("res-config-get")
+                    "config.patch" -> GatewayFixtures.frame("err-config-invalid")
+                    else -> null
+                }
+            },
+        )
+        val rpc = GatewayRpcClient.create(session, "ws://gw/ws", UnconfinedTestDispatcher(testScheduler))
+        val vm = ConfigEditorViewModel(
+            connectionManager = FakeConfigConnectionManager(MutableStateFlow(connectedState)),
+            configRepository = ConfigRepositoryImpl { rpc },
+        )
+        advanceUntilIdle()
+
+        val edit = JsonObject(mapOf("port" to JsonPrimitive(99999)))
+        vm.editSection("gateway", edit)
+        vm.confirmSave("gateway")
+        advanceUntilIdle()
+
+        val state = vm.state.value as ConfigEditorUiState.Ready
+        assertEquals("Too big: expected number to be <=65535 (maximum: 65535)", state.fieldErrors["gateway.port"])
+        assertNull(state.saveError)
+        assertEquals(mapOf("gateway" to edit), state.pendingChanges)
     }
 
     @Test

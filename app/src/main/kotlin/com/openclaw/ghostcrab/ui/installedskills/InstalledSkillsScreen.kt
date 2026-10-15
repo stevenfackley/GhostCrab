@@ -228,6 +228,14 @@ private fun EmptyState(modifier: Modifier) {
                     color = BrandTokens.colorTextSecondary,
                 ),
             )
+            Spacer(Modifier.height(Spacing.xs))
+            Text(
+                text = stringResource(R.string.installed_skills_empty_command),
+                style = MaterialTheme.typography.bodySmall.copy(
+                    fontFamily = MonoFontFamily,
+                    color = BrandTokens.colorCyanPulse,
+                ),
+            )
         }
     }
 }

@@ -13,8 +13,8 @@ import kotlinx.coroutines.flow.Flow
 interface InstalledSkillRepository {
 
     /**
-     * Hot flow of the current installed-skill list. Refreshed when the gateway reports
-     * install/uninstall success. Starts empty until the first [refreshFromGateway] succeeds.
+     * Hot flow of the current installed-skill list. Updated by every `skills.status` read (including the re-reads
+     * after an install and after [setSkillEnabled]). Starts empty until the first [refreshFromGateway] succeeds.
      */
     fun observeInstalled(): Flow<List<InstalledSkill>>
 
@@ -30,7 +30,15 @@ interface InstalledSkillRepository {
      */
     fun install(slug: String, version: String? = null): Flow<SkillInstallProgress>
 
-    /** Remove a previously-installed skill. */
+    /**
+     * Remove a previously-installed skill.
+     *
+     * OpenClaw gateways have no skill-removal method (ADR-0007), so on them this always fails with
+     * `GatewayMethodUnsupportedException` and sends nothing. Disable the skill with [setSkillEnabled] instead.
+     *
+     * @param slug The skill to remove.
+     * @return Failure on OpenClaw gateways (see above).
+     */
     suspend fun uninstall(slug: String): Result<Unit>
 
     /**

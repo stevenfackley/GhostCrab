@@ -132,8 +132,8 @@ class ConfigEditorViewModel(
      * On success: reloads config, drops [section]'s pending edit only if it is still the saved value,
      *   sets saveSuccess.
      * On 412: reloads config, keeps every pending edit, sets `concurrentEditSection`.
-     * On 422 / [ConfigValidationException]: sets the field error inline.
-     * On other errors (or a failed reload after 412): keeps every pending edit, sets `saveError`.
+     * On [ConfigValidationException] (the gateway's schema check, `details.issues[0]`): sets the field error inline.
+     * On other errors, 422 included (or a failed reload after 412): keeps every pending edit, sets `saveError`.
      *
      * @param section Top-level section key to write.
      */

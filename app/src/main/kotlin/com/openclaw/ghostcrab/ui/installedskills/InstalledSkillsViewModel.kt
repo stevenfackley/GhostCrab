@@ -45,7 +45,7 @@ class InstalledSkillsViewModel(
     // ── Public API ────────────────────────────────────────────────────────────
 
     /**
-     * Triggers a one-shot refresh from `skills.list`. Sets
+     * Triggers a one-shot refresh from `skills.status`. Sets
      * [InstalledSkillsUiState.Ready.errorMessage] on failure.
      */
     fun refresh() {
