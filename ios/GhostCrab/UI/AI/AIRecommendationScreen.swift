@@ -7,13 +7,16 @@ import SwiftUI
 /// 2. Middle — scrollable response area (loading spinner / markdown response / empty state / error).
 /// 3. Bottom — sticky "Apply suggested config" button when the response includes a patch.
 ///
-/// Error UX:
-/// - `skillUnavailable` shows a prominent install CTA → `navigate(.installedSkills)`.
-/// - `quotaExceeded` and other errors render as a crimson banner inside a `GlassSurface`.
+/// Availability: the screen first asks the service. OpenClaw gateways have no
+/// recommendation API (ADR-0007), so today it explains that and offers no
+/// prompt; the Dashboard hides its tile for the same reason.
+///
+/// Error UX: every error, `skillUnavailable` included, renders as a crimson
+/// banner inside a `GlassSurface`. Nothing offers to install a skill: none adds
+/// recommendations.
 public struct AIRecommendationScreen: View {
 
     @Environment(\.appContainer) private var container
-    @Environment(\.navigate) private var navigate
 
     @State private var vm: AIRecommendationViewModel?
 
@@ -38,6 +41,7 @@ public struct AIRecommendationScreen: View {
         #endif
         .onAppear {
             if vm == nil { vm = container.makeAIRecommendationVM() }
+            vm?.checkAvailability()
         }
         .onDisappear {
             vm?.cancelInFlight()
@@ -48,6 +52,48 @@ public struct AIRecommendationScreen: View {
 
     @ViewBuilder
     private func content(vm: AIRecommendationViewModel) -> some View {
+        switch vm.available {
+        case nil:
+            ProgressView().tint(DesignTokens.Color.cyanPulse)
+        case false?:
+            unavailableView
+        case true?:
+            availableContent(vm: vm)
+        }
+    }
+
+    // MARK: - Unavailable
+
+    @ViewBuilder
+    private var unavailableView: some View {
+        VStack {
+            GlassSurface {
+                VStack(alignment: .leading, spacing: DesignTokens.Spacing.sm) {
+                    HStack(spacing: DesignTokens.Spacing.sm) {
+                        Image(systemName: "sparkles")
+                            .foregroundStyle(DesignTokens.Color.amberWarn)
+                        Text(AIRecommendationError.unavailableTitle)
+                            .font(AppFont.bodyBold(15))
+                            .foregroundStyle(DesignTokens.Color.textPrimary)
+                    }
+                    Text(AIRecommendationError.unavailableBody)
+                        .font(AppFont.body(13))
+                        .foregroundStyle(DesignTokens.Color.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(DesignTokens.Spacing.md)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            Spacer()
+        }
+        .padding(.horizontal, DesignTokens.Spacing.md)
+        .padding(.vertical, DesignTokens.Spacing.sm)
+    }
+
+    // MARK: - Available
+
+    @ViewBuilder
+    private func availableContent(vm: AIRecommendationViewModel) -> some View {
         VStack(spacing: DesignTokens.Spacing.md) {
             promptRow(vm: vm)
             responseArea(vm: vm)
@@ -73,7 +119,7 @@ public struct AIRecommendationScreen: View {
             VStack(alignment: .leading, spacing: DesignTokens.Spacing.sm) {
                 HStack(alignment: .top, spacing: DesignTokens.Spacing.sm) {
                     TextField(
-                        "Ask the gateway\u{2019}s AI\u{2026}",
+                        "Describe what to optimize\u{2026}",
                         text: Binding(
                             get: { vm.prompt },
                             set: { vm.prompt = $0 }
@@ -121,8 +167,8 @@ public struct AIRecommendationScreen: View {
             } else {
                 EmptyState(
                     icon: "brain",
-                    title: "Ask the gateway\u{2019}s AI",
-                    message: "Get configuration suggestions from your gateway\u{2019}s installed AI skill."
+                    title: "Recommendations",
+                    message: "Describe a goal, e.g. \u{201C}best coding model for 16 GB RAM\u{201D}. Suggested config changes are applied only after you confirm them."
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -222,14 +268,6 @@ public struct AIRecommendationScreen: View {
                     .foregroundStyle(DesignTokens.Color.textPrimary)
 
                 HStack(spacing: DesignTokens.Spacing.sm) {
-                    if case .skillUnavailable = error {
-                        Button("Install ai.recommend skill") {
-                            navigate(.installedSkills)
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .tint(DesignTokens.Color.cyanPrimary)
-                        .foregroundStyle(DesignTokens.Color.abyss)
-                    }
                     Button("Dismiss") { vm.dismissError() }
                         .buttonStyle(.bordered)
                         .tint(DesignTokens.Color.textSecondary)

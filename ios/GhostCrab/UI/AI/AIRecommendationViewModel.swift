@@ -5,8 +5,10 @@ import Observation
 ///
 /// Mirrors the Android `AIRecommendationViewModel` but trimmed to the wave-4-leaf
 /// scope: free-text prompt → response, with an optional suggested config patch
-/// that the user can confirm via a sheet. In-app skill install is delegated to
-/// the InstalledSkills screen by way of a navigation hint.
+/// that the user can confirm via a sheet. ``checkAvailability()`` asks the
+/// service first: OpenClaw gateways have no recommendation API (ADR-0007), so
+/// today ``available`` is `false` and the screen says so instead of offering a
+/// prompt.
 @MainActor
 @Observable
 public final class AIRecommendationViewModel {
@@ -27,6 +29,14 @@ public final class AIRecommendationViewModel {
 
     /// Whether the screen should present the "apply suggested patch" sheet.
     public var isPresentingPatch: Bool = false
+
+    /// Whether the gateway serves recommendations: `nil` until
+    /// ``checkAvailability()`` finished, `false` for every OpenClaw gateway
+    /// today (ADR-0007).
+    public private(set) var available: Bool?
+
+    /// In-flight availability check. Read-only outside the VM so tests can await it.
+    @ObservationIgnored private(set) var availabilityTask: Task<Void, Never>?
 
     /// In-flight recommendation request. Read-only outside the VM so tests can await it.
     @ObservationIgnored private(set) var submitTask: Task<Void, Never>?
@@ -57,7 +67,20 @@ public final class AIRecommendationViewModel {
 
     // MARK: - Public API
 
-    /// Submits ``prompt`` to the gateway's AI skill.
+    /// Asks the service whether the gateway serves recommendations and
+    /// publishes the answer in ``available``. Ignored while a check is in
+    /// flight or once it has finished.
+    public func checkAvailability() {
+        guard availabilityTask == nil, available == nil else { return }
+        availabilityTask = Task { [weak self, ai] in
+            let answer = await ai.isAvailable()
+            guard let self, !Task.isCancelled else { return }
+            self.available = answer
+            self.availabilityTask = nil
+        }
+    }
+
+    /// Submits ``prompt`` to the gateway's recommendation service.
     ///
     /// Auto-collects ``RecommendationContext`` from the current connection,
     /// installed config, and active model. Network failures for context loaders
@@ -205,16 +228,23 @@ public final class AIRecommendationViewModel {
 
 /// View-facing error shape for the AI recommendation screen.
 ///
-/// Direct port of the Android `Error` / `SkillUnavailable` distinction — we keep
-/// it small here since the install flow lives in the dedicated InstalledSkills
-/// screen on iOS.
+/// Direct port of the Android `Error` / `SkillUnavailable` distinction. No case
+/// offers an install: no skill adds recommendations to an OpenClaw gateway
+/// (ADR-0007).
 public enum AIRecommendationError: Sendable, Equatable {
-    /// The gateway does not have the AI recommendation skill installed.
+    /// The gateway serves no recommendations (every OpenClaw gateway today, ADR-0007).
     case skillUnavailable(url: String)
     /// The AI rate limit was exceeded.
     case quotaExceeded(url: String)
     /// Generic gateway-side error (network, auth, API).
     case other(message: String)
+
+    /// Headline shown wherever recommendations are unavailable.
+    public static let unavailableTitle = "AI recommendations unavailable"
+
+    /// Why recommendations are unavailable, and what would bring them back (same copy as Android).
+    public static let unavailableBody = "OpenClaw gateways have no recommendation API, and no skill adds one. "
+        + "GhostCrab will offer recommendations again once they can run as an agent turn on your gateway (chat.send)."
 
     public init(gatewayError: GatewayError) {
         switch gatewayError {
@@ -230,7 +260,7 @@ public enum AIRecommendationError: Sendable, Equatable {
     public var headline: String {
         switch self {
         case .skillUnavailable:
-            return "AI skill not installed"
+            return AIRecommendationError.unavailableTitle
         case .quotaExceeded:
             return "AI rate limit exceeded"
         case .other:
@@ -241,7 +271,7 @@ public enum AIRecommendationError: Sendable, Equatable {
     public var body: String {
         switch self {
         case .skillUnavailable(let url):
-            return "The gateway at \(url) doesn't expose the ai.recommend skill. Install it to use recommendations."
+            return "The gateway at \(url) serves no recommendations. \(AIRecommendationError.unavailableBody)"
         case .quotaExceeded(let url):
             return "Gateway at \(url) rate-limited the request. Wait a few seconds before retrying."
         case .other(let message):

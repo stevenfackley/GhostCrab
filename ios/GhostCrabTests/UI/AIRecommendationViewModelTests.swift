@@ -17,6 +17,30 @@ struct AIRecommendationViewModelTests {
         )
     }
 
+    @Test func anUnavailableServiceIsReportedAsUnavailable() async {
+        let vm = makeVM(ai: FakeAIRecommendationService(available: false))
+        #expect(vm.available == nil)
+        vm.checkAvailability()
+        await vm.availabilityTask?.value
+        #expect(vm.available == false)
+        #expect(vm.availabilityTask == nil)
+    }
+
+    @Test func anAvailableServiceIsReportedAsAvailable() async {
+        let vm = makeVM(ai: FakeAIRecommendationService(available: true))
+        vm.checkAvailability()
+        await vm.availabilityTask?.value
+        #expect(vm.available == true)
+    }
+
+    @Test func theUnavailableErrorSaysWhyAndOffersNoInstall() {
+        let error = AIRecommendationError(gatewayError: .aiServiceUnavailable(url: "ws://192.168.1.50:18789/ws"))
+        #expect(error == .skillUnavailable(url: "ws://192.168.1.50:18789/ws"))
+        #expect(error.headline == "AI recommendations unavailable")
+        #expect(error.body.contains("no recommendation API"))
+        #expect(!error.body.localizedCaseInsensitiveContains("install it"))
+    }
+
     @Test func doubleApplyPatchWritesOnce() async {
         let change = SuggestedChange(section: "gateway", key: "port", currentValue: "18789", suggestedValue: "18790")
         let config = FakeConfigRepository(config: OpenClawConfig(sections: [:]))

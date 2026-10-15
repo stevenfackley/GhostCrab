@@ -88,10 +88,7 @@ public struct InstalledSkillsScreen: View {
             EmptyState(
                 icon: "puzzlepiece.extension",
                 title: "No skills installed",
-                message: "Skills extend the gateway with new features. Install the AI Recommendation skill to enable suggested config patches.",
-                action: ("Install AI Recommendation skill", {
-                    vm.install(slug: aiRecommendationSkillSlug, version: nil)
-                })
+                message: "Skills extend the gateway with new features. Install one from ClawHub with the + button."
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
@@ -335,7 +332,7 @@ private struct InstallSkillSheet: View {
 
                 Form {
                     Section {
-                        TextField("slug (e.g. openclaw/ai-recommendation)", text: $slug)
+                        TextField("slug (e.g. @steipete/weather)", text: $slug)
                             .font(AppFont.mono(13))
                             .foregroundStyle(DesignTokens.Color.textPrimary)
                             #if os(iOS)

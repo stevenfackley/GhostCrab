@@ -1,10 +1,6 @@
 import Foundation
 import Observation
 
-/// Slug of the AI recommendation skill — used by the one-tap "install" CTA on
-/// the empty state. Mirrors the well-known Android constant.
-public let aiRecommendationSkillSlug = "openclaw/ai-recommendation"
-
 /// ViewModel for the Installed Skills screen.
 ///
 /// Subscribes to ``InstalledSkillRepository/observeInstalled()`` on ``start()``
