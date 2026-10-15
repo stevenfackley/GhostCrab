@@ -17,13 +17,12 @@ public enum GatewayConnection: Sendable {
     ///
     /// - Parameters:
     ///   - url: Base URL of the gateway (e.g. `http://192.168.1.50:18789`).
-    ///   - displayName: Human-readable name from the gateway's `/status` response.
+    ///   - displayName: The gateway host from `hello-ok` (`snapshot.presence`, reason `self`), or "OpenClaw Gateway".
     ///   - version: Gateway version string.
     ///   - authRequirement: The auth mode reported by the gateway.
     ///   - isHttps: Whether the connection uses TLS.
     ///   - capabilities: Capability keys advertised by the gateway (e.g. `"skill-ai-recommend"`).
-    ///   - hardwareInfo: Optional hardware description reported by the gateway's `/status`
-    ///     (e.g. RAM, GPU). `nil` if not reported.
+    ///   - hardwareInfo: Hardware description. Always `nil` since ADR-0007: the gateway reports none.
     ///   - tokenOrNull: Bearer token for the active session, or `nil` if auth is not required.
     ///     Sensitive — never log.
     case connected(

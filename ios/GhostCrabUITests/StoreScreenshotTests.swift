@@ -4,8 +4,11 @@ import XCTest
 ///
 /// Walks onboarding → gateway picker → LAN scan → QR scan → Manual Entry (pre-filled
 /// through a `ghostcrab://pair` deep link) → dashboard → config editor → models →
-/// AI → skills → settings → picker with the saved gateway. The connected screens
-/// need the mock gateway (`scripts/mock-gateway`) the workflow starts on the runner.
+/// skills → settings → picker with the saved gateway. There is no 09: OpenClaw has no
+/// recommendation API, so the dashboard offers no AI tile (ADR-0007), and the other
+/// files keep their numbers. The connected screens need the protocol-4 mock gateway
+/// (`scripts/mock-gateway`, `AUTO_APPROVE=1` so the new simulator skips pairing) that
+/// the workflow starts on the runner.
 ///
 /// Skipped unless `GHOSTCRAB_STORE_SCREENSHOTS=1` reaches the test runner (the
 /// workflow sets `TEST_RUNNER_GHOSTCRAB_STORE_SCREENSHOTS`), so `ios-pr.yml`, which
@@ -119,13 +122,6 @@ final class StoreScreenshotTests: XCTestCase {
            waitFor(app.navigationBars["Models"], "Model manager") {
             pause(2)
             snap("08-models", outputDir)
-            goBack(app)
-        }
-
-        // 9. AI recommendations (tile shows only when the gateway reports the capability)
-        if tapButton(containing: "Ask for a recommendation", in: app, required: false) {
-            pause(2)
-            snap("09-ai-recommendation", outputDir)
             goBack(app)
         }
 

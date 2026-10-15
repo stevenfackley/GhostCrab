@@ -3,7 +3,7 @@ import Foundation
 /// A type-erased JSON value that round-trips through `Codable`.
 ///
 /// Mirrors `kotlinx.serialization.json.JsonElement` — used to carry raw config
-/// sections (`OpenClawConfig.sections`) and `PATCH /config/{section}` payloads
+/// sections (`OpenClawConfig.sections`) and `config.patch` payloads
 /// without locking the client into a fixed config schema.
 ///
 /// Supported underlying types:

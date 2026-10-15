@@ -46,10 +46,6 @@ struct MockRESTFactory: OpenClawAPIClientFactory {
             protocolClasses: [MockURLProtocol.self]
         )
     }
-
-    func authenticated(baseURL: URL, token: String, allowCleartextPublicIPs: Bool) -> OpenClawAPIClient {
-        unauthenticated(baseURL: baseURL, allowCleartextPublicIPs: allowCleartextPublicIPs)
-    }
 }
 
 /// `params` of the first `method` request `socket` received.

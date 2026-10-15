@@ -17,12 +17,12 @@ public protocol GatewayConnectionManager: Sendable {
     /// Synchronously snapshots the current connection state without subscribing.
     var currentState: GatewayConnection { get }
 
-    /// Determines the authentication requirement for a gateway without storing any state.
+    /// Determines the authentication requirement for a gateway without storing any state (ADR-0007).
     ///
-    /// Probes `GET /health` (unauthenticated) then `GET /status` (unauthenticated).
+    /// Probes `GET /health`, then a credential-less signed WebSocket `connect`.
     /// - `/health` fails → throws `GatewayError.unreachable`
-    /// - `/status` returns 401 or 403 → `.token`
-    /// - `/status` returns 2xx → `.none`
+    /// - `AUTH_TOKEN_MISSING` / `AUTH_PASSWORD_MISSING` / `AUTH_REQUIRED` → `.token`
+    /// - `hello-ok` → its auth mode; `PAIRING_REQUIRED` → `.none` (only the device approval is missing)
     ///
     /// - Parameter url: Base URL of the gateway (scheme + host + port, no trailing slash).
     /// - Returns: The `AuthRequirement` inferred from the probe.
@@ -33,11 +33,12 @@ public protocol GatewayConnectionManager: Sendable {
     /// Connects to a gateway.
     ///
     /// 1. Emits `GatewayConnection.connecting`.
-    /// 2. Calls `probeAuth(url:)` to determine auth mode.
-    /// 3. Instantiates an authenticated API client.
-    /// 4. Fetches `/status` to read version and capabilities.
+    /// 2. Checks `GET /health`.
+    /// 3. Opens the control-plane WebSocket and sends a signed `connect` (ADR-0007).
+    /// 4. Reads version, auth mode and capabilities from `hello-ok`.
     /// 5. Emits `GatewayConnection.connected` on success.
-    /// 6. On any failure: emits `GatewayConnection.error` **and** rethrows the error.
+    /// 6. On any failure: emits `GatewayConnection.error` **and** rethrows the error
+    ///    (`GatewayError.pairingRequired` while the device awaits approval).
     ///
     /// Calling `connect` while already connected disconnects first.
     ///

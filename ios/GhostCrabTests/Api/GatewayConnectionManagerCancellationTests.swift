@@ -19,15 +19,6 @@ private struct NeverRespondingClientFactory: OpenClawAPIClientFactory {
             protocolClasses: [NeverRespondingURLProtocol.self]
         )
     }
-
-    func authenticated(baseURL: URL, token: String, allowCleartextPublicIPs: Bool) -> OpenClawAPIClient {
-        OpenClawAPIClient.makeForTesting(
-            baseURL: baseURL,
-            token: token,
-            allowCleartextPublicIPs: allowCleartextPublicIPs,
-            protocolClasses: [NeverRespondingURLProtocol.self]
-        )
-    }
 }
 
 @Suite("GatewayConnectionManagerImpl cancellation")

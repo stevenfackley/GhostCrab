@@ -332,13 +332,9 @@ extension GatewayError {
     ///   `.unauthorized(missingScope: "operator.admin")`
     /// - connectionClosed → `.protocol(code: "WS <close code>", …)` (not
     ///   retryable: the gateway refused the socket)
-    /// - REST leftovers (removed with the REST client): api 404 →
-    ///   `.notFound(slug:)`, 409 → `.dependencyConflict(conflicts:)`, 422 →
-    ///   `.verificationFailed(expected:actual:)`, other →
-    ///   `.protocol(code: "HTTP <status>", …)`. That includes a 200 whose body
-    ///   is not an installed skill: `installSkill` reports it as
-    ///   `.api(statusCode: 200, body: "Response deserialization failed …")`,
-    ///   which lands here as `.protocol(code: "HTTP 200", message: <that body>)`.
+    /// - api → `.protocol(code: "HTTP <status>", message: <body>)`, the HTTP
+    ///   status standing in for the RPC code (no install path speaks REST
+    ///   since ADR-0007; kept so the switch stays total)
     /// - timeout / unreachable / tls → `.network(cause:)`
     /// - configValidation → `.protocol(code: "CONFIG_VALIDATION", …)`;
     ///   protocolViolation → `.protocol(code: "PROTOCOL", …)` (not retryable)
@@ -367,17 +363,7 @@ extension GatewayError {
         case let .connectionClosed(url, closeCode, reason):
             return .protocol(code: "WS \(closeCode)", message: reason.isEmpty ? "gateway closed the connection at \(url)" : reason)
         case let .api(_, statusCode, body):
-            let bodyText = body ?? ""
-            switch statusCode {
-            case 404:
-                return .notFound(slug: bodyText)
-            case 409:
-                return .dependencyConflict(conflicts: bodyText.split(separator: ",").map { String($0) })
-            case 422:
-                return .verificationFailed(expected: "", actual: bodyText)
-            default:
-                return .protocol(code: "HTTP \(statusCode)", message: bodyText)
-            }
+            return .protocol(code: "HTTP \(statusCode)", message: body ?? "")
         case let .timeout(url, _):
             return .network(cause: "timeout at \(url)")
         case let .unreachable(url, _):

@@ -1,34 +1,16 @@
 import Foundation
 import os
 
-/// URLSession-backed HTTP client for the OpenClaw Gateway API.
-///
-/// Create via ``unauthenticated(baseURL:allowCleartextPublicIPs:)`` for probing
-/// or ``authenticated(baseURL:token:allowCleartextPublicIPs:)`` for a live session.
-/// Call ``close()`` when the session ends to release underlying connections.
-///
-/// **Authorization headers are never logged.** Verify with Console.app.
-///
-/// Timeouts: see ``Timeouts``. Each request sets its own idle timeout: 15 s for
-/// short calls, 120 s for skill install / AI recommend. 180 s caps any transfer.
-///
-/// Direct port of `OpenClawApiClient.kt`.
+/// URLSession-backed HTTP client for the one JSON REST route GhostCrab uses: `GET /health` (ADR-0007). Everything
+/// else goes over the control-plane WebSocket (``GatewayRPCClient``), and no credential is ever sent over HTTP.
+/// Requests pass through ``CleartextPublicIPGuard``. Call ``close()`` when the session ends.
 public actor OpenClawAPIClient {
 
-    /// Request timeout policy.
-    ///
-    /// URLSession has no separate TCP-connect timeout. `URLRequest.timeoutInterval`
-    /// is an idle timeout (the longest gap between bytes, including the wait for
-    /// the first byte, so it covers connection setup), and
-    /// `timeoutIntervalForResource` caps a whole transfer. So a dead or
-    /// black-holed host fails after ``standard`` seconds on every short call
-    /// (Android's 15 s connect timeout), while slow gateway-side work gets
-    /// ``longOperation``.
+    /// Request timeout policy. `URLRequest.timeoutInterval` is an idle timeout (it covers connection setup), so a
+    /// dead or black-holed host fails after ``standard`` seconds; ``resource`` caps a whole transfer.
     enum Timeouts {
-        /// Probe, `/health`, `/status`, config, models, whoami, uninstall.
+        /// `/health`.
         static let standard: TimeInterval = 15
-        /// Skill install and AI recommendation: the gateway works before it answers.
-        static let longOperation: TimeInterval = 120
         /// Upper bound for any single transfer.
         static let resource: TimeInterval = 180
     }
@@ -36,106 +18,40 @@ public actor OpenClawAPIClient {
     // MARK: - State
 
     public let baseURL: URL
-    private let token: String?
     /// This client's cleartext-to-public-IP opt-in; attached to every request in ``send(_:timeout:)``.
     private let allowCleartextPublicIPs: Bool
     private let session: URLSession
-    private let decoder: JSONDecoder
-    private let encoder: JSONEncoder
+    private let decoder = JSONDecoder()
 
-    private static let logger = Logger(
-        subsystem: "com.qavren.ghostcrab",
-        category: "OpenClawAPIClient"
-    )
+    private static let logger = Logger(subsystem: "com.qavren.ghostcrab", category: "OpenClawAPIClient")
 
-    private init(
-        baseURL: URL,
-        token: String?,
-        allowCleartextPublicIPs: Bool,
-        additionalProtocolClasses: [AnyClass] = []
-    ) {
+    private init(baseURL: URL, allowCleartextPublicIPs: Bool, additionalProtocolClasses: [AnyClass] = []) {
         self.baseURL = baseURL
-        self.token = token
-
-        // Per-client opt-in: attached to each request in send(_:timeout:);
-        // no process-global guard state.
         self.allowCleartextPublicIPs = allowCleartextPublicIPs
-
         let config = URLSessionConfiguration.ephemeral
-        // Ceiling only: `send(_:timeout:)` sets every request's own timeoutInterval.
-        config.timeoutIntervalForRequest = Timeouts.longOperation
+        config.timeoutIntervalForRequest = Timeouts.standard
         config.timeoutIntervalForResource = Timeouts.resource
         config.waitsForConnectivity = false
         config.requestCachePolicy = .reloadIgnoringLocalCacheData
         config.protocolClasses = [CleartextPublicIPGuard.self] + additionalProtocolClasses + (config.protocolClasses ?? [])
-
         self.session = URLSession(configuration: config)
-
-        let dec = JSONDecoder()
-        // Lenient mirrors Kotlin's `isLenient = true, ignoreUnknownKeys = true`.
-        // `JSONDecoder` already ignores unknown keys; the rest is handled per-DTO.
-        self.decoder = dec
-
-        let enc = JSONEncoder()
-        self.encoder = enc
     }
 
     // MARK: - Factories
 
-    /// Client with no authentication — use for ``health()`` and auth probes.
-    ///
     /// - Parameters:
     ///   - baseURL: Gateway base URL (no trailing slash).
     ///   - allowCleartextPublicIPs: If `true`, the cleartext-public-IP guard is bypassed.
-    public static func unauthenticated(
-        baseURL: URL,
-        allowCleartextPublicIPs: Bool = false
-    ) -> OpenClawAPIClient {
-        OpenClawAPIClient(
-            baseURL: baseURL,
-            token: nil,
-            allowCleartextPublicIPs: allowCleartextPublicIPs
-        )
+    public static func unauthenticated(baseURL: URL, allowCleartextPublicIPs: Bool = false) -> OpenClawAPIClient {
+        OpenClawAPIClient(baseURL: baseURL, allowCleartextPublicIPs: allowCleartextPublicIPs)
     }
 
-    /// Client with Bearer token authentication — use for live sessions.
-    ///
-    /// - Parameters:
-    ///   - baseURL: Gateway base URL (no trailing slash).
-    ///   - token: Bearer token sent in `Authorization: Bearer <token>` on every request.
-    ///   - allowCleartextPublicIPs: If `true`, the cleartext-public-IP guard is bypassed.
-    public static func authenticated(
-        baseURL: URL,
-        token: String,
-        allowCleartextPublicIPs: Bool = false
-    ) -> OpenClawAPIClient {
+    /// Test seam: the production client plus extra `URLProtocol` classes (e.g. `MockURLProtocol`) consulted after
+    /// ``CleartextPublicIPGuard``, so guard behaviour stays under test. Internal, so only reachable through
+    /// `@testable import`.
+    static func makeForTesting(baseURL: URL, allowCleartextPublicIPs: Bool = false, protocolClasses: [AnyClass]) -> OpenClawAPIClient {
         OpenClawAPIClient(
             baseURL: baseURL,
-            token: token,
-            allowCleartextPublicIPs: allowCleartextPublicIPs
-        )
-    }
-
-    /// Test seam: the same client the production factories build, plus extra
-    /// `URLProtocol` classes (e.g. `MockURLProtocol`) that are consulted after
-    /// ``CleartextPublicIPGuard``, so guard behaviour stays under test.
-    /// Internal, so only reachable through `@testable import`.
-    ///
-    /// - Parameters:
-    ///   - baseURL: Gateway base URL.
-    ///   - token: Bearer token, or `nil` for an unauthenticated client.
-    ///   - allowCleartextPublicIPs: Same meaning as in the production factories.
-    ///   - protocolClasses: Protocol classes appended after the guard.
-    /// - Returns: A client whose session routes through `protocolClasses`.
-    static func makeForTesting(
-        baseURL: URL,
-        token: String? = nil,
-        allowCleartextPublicIPs: Bool = false,
-        protocolClasses: [AnyClass]
-    ) -> OpenClawAPIClient {
-        OpenClawAPIClient(
-            baseURL: baseURL,
-            token: token,
             allowCleartextPublicIPs: allowCleartextPublicIPs,
             additionalProtocolClasses: protocolClasses
         )
@@ -143,366 +59,21 @@ public actor OpenClawAPIClient {
 
     // MARK: - Public API
 
-    /// `GET /health` — unauthenticated liveness check.
+    /// `GET /health` — unauthenticated liveness check, run before the socket opens.
     ///
-    /// - Throws: `GatewayError.unreachable` if the host cannot be reached.
-    /// - Throws: `GatewayError.timeout` if the request times out.
-    /// - Throws: `GatewayError.tls` on SSL/TLS failure.
+    /// - Returns: The decoded body; a non-JSON body still means the process answered and reads as `"ok"`.
+    /// - Throws: `GatewayError.unreachable`, `.timeout`, `.tls`, `.cleartextBlocked`, or `.api` / `.auth` for a
+    ///   non-2xx status; `CancellationError` when the calling task is cancelled.
     public func health() async throws -> HealthResponse {
         let url = endpoint("/health")
         return try await safe(url: url) {
-            let (data, response) = try await self.send(.init(url: url))
+            let (data, response) = try await self.send(URLRequest(url: url))
             try self.mapErrors(url: url, response: response)
-            // Tolerant: if upstream gives non-JSON we synthesize "ok".
+            // Tolerant: a non-JSON body still means the process answered.
             if let decoded = try? self.decoder.decode(HealthResponse.self, from: data) {
                 return decoded
             }
             return HealthResponse(status: "ok")
-        }
-    }
-
-    /// `GET /status` — returns gateway identity, version, and capabilities.
-    ///
-    /// May require authentication depending on gateway configuration.
-    ///
-    /// Some gateways (e.g. upstream `ghcr.io/openclaw/openclaw:latest`) serve an
-    /// HTML admin UI at `/status` instead of JSON. In that case we return a
-    /// default `StatusResponse` so the connect flow still succeeds.
-    ///
-    /// - Throws: `GatewayError.auth` if auth is required and no/invalid token is present.
-    /// - Throws: `GatewayError.unreachable` if the host cannot be reached.
-    /// - Throws: `GatewayError.timeout` if the request times out.
-    /// - Throws: `GatewayError.api` (the response's HTTP status, body
-    ///   "Response deserialization failed (DecodingError.…)") when the body is
-    ///   labelled JSON but is not a JSON object.
-    public func status() async throws -> StatusResponse {
-        let url = endpoint("/status")
-        return try await safe(url: url) {
-            let (data, response) = try await self.send(.init(url: url))
-            try self.mapErrors(url: url, response: response)
-            // Non-JSON (upstream HTML admin page): lenient defaults, documented above.
-            guard self.contentTypeIsJSON(response) else { return StatusResponse() }
-            // Labelled JSON but undecodable: a broken gateway, not an empty one.
-            return try self.decodeJSON(StatusResponse.self, from: data, url: url, response: response)
-        }
-    }
-
-    /// `GET /config` — fetches the full `openclaw.json` configuration.
-    ///
-    /// Some gateway builds serve HTML at `/config` instead of JSON. In that case
-    /// we return an empty config + nil ETag so the editor opens in a clearly-empty
-    /// (not "disconnected") state.
-    ///
-    /// - Returns: `OpenClawConfig` with section map and optional ETag header.
-    /// - Throws: `GatewayError.api` on unexpected HTTP errors.
-    /// - Throws: `GatewayError.api` (the response's HTTP status, body
-    ///   "Response deserialization failed (DecodingError.…)") when the body is
-    ///   labelled JSON but is not a JSON object. An empty config therefore
-    ///   always means the gateway sent `{}` or served non-JSON, never that a
-    ///   broken body was silently dropped.
-    public func getConfig() async throws -> OpenClawConfig {
-        let url = endpoint("/config")
-        return try await safe(url: url) {
-            let (data, response) = try await self.send(.init(url: url))
-            try self.mapErrors(url: url, response: response)
-            // Non-JSON (upstream HTML admin page): empty config, documented above.
-            guard self.contentTypeIsJSON(response) else {
-                return OpenClawConfig(sections: [:], etag: nil)
-            }
-            let etag = (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "ETag")
-            // Labelled JSON but undecodable: a broken gateway, not an empty one.
-            let sections = try self.decodeJSON([String: AnyCodable].self, from: data, url: url, response: response)
-            return OpenClawConfig(sections: sections, etag: etag)
-        }
-    }
-
-    /// `PATCH /config/{section}` — applies a JSON merge-patch to a single config section.
-    ///
-    /// - Parameters:
-    ///   - section: Top-level section key (e.g. `"gateway"`).
-    ///   - value: JSON merge-patch value.
-    ///   - etag: Optional ETag for optimistic concurrency — sent as `If-Match` header.
-    /// - Throws: `GatewayError.api` with `statusCode = 412` on concurrent-edit conflict.
-    /// - Throws: `GatewayError.configValidation` if the gateway reports validation failure (422).
-    /// - Throws: `GatewayError.api` on other unexpected HTTP errors.
-    public func updateConfig(section: String, value: AnyCodable, etag: String?) async throws {
-        let url = endpoint("/config/\(section)")
-        try await safe(url: url) {
-            var req = URLRequest(url: url)
-            req.httpMethod = "PATCH"
-            req.setValue("application/merge-patch+json", forHTTPHeaderField: "Content-Type")
-            if let etag {
-                req.setValue(etag, forHTTPHeaderField: "If-Match")
-            }
-            req.httpBody = try self.encoder.encode(value)
-
-            let (data, response) = try await self.send(req)
-            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-            switch status {
-            case 200, 204:
-                return
-            case 412:
-                throw GatewayError.api(url: url.absoluteString, statusCode: 412)
-            case 422:
-                let bodyText = String(data: data, encoding: .utf8) ?? ""
-                if let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                   let field = parsed["field"] as? String,
-                   let reason = parsed["reason"] as? String {
-                    throw GatewayError.configValidation(field: field, reason: reason)
-                }
-                throw GatewayError.api(url: url.absoluteString, statusCode: 422, body: bodyText)
-            default:
-                try self.mapErrors(url: url, response: response)
-            }
-        }
-    }
-
-    /// `GET /api/models/status` — returns all models known to the gateway.
-    ///
-    /// - Returns: List of `ModelDTO` (may be empty if no providers configured).
-    /// - Throws: `GatewayError.auth` if the endpoint requires authentication.
-    /// - Throws: `GatewayError.api` on unexpected HTTP errors.
-    /// - Throws: `GatewayError.unreachable` if the host cannot be reached.
-    /// - Throws: `GatewayError.timeout` if the request times out.
-    /// - Throws: `GatewayError.api` (the response's HTTP status, body
-    ///   "Response deserialization failed (DecodingError.…)") when the body is
-    ///   labelled JSON but is not an array of models. An empty list therefore
-    ///   always means the gateway reported no models (or served non-JSON).
-    public func getModels() async throws -> [ModelDTO] {
-        let url = endpoint("/api/models/status")
-        return try await safe(url: url) {
-            let (data, response) = try await self.send(.init(url: url))
-            try self.mapErrors(url: url, response: response)
-            guard self.contentTypeIsJSON(response) else { return [] }
-            return try self.decodeJSON([ModelDTO].self, from: data, url: url, response: response)
-        }
-    }
-
-    /// `POST /api/models/active` — sets the active model on the gateway.
-    ///
-    /// - Parameter id: The `id` of the model to make active.
-    /// - Throws: `GatewayError.auth` if the endpoint requires authentication.
-    /// - Throws: `GatewayError.api` on unexpected HTTP errors (e.g. model not found — 404).
-    /// - Throws: `GatewayError.unreachable` if the host cannot be reached.
-    /// - Throws: `GatewayError.timeout` if the request times out.
-    public func setActiveModel(_ id: String) async throws {
-        let url = endpoint("/api/models/active")
-        try await safe(url: url) {
-            var req = URLRequest(url: url)
-            req.httpMethod = "POST"
-            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            req.httpBody = try JSONSerialization.data(withJSONObject: ["id": id])
-
-            let (_, response) = try await self.send(req)
-            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-            switch status {
-            case 200, 204: return
-            default: try self.mapErrors(url: url, response: response)
-            }
-        }
-    }
-
-    /// `POST /api/ai/recommend` — submits a query to the gateway's AI skill.
-    ///
-    /// - Parameter request: The query and session context.
-    /// - Returns: `AIRecommendationResponseDTO` with the recommendation text and optional suggested changes.
-    /// - Throws: `GatewayError.aiServiceUnavailable` when the AI skill is not installed (404).
-    /// - Throws: `GatewayError.aiQuotaExceeded` when the AI quota is exceeded (429).
-    /// - Throws: `GatewayError.auth` if the endpoint requires authentication.
-    /// - Throws: `GatewayError.unreachable` if the host cannot be reached.
-    /// - Throws: `GatewayError.timeout` if the request times out.
-    public func getAIRecommendation(
-        _ request: AIRecommendationRequestDTO
-    ) async throws -> AIRecommendationResponseDTO {
-        let url = endpoint("/api/ai/recommend")
-        return try await safe(url: url) {
-            var req = URLRequest(url: url)
-            req.httpMethod = "POST"
-            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            req.httpBody = try self.encoder.encode(request)
-
-            let (data, response) = try await self.send(req, timeout: Timeouts.longOperation)
-            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-            switch status {
-            case 200:
-                return try self.decodeJSON(AIRecommendationResponseDTO.self, from: data, url: url, response: response)
-            case 404:
-                throw GatewayError.aiServiceUnavailable(url: url.absoluteString)
-            case 429:
-                throw GatewayError.aiQuotaExceeded(url: url.absoluteString)
-            default:
-                try self.mapErrors(url: url, response: response)
-                // mapErrors throws on non-success; this is unreachable.
-                throw GatewayError.api(url: url.absoluteString, statusCode: status)
-            }
-        }
-    }
-
-    /// `GET /api/skills` — returns the currently installed skills on the gateway.
-    ///
-    /// Added in v1.1 for the iOS port. The Kotlin Android client reaches the
-    /// same data via the JSON-RPC WebSocket `skills.list` method; the REST
-    /// endpoint is the documented HTTP fallback exposed by gateway builds
-    /// `>= 2026-04-01`.
-    ///
-    /// - Returns: List of ``InstalledSkillDTO`` (may be empty).
-    /// - Throws: ``GatewayError/auth(url:statusCode:)`` if the endpoint
-    ///   requires authentication.
-    /// - Throws: ``GatewayError/api(url:statusCode:body:)`` on unexpected HTTP
-    ///   errors, and for a JSON body that is neither shape (the body names
-    ///   the decoding error) instead of returning an empty list.
-    /// - Throws: ``GatewayError/unreachable(url:underlying:)`` if the host
-    ///   cannot be reached.
-    /// - Throws: ``GatewayError/timeout(url:underlying:)`` if the request
-    ///   times out.
-    public func getInstalledSkills() async throws -> [InstalledSkillDTO] {
-        let url = endpoint("/api/skills")
-        return try await safe(url: url) {
-            let (data, response) = try await self.send(.init(url: url))
-            try self.mapErrors(url: url, response: response)
-            guard self.contentTypeIsJSON(response) else { return [] }
-            // The gateway returns either a bare array or `{"skills":[...]}`
-            // depending on build. The first non-whitespace byte picks the
-            // shape, which is then decoded strictly: a body that fails to
-            // decode reports the HTTP status and the decoding error instead
-            // of looking like a gateway with no skills installed.
-            let jsonWhitespace: [UInt8] = [0x20, 0x09, 0x0A, 0x0D]
-            if data.first(where: { !jsonWhitespace.contains($0) }) == UInt8(ascii: "[") {
-                return try self.decodeJSON([InstalledSkillDTO].self, from: data, url: url, response: response)
-            }
-            return try self.decodeJSON(InstalledSkillsEnvelope.self, from: data, url: url, response: response).skills
-        }
-    }
-
-    /// `POST /api/skills/install` — install a skill from ClawHub.
-    ///
-    /// Added in v1.1 for the iOS port. Replaces the Kotlin JSON-RPC
-    /// `skills.install` call. The REST endpoint is synchronous: the gateway
-    /// performs the download + verify + apply pipeline and returns the
-    /// resulting ``InstalledSkillDTO``. No intermediate progress events are
-    /// available over REST — the Swift ``InstalledSkillRepositoryImpl`` emits
-    /// `.connecting` then a terminal `.succeeded` / `.failed`.
-    ///
-    /// - Parameters:
-    ///   - slug: e.g. `"wanng-ide/auto-skill-hunter"`.
-    ///   - version: Optional pinned version. `nil` → latest.
-    /// - Returns: The newly-installed ``InstalledSkillDTO`` reported by the
-    ///   gateway.
-    /// - Throws: ``GatewayError/auth(url:statusCode:)`` for 401/403.
-    /// - Throws: ``GatewayError/api(url:statusCode:body:)`` for 404 (slug not
-    ///   found), 409 (dependency conflict), 422 (verification failed), or any
-    ///   other unexpected status. Callers map the status code to a domain
-    ///   ``SkillInstallError``.
-    /// - Throws: ``GatewayError/unreachable(url:underlying:)`` /
-    ///   ``GatewayError/timeout(url:underlying:)`` on transport errors.
-    public func installSkill(slug: String, version: String?) async throws -> InstalledSkillDTO {
-        let url = endpoint("/api/skills/install")
-        return try await safe(url: url) {
-            var body: [String: Any] = [
-                "source": "clawhub",
-                "slug": slug,
-                "force": false
-            ]
-            if let version { body["version"] = version }
-
-            var req = URLRequest(url: url)
-            req.httpMethod = "POST"
-            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            req.httpBody = try JSONSerialization.data(withJSONObject: body)
-
-            let (data, response) = try await self.send(req, timeout: Timeouts.longOperation)
-            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-            switch status {
-            case 200, 201:
-                return try self.decodeJSON(InstalledSkillDTO.self, from: data, url: url, response: response)
-            case 401, 403:
-                throw GatewayError.auth(url: url.absoluteString, statusCode: status)
-            default:
-                let bodyText = String(data: data, encoding: .utf8)
-                throw GatewayError.api(
-                    url: url.absoluteString,
-                    statusCode: status,
-                    body: bodyText
-                )
-            }
-        }
-    }
-
-    /// `POST /api/skills/uninstall` — remove a previously-installed skill.
-    ///
-    /// Added in v1.1 for the iOS port. Replaces the Kotlin JSON-RPC
-    /// `skills.uninstall` call.
-    ///
-    /// - Parameter slug: The skill slug to remove.
-    /// - Throws: ``GatewayError/auth(url:statusCode:)`` for 401/403.
-    /// - Throws: ``GatewayError/api(url:statusCode:body:)`` on unexpected
-    ///   HTTP status.
-    /// - Throws: ``GatewayError/unreachable(url:underlying:)`` /
-    ///   ``GatewayError/timeout(url:underlying:)`` on transport errors.
-    public func uninstallSkill(slug: String) async throws {
-        let url = endpoint("/api/skills/uninstall")
-        try await safe(url: url) {
-            var req = URLRequest(url: url)
-            req.httpMethod = "POST"
-            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            req.httpBody = try JSONSerialization.data(withJSONObject: ["slug": slug])
-
-            let (data, response) = try await self.send(req)
-            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-            switch status {
-            case 200, 204:
-                return
-            case 401, 403:
-                throw GatewayError.auth(url: url.absoluteString, statusCode: status)
-            default:
-                let bodyText = String(data: data, encoding: .utf8)
-                throw GatewayError.api(
-                    url: url.absoluteString,
-                    statusCode: status,
-                    body: bodyText
-                )
-            }
-        }
-    }
-
-    /// `POST /api/auth/whoami` — returns the scopes carried by the active
-    /// bearer token.
-    ///
-    /// Added in v1.1 for the iOS port. Replaces the Kotlin JSON-RPC
-    /// `auth.whoami` call. Gateway builds without scope support return
-    /// HTTP 404 (or 405) — callers map that to
-    /// ``ScopeProbeResult/unknownOldGateway``.
-    ///
-    /// - Returns: The decoded ``WhoamiResponseDTO``.
-    /// - Throws: ``GatewayError/api(url:statusCode:body:)`` on unexpected
-    ///   HTTP status. 404/405 propagate so the caller can detect "old gateway".
-    /// - Throws: ``GatewayError/auth(url:statusCode:)`` for 401/403.
-    /// - Throws: ``GatewayError/unreachable(url:underlying:)`` /
-    ///   ``GatewayError/timeout(url:underlying:)`` on transport errors.
-    public func whoami() async throws -> WhoamiResponseDTO {
-        let url = endpoint("/api/auth/whoami")
-        return try await safe(url: url) {
-            var req = URLRequest(url: url)
-            req.httpMethod = "POST"
-            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            req.httpBody = Data("{}".utf8)
-
-            let (data, response) = try await self.send(req)
-            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-            switch status {
-            case 200:
-                return (try? self.decoder.decode(WhoamiResponseDTO.self, from: data))
-                    ?? WhoamiResponseDTO(scopes: [])
-            case 401, 403:
-                throw GatewayError.auth(url: url.absoluteString, statusCode: status)
-            default:
-                let bodyText = String(data: data, encoding: .utf8)
-                throw GatewayError.api(
-                    url: url.absoluteString,
-                    statusCode: status,
-                    body: bodyText
-                )
-            }
         }
     }
 
@@ -514,90 +85,17 @@ public actor OpenClawAPIClient {
     // MARK: - Helpers
 
     private func endpoint(_ path: String) -> URL {
-        // Avoid double-slash if the caller passed a URL with a trailing slash.
+        // Avoid a double slash if the caller passed a URL with a trailing slash.
         let trimmed = baseURL.absoluteString.hasSuffix("/")
             ? String(baseURL.absoluteString.dropLast())
             : baseURL.absoluteString
         return URL(string: trimmed + path) ?? baseURL.appendingPathComponent(path)
     }
 
-    private func contentTypeIsJSON(_ response: URLResponse) -> Bool {
-        guard let http = response as? HTTPURLResponse,
-              let ct = http.value(forHTTPHeaderField: "Content-Type")
-        else { return false }
-        return ct.lowercased().contains("json")
-    }
-
-    /// Decodes a body the gateway labelled JSON. A body that does not match
-    /// `type` means a broken gateway, so this throws instead of defaulting.
-    ///
-    /// - Parameters:
-    ///   - type: Expected wire type.
-    ///   - data: Response body.
-    ///   - url: Request URL, carried into the error.
-    ///   - response: The response; its HTTP status is carried into the error.
-    /// - Returns: The decoded value.
-    /// - Throws: `GatewayError.api` with the URL, the response's HTTP status and
-    ///   a body naming the decoding error ("Response deserialization failed
-    ///   (DecodingError.typeMismatch): …").
-    private func decodeJSON<T: Decodable>(
-        _ type: T.Type,
-        from data: Data,
-        url: URL,
-        response: URLResponse
-    ) throws -> T {
-        do {
-            return try decoder.decode(type, from: data)
-        } catch let error as DecodingError {
-            throw GatewayError.api(
-                url: url.absoluteString,
-                statusCode: (response as? HTTPURLResponse)?.statusCode ?? 0,
-                body: Self.deserializationFailure(error)
-            )
-        }
-    }
-
-    /// Formats a decoding failure as
-    /// "Response deserialization failed (DecodingError.<kind>): <detail>".
-    nonisolated private static func deserializationFailure(_ error: DecodingError) -> String {
-        let kind: String
-        let detail: String
-        switch error {
-        case .typeMismatch(_, let context):
-            kind = "typeMismatch"
-            detail = context.debugDescription
-        case .valueNotFound(_, let context):
-            kind = "valueNotFound"
-            detail = context.debugDescription
-        case .keyNotFound(let key, let context):
-            kind = "keyNotFound"
-            detail = "\(key.stringValue): \(context.debugDescription)"
-        case .dataCorrupted(let context):
-            kind = "dataCorrupted"
-            detail = context.debugDescription
-        @unknown default:
-            kind = "unknown"
-            detail = String(describing: error)
-        }
-        return "Response deserialization failed (DecodingError.\(kind)): \(detail)"
-    }
-
-    /// Sends a request with the Authorization header injected when a token is present
-    /// and this client's cleartext opt-in attached for ``CleartextPublicIPGuard``.
-    /// Logs at debug level with the Authorization header stripped.
-    ///
-    /// - Parameters:
-    ///   - request: The request to send.
-    ///   - timeout: Idle timeout for this request. Defaults to ``Timeouts/standard``.
-    private func send(
-        _ request: URLRequest,
-        timeout: TimeInterval = Timeouts.standard
-    ) async throws -> (Data, URLResponse) {
+    /// Sends `request` with this client's cleartext opt-in attached for ``CleartextPublicIPGuard``.
+    private func send(_ request: URLRequest, timeout: TimeInterval = Timeouts.standard) async throws -> (Data, URLResponse) {
         var req = request
         req.timeoutInterval = timeout
-        if let token {
-            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        }
         req = CleartextPublicIPGuard.tagged(req, allowCleartextPublicIPs: allowCleartextPublicIPs)
         Self.logDebug(req)
         return try await session.data(for: req)
@@ -616,26 +114,18 @@ public actor OpenClawAPIClient {
         }
     }
 
-    /// Wraps a request closure with the same error-translation policy as
-    /// Kotlin's `safeRequest` (`OpenClawApiClient.kt:308-340`). A request
-    /// ``CleartextPublicIPGuard`` refused becomes
-    /// ``GatewayError/cleartextBlocked(url:host:)``, never `.unreachable`.
-    private func safe<T>(
-        url: URL,
-        _ block: () async throws -> T
-    ) async throws -> T {
+    /// Same error-translation policy as before ADR-0007: a request ``CleartextPublicIPGuard`` refused becomes
+    /// ``GatewayError/cleartextBlocked(url:host:)``, never `.unreachable`; a cancelled task stays a cancellation.
+    private func safe<T>(url: URL, _ block: () async throws -> T) async throws -> T {
         do {
             return try await block()
         } catch let e as GatewayError {
-            // Re-throw domain errors unchanged — including configValidation,
-            // which would otherwise fall through to the generic catch.
             throw e
         } catch let e as URLError {
             switch e.code {
             case .cancelled where Task.isCancelled:
-                // URLSession reports a cancelled Swift task as URLError.cancelled.
-                // The caller went away (Back while connecting): that is a
-                // cancellation, not an unreachable gateway.
+                // URLSession reports a cancelled Swift task as URLError.cancelled. The caller went away (Back while
+                // connecting): that is a cancellation, not an unreachable gateway.
                 throw CancellationError()
             case .timedOut:
                 throw GatewayError.timeout(url: url.absoluteString, underlying: e)
@@ -647,41 +137,25 @@ public actor OpenClawAPIClient {
                  .clientCertificateRequired,
                  .secureConnectionFailed:
                 throw GatewayError.tls(url: url.absoluteString, underlying: e)
-            case .cannotConnectToHost,
-                 .cannotFindHost,
-                 .notConnectedToInternet,
-                 .networkConnectionLost,
-                 .dnsLookupFailed:
-                throw GatewayError.unreachable(url: url.absoluteString, underlying: e)
             default:
                 throw GatewayError.unreachable(url: url.absoluteString, underlying: e)
             }
-        } catch let e as DecodingError {
-            // Fallback only: decodes that know their response go through
-            // decodeJSON, which reports the real HTTP status.
-            throw GatewayError.api(
-                url: url.absoluteString,
-                statusCode: 0,
-                body: Self.deserializationFailure(e)
-            )
         } catch is CancellationError {
             throw CancellationError()
         } catch let e as NSError where e.domain == CleartextPublicIPGuard.errorDomain {
-            // Refused by our own policy before leaving the device: say so, and
-            // say how to lift it, instead of blaming the network.
-            let host = (e.userInfo[CleartextPublicIPGuard.hostUserInfoKey] as? String)
-                ?? url.host
-                ?? "<unknown>"
+            // Refused by our own policy before leaving the device: say so, and say how to lift it, instead of
+            // blaming the network.
+            let host = (e.userInfo[CleartextPublicIPGuard.hostUserInfoKey] as? String) ?? url.host ?? "<unknown>"
             throw GatewayError.cleartextBlocked(url: url.absoluteString, host: host)
         } catch {
             throw GatewayError.unreachable(url: url.absoluteString, underlying: error)
         }
     }
 
-    // MARK: - Logging (Authorization-redacted)
+    // MARK: - Logging
 
-    /// Logs the request method + URL at debug level. Authorization header is
-    /// never included in the log line — tokens must not appear in Console.app.
+    /// Logs method, URL and header names at debug level. No credential is attached to any request; an
+    /// `Authorization` header would still be left out.
     nonisolated private static func logDebug(_ req: URLRequest) {
         #if DEBUG
         let method = req.httpMethod ?? "GET"
@@ -690,66 +164,5 @@ public actor OpenClawAPIClient {
         headerNames.removeAll { $0.caseInsensitiveCompare("Authorization") == .orderedSame }
         logger.debug("\(method, privacy: .public) \(url, privacy: .public) headers=\(headerNames.joined(separator: ","), privacy: .public)")
         #endif
-    }
-}
-
-// MARK: - v1.1 DTOs (skills + whoami)
-
-/// Wire type for a single installed-skill entry returned by
-/// `GET /api/skills` or `POST /api/skills/install`.
-///
-/// Added in v1.1 for the iOS port. The Android client deserializes the same
-/// shape from JSON-RPC `skills.list` / `skills.install` responses.
-public struct InstalledSkillDTO: Codable, Sendable, Equatable {
-    public let slug: String
-    public let installedVersion: String
-    public let source: String?
-    public let installedAt: Int64?
-
-    public init(
-        slug: String,
-        installedVersion: String,
-        source: String? = nil,
-        installedAt: Int64? = nil
-    ) {
-        self.slug = slug
-        self.installedVersion = installedVersion
-        self.source = source
-        self.installedAt = installedAt
-    }
-
-    private enum CodingKeys: String, CodingKey {
-        case slug
-        case installedVersion = "installed_version"
-        case source
-        case installedAt = "installed_at"
-    }
-}
-
-/// Envelope form returned by some gateway builds for `GET /api/skills`.
-public struct InstalledSkillsEnvelope: Codable, Sendable {
-    public let skills: [InstalledSkillDTO]
-    public init(skills: [InstalledSkillDTO]) { self.skills = skills }
-}
-
-/// Wire type for `POST /api/auth/whoami` — returns the scopes carried by the
-/// active bearer token.
-///
-/// Added in v1.1 for the iOS port. Replaces the Kotlin JSON-RPC `auth.whoami`
-/// response shape.
-public struct WhoamiResponseDTO: Codable, Sendable, Equatable {
-    public let scopes: [String]
-
-    public init(scopes: [String]) {
-        self.scopes = scopes
-    }
-
-    private enum CodingKeys: String, CodingKey {
-        case scopes
-    }
-
-    public init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        self.scopes = (try? c.decode([String].self, forKey: .scopes)) ?? []
     }
 }

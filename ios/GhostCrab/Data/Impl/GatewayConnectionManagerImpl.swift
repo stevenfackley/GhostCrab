@@ -2,27 +2,18 @@ import Foundation
 
 // MARK: - Client factory
 
-/// Factory abstraction for ``OpenClawAPIClient`` creation.
-///
-/// Injectable into ``GatewayConnectionManagerImpl`` so tests can substitute a
-/// mock client without touching the network. Mirrors Kotlin's
-/// `OpenClawApiClientFactory` interface.
+/// Builds the REST client used for `GET /health` before the control-plane socket opens (ADR-0007).
+/// Injectable so tests can substitute `MockURLProtocol`-backed clients. Mirrors Kotlin's `OpenClawApiClientFactory`.
 public protocol OpenClawAPIClientFactory: Sendable {
     func unauthenticated(baseURL: URL, allowCleartextPublicIPs: Bool) -> OpenClawAPIClient
-    func authenticated(baseURL: URL, token: String, allowCleartextPublicIPs: Bool) -> OpenClawAPIClient
 }
 
-/// Default factory used in production — forwards to the static factories on
-/// ``OpenClawAPIClient`` itself.
+/// Default factory used in production.
 public struct DefaultOpenClawAPIClientFactory: OpenClawAPIClientFactory {
     public init() {}
 
     public func unauthenticated(baseURL: URL, allowCleartextPublicIPs: Bool) -> OpenClawAPIClient {
         OpenClawAPIClient.unauthenticated(baseURL: baseURL, allowCleartextPublicIPs: allowCleartextPublicIPs)
-    }
-
-    public func authenticated(baseURL: URL, token: String, allowCleartextPublicIPs: Bool) -> OpenClawAPIClient {
-        OpenClawAPIClient.authenticated(baseURL: baseURL, token: token, allowCleartextPublicIPs: allowCleartextPublicIPs)
     }
 }
 
@@ -256,16 +247,6 @@ public actor GatewayConnectionManagerImpl: GatewayConnectionManager {
     /// - Returns: `hello-ok.auth.scopes` of the live session, or `nil` while disconnected.
     public func grantedScopes() -> Set<String>? {
         active.map { Set($0.hello.scopes) }
-    }
-
-    /// The live session's REST client. Only `/health` is real on the gateway; removed in Task 20.
-    ///
-    /// - Throws: ``GatewayError/unreachable(url:underlying:)`` while disconnected.
-    public func requireClient() throws -> OpenClawAPIClient {
-        guard let session = active else {
-            throw GatewayError.unreachable(url: "<no active connection>", underlying: nil)
-        }
-        return session.client
     }
 
     // ── Session lifecycle ────────────────────────────────────────────────────

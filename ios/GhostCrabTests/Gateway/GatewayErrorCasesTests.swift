@@ -71,4 +71,24 @@ struct GatewayErrorCasesTests {
             == .protocol(code: "INVALID_REQUEST", message: "unknown method: skills.install"))
         #expect(!GatewayError.connectionClosed(url: url, closeCode: 1008, reason: "bye").toSkillInstallError().isRetryable)
     }
+
+    // Moved from OpenClawAPIClientDecodingTests when the REST skill routes were deleted (Task 20).
+
+    @Test func cleartextBlockedInstallIsNotRetryable() {
+        let error = GatewayError.cleartextBlocked(url: "ws://8.8.8.8:18789/ws", host: "8.8.8.8")
+        let mapped = error.toSkillInstallError()
+        // Its own case, shown as is: no "Protocol error" prefix in the skill UI.
+        #expect(mapped == .cleartextBlocked(message: error.errorDescription ?? ""))
+        #expect(!mapped.isRetryable)
+    }
+
+    /// The HTTP status stands in for the missing RPC code, whatever the status.
+    @Test func anHttpStatusInstallErrorIsAProtocolErrorNamingTheStatus() {
+        let body = "Response deserialization failed (DecodingError.typeMismatch): expected an object"
+        let mapped = GatewayError.api(url: "http://192.168.1.50:18789/health", statusCode: 200, body: body).toSkillInstallError()
+        #expect(mapped == .protocol(code: "HTTP 200", message: body))
+        #expect(!mapped.isRetryable)
+        #expect(GatewayError.api(url: "http://192.168.1.50:18789/health", statusCode: 404).toSkillInstallError()
+            == .protocol(code: "HTTP 404", message: ""))
+    }
 }

@@ -8,9 +8,7 @@
 // Env: PORT (18790), HOST (0.0.0.0), TOKEN (shared token; unset = auth mode none), SCOPES (granted subset),
 //      AUTO_APPROVE=1 (approve new devices at once), FAIL_MODE (comma list: install-unavailable),
 //      MOCK_DISPLAY_NAME (presence host = the app's gateway name), MOCK_VERSION (server.version),
-//      CONFIG_CHANGED_EARLY=1 (config.changed before the write's response, an ordering the real gateway also shows),
-//      LEGACY_REST=1 (serve the pre-ADR-0007 REST mock in legacy-rest.mjs instead; ios-screenshots.yml only,
-//      until the iOS plan's Task 20 removes it).
+//      CONFIG_CHANGED_EARLY=1 (config.changed before the write's response, an ordering the real gateway also shows).
 import http from "node:http";
 import { createHash, randomUUID } from "node:crypto";
 import { pathToFileURL } from "node:url";
@@ -430,22 +428,16 @@ export function createMockGateway({
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  if (process.env.LEGACY_REST === "1") {
-    // Today's REST + JSON-RPC mock (it listens on import), kept only for ios-screenshots.yml until the iOS app
-    // speaks protocol 4; the iOS plan's Task 20 deletes legacy-rest.mjs and this branch.
-    await import("./legacy-rest.mjs");
-  } else {
-    const gateway = createMockGateway({
-      token: process.env.TOKEN || null,
-      scopes: (process.env.SCOPES || ALL_SCOPES.join(",")).split(",").map((s) => s.trim()).filter(Boolean),
-      autoApprove: process.env.AUTO_APPROVE === "1",
-      failModes: (process.env.FAIL_MODE || "").split(",").map((s) => s.trim()).filter(Boolean),
-      displayName: process.env.MOCK_DISPLAY_NAME || "mock-gateway",
-      version: process.env.MOCK_VERSION || MOCK_VERSION,
-      configChangedEarly: process.env.CONFIG_CHANGED_EARLY === "1",
-    });
-    const address = await gateway.listen(Number(process.env.PORT || 18790), process.env.HOST || "0.0.0.0");
-    console.log(`mock OpenClaw gateway (protocol ${PROTOCOL}) on ${address.address}:${address.port}`);
-    console.log(`approve pending devices: curl -X POST http://127.0.0.1:${address.port}/__mock/devices/approve`);
-  }
+  const gateway = createMockGateway({
+    token: process.env.TOKEN || null,
+    scopes: (process.env.SCOPES || ALL_SCOPES.join(",")).split(",").map((s) => s.trim()).filter(Boolean),
+    autoApprove: process.env.AUTO_APPROVE === "1",
+    failModes: (process.env.FAIL_MODE || "").split(",").map((s) => s.trim()).filter(Boolean),
+    displayName: process.env.MOCK_DISPLAY_NAME || "mock-gateway",
+    version: process.env.MOCK_VERSION || MOCK_VERSION,
+    configChangedEarly: process.env.CONFIG_CHANGED_EARLY === "1",
+  });
+  const address = await gateway.listen(Number(process.env.PORT || 18790), process.env.HOST || "0.0.0.0");
+  console.log(`mock OpenClaw gateway (protocol ${PROTOCOL}) on ${address.address}:${address.port}`);
+  console.log(`approve pending devices: curl -X POST http://127.0.0.1:${address.port}/__mock/devices/approve`);
 }
