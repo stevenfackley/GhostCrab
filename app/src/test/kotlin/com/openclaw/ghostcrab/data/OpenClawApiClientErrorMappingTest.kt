@@ -2,8 +2,6 @@ package com.openclaw.ghostcrab.data
 
 import com.openclaw.ghostcrab.data.api.CleartextBlockedIOException
 import com.openclaw.ghostcrab.data.api.OpenClawApiClient
-import com.openclaw.ghostcrab.data.api.dto.AIContextDto
-import com.openclaw.ghostcrab.data.api.dto.AIRecommendationRequestDto
 import com.openclaw.ghostcrab.domain.exception.CleartextBlockedException
 import com.openclaw.ghostcrab.domain.exception.GatewayProtocolException
 import com.openclaw.ghostcrab.domain.exception.GatewayTimeoutException
@@ -11,16 +9,9 @@ import com.openclaw.ghostcrab.domain.exception.GatewayTlsException
 import com.openclaw.ghostcrab.domain.exception.GatewayUnreachableException
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
-import io.ktor.client.engine.mock.respond
 import io.ktor.client.engine.okhttp.OkHttp
-import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.plugins.websocket.WebSockets
-import io.ktor.http.HttpHeaders
-import io.ktor.http.HttpStatusCode
-import io.ktor.http.headersOf
-import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.test.runTest
-import kotlinx.serialization.json.Json
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -34,13 +25,6 @@ private const val ERR_BASE = "http://192.168.1.50:18789"
 
 private fun throwingClient(error: Throwable): OpenClawApiClient =
     OpenClawApiClient.forTest(ERR_BASE, HttpClient(MockEngine { throw error }))
-
-private fun jsonResponseClient(status: HttpStatusCode, body: String): OpenClawApiClient {
-    val engine = MockEngine { respond(body, status, headersOf(HttpHeaders.ContentType, "application/json")) }
-    return OpenClawApiClient.forTest(ERR_BASE, HttpClient(engine) {
-        install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
-    })
-}
 
 class OpenClawApiClientErrorMappingTest {
 
@@ -75,31 +59,6 @@ class OpenClawApiClientErrorMappingTest {
         assertTrue(ex.detail.contains("IllegalArgumentException"))
     }
 
-    @Test fun `a 202 from ai recommend is decoded instead of reported unreachable`() = runTest {
-        val client = jsonResponseClient(HttpStatusCode.Accepted, """{"recommendation":"ok","suggested_changes":[]}""")
-        val dto = client.getAIRecommendation(AIRecommendationRequestDto("q", AIContextDto(null, null, null)))
-        assertEquals("ok", dto.recommendation)
-    }
-
-    @Test fun `openWebSocket refused upgrade request maps to GatewayUnreachableException`() = runTest {
-        val client = OpenClawApiClient.forTest(
-            ERR_BASE,
-            HttpClient(MockEngine { throw ConnectException("refused") }) { install(WebSockets) },
-        )
-        val ex = assertThrows<GatewayUnreachableException> { client.openWebSocket() }
-        assertTrue(ex.cause is ConnectException)
-    }
-
-    @Test fun `openWebSocket to a refusing port maps to GatewayUnreachableException`() = runTest {
-        // Loopback port 1 refuses at once; real OkHttp so the upgrade really goes out.
-        val client = OpenClawApiClient.forTest("http://127.0.0.1:1", HttpClient(OkHttp) { install(WebSockets) })
-        try {
-            assertThrows<GatewayUnreachableException> { client.openWebSocket() }
-        } finally {
-            client.close()
-        }
-    }
-
     @Test fun `openWsSession refused upgrade maps to GatewayUnreachableException`() = runTest {
         val client = OpenClawApiClient.forTest(
             ERR_BASE,
@@ -107,6 +66,16 @@ class OpenClawApiClientErrorMappingTest {
         )
         val ex = assertThrows<GatewayUnreachableException> { client.openWsSession() }
         assertTrue(ex.cause is ConnectException)
+    }
+
+    @Test fun `openWsSession to a refusing port maps to GatewayUnreachableException`() = runTest {
+        // Loopback port 1 refuses at once; real OkHttp so the upgrade really goes out.
+        val client = OpenClawApiClient.forTest("http://127.0.0.1:1", HttpClient(OkHttp) { install(WebSockets) })
+        try {
+            assertThrows<GatewayUnreachableException> { client.openWsSession() }
+        } finally {
+            client.close()
+        }
     }
 
     @Test fun `webSocketUrl maps http to ws and https to wss`() {

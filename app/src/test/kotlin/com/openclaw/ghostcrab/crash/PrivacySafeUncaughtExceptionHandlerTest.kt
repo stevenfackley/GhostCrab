@@ -50,4 +50,11 @@ class PrivacySafeUncaughtExceptionHandlerTest {
         assertTrue(result.contains("token=[REDACTED]"))
         assertTrue(result.contains("\"token\": \"[REDACTED]"))
     }
+
+    @Test
+    fun `sanitize redacts device and bootstrap tokens in gateway frames`() {
+        val input = """{"auth":{"deviceToken":"dt-test-0001","bootstrapToken":"bt-test-0001","token":"shared-token"}}"""
+        val result = PrivacySafeUncaughtExceptionHandler.sanitize(input)
+        listOf("dt-test-0001", "bt-test-0001", "shared-token").forEach { assertFalse(result.contains(it), it) }
+    }
 }

@@ -380,9 +380,8 @@ class GatewayConnectionManagerImplTest {
         assertThrows<GatewayNotConnectedException> { m.check() }
     }
 
-    @Test fun `requireClient and requireSession before connect throw GatewayNotConnectedException`() = runTest {
+    @Test fun `requireSession before connect throws GatewayNotConnectedException`() = runTest {
         val m = manager(session = null)
-        assertThrows<GatewayNotConnectedException> { m.requireClient() }
         assertThrows<GatewayNotConnectedException> { m.requireSession() }
     }
 

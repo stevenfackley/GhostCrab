@@ -444,12 +444,6 @@ class GatewayConnectionManagerImpl(
 
     /** @return `hello-ok.auth.scopes` of the live session, or `null` while disconnected. */
     fun grantedScopes(): Set<String>? = active?.hello?.scopes
-
-    /**
-     * @return The live session's REST client (only `/health` is real; removed in Task 24).
-     * @throws GatewayNotConnectedException if no session is active.
-     */
-    fun requireClient(): OpenClawApiClient = active?.client ?: throw GatewayNotConnectedException(reconnectingUrl)
 }
 
 /**
@@ -496,16 +490,9 @@ private object AlwaysBlockCleartextSettingsRepository : SettingsRepository {
 
 interface OpenClawApiClientFactory {
     fun unauthenticated(baseUrl: String, allowCleartextPublicIPs: () -> Boolean = { false }): OpenClawApiClient
-    fun authenticated(
-        baseUrl: String,
-        token: String,
-        allowCleartextPublicIPs: () -> Boolean = { false },
-    ): OpenClawApiClient
 }
 
 object DefaultClientFactory : OpenClawApiClientFactory {
     override fun unauthenticated(baseUrl: String, allowCleartextPublicIPs: () -> Boolean) =
         OpenClawApiClient.unauthenticated(baseUrl, allowCleartextPublicIPs)
-    override fun authenticated(baseUrl: String, token: String, allowCleartextPublicIPs: () -> Boolean) =
-        OpenClawApiClient.authenticated(baseUrl, token, allowCleartextPublicIPs)
 }

@@ -206,7 +206,7 @@ class ModelManagerViewModelTest {
                 model("claude-3-5", active = false),
             ),
         )
-        repo.setActiveError = GatewayApiException("http://example.com/api/models/active", 503)
+        repo.setActiveError = GatewayApiException("ws://example.com/ws", 503)
         val (vm, _) = makeVm(initialConnection = connectedState, repo = repo)
 
         // Collect intermediate states by observing after confirmSwap

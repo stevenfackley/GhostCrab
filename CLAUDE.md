@@ -41,9 +41,9 @@ Package root: `app/src/main/kotlin/com/openclaw/ghostcrab/`
 | `domain/exception/` | Sealed `GatewayException` hierarchy — every leaf has `isRetryable: Boolean` |
 | `domain/repository/` | Frozen interfaces — do **not** change signatures without a documented ADR |
 | `domain/util/` | Pure helpers: `ConfigSensitivity` (secret/security-affecting path classification + redaction), `JsonPatch` (`withLeaf`, merge-patch building), `suspendRunCatching`, `GatewayUrl` (IPv6-safe URL parsing), `PairCode` (`ghostcrab://pair` decoding), `TokenUtils` |
-| `data/api/` | `OpenClawApiClient` (Ktor) + DTOs |
+| `data/api/` | `OpenClawApiClient` (Ktor): the `GET /health` probe and the control-plane WebSocket upgrade only; no credential is ever sent over HTTP (ADR-0007) |
 | `data/discovery/` | `NsdDiscoveryServiceImpl` |
-| `data/ws/` | `GatewayWsClient` (JSON-RPC 2.0 over WebSocket, 30 s request timeout), `JsonRpc` |
+| `data/ws/` | `WsSession` / `KtorWsSession`: the raw socket seam that `data/gateway/GatewayRpcClient` (protocol-4 `req`/`res`/`event` frames) wraps |
 | `data/storage/` | `ConnectionProfileStore` (DataStore metadata + EncryptedSharedPreferences tokens) |
 | `data/impl/` | Repository implementations |
 | `ui/theme/` | `BrandTokens`, `Color`, `Type`, `Shape`, `Spacing`, `GhostCrabTheme` |

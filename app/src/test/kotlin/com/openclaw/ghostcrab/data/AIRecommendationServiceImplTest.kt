@@ -71,7 +71,6 @@ class AIRecommendationServiceImplTest {
         assertEquals(url, e.url)
         assertFalse(e.isRetryable)
         verify(exactly = 0) { m.requireSession() }
-        verify(exactly = 0) { m.requireClient() }
     }
 
     @Test fun `getRecommendation while disconnected is GatewayNotConnectedException`() = runTest {
@@ -94,6 +93,5 @@ class AIRecommendationServiceImplTest {
         }
         assertFalse(e.message.orEmpty().contains("s3cr3t"))
         verify(exactly = 0) { m.requireSession() }
-        verify(exactly = 0) { m.requireClient() }
     }
 }
