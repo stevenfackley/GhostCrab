@@ -14,6 +14,8 @@ const val MAX_PAIR_CODE_LENGTH: Int = 4096
 private const val PAIR_SCHEME = "ghostcrab:"
 private const val PAIR_PREFIX = "ghostcrab://pair?"
 private const val PAIR_VERSION = 1
+private const val SETUP_CODE_SCHEME = "oc-pair://"
+private val BASE64URL_TEXT = Regex("^[A-Za-z0-9_-]+={0,2}$")
 private val pairJson = Json {
     ignoreUnknownKeys = true
     isLenient = false
@@ -44,11 +46,19 @@ sealed interface PairCodeResult {
     data class Bundle(val bundle: PairBundle) : PairCodeResult
 
     /**
-     * A plain `http(s)` gateway URL (legacy / tunnel QR codes).
+     * A plain `http(s)` or `ws(s)` gateway URL (legacy / tunnel QR codes), as its `http(s)` base URL.
      *
      * @property url The parsed, normalised URL.
      */
     data class PlainUrl(val url: GatewayUrl) : PairCodeResult
+
+    /**
+     * An `openclaw qr` setup code. It pairs OpenClaw node apps and cannot authorize an operator client such as
+     * GhostCrab (ADR-0007), so it is only explained (see [setupCodeExplanation]). Its bootstrap token is not kept.
+     *
+     * @property url The gateway URL inside the code as an `http(s)` base URL, or `null` when it has none usable.
+     */
+    data class SetupCode(val url: GatewayUrl?) : PairCodeResult
 
     /**
      * Unusable payload.
@@ -69,13 +79,25 @@ private data class PairPayloadV1(
     override fun toString(): String = "PairPayloadV1(v=$v, url=$url, token=${token?.let { REDACTED_PLACEHOLDER }})"
 }
 
+/** The two `openclaw qr` setup-code fields GhostCrab reads; the token only proves it is a setup code. */
+@Serializable
+private data class SetupCodePayload(
+    val url: String? = null,
+    val bootstrapToken: String? = null,
+) {
+    override fun toString(): String =
+        "SetupCodePayload(url=$url, bootstrapToken=${bootstrapToken?.let { REDACTED_PLACEHOLDER }})"
+}
+
 /**
- * Decodes [raw] from a QR code or a `VIEW` intent: a `ghostcrab://pair?p=…` bundle or a plain
- * `http(s)` gateway URL. URL validation is delegated to [GatewayUrl.parse]. Input longer than
+ * Decodes [raw] from a QR code or a `VIEW` intent: a `ghostcrab://pair?p=…` bundle, a plain `http(s)` / `ws(s)`
+ * gateway URL, or an `openclaw qr` setup code (bare base64url or `oc-pair://<code>`), which is only recognised.
+ * URL validation is delegated to [GatewayUrl.parse] and [GatewayUrl.fromWebSocketUrl]. Input longer than
  * [MAX_PAIR_CODE_LENGTH] is rejected without decoding.
  *
  * @param raw Scanned text or deep-link URI string.
- * @return [PairCodeResult.Bundle], [PairCodeResult.PlainUrl], or [PairCodeResult.Invalid]; never throws.
+ * @return [PairCodeResult.Bundle], [PairCodeResult.PlainUrl], [PairCodeResult.SetupCode] or
+ *   [PairCodeResult.Invalid]; never throws.
  */
 fun decodePairCode(raw: String): PairCodeResult {
     val trimmed = raw.trim()
@@ -84,10 +106,35 @@ fun decodePairCode(raw: String): PairCodeResult {
             PairCodeResult.Invalid("Pairing data is too large (over $MAX_PAIR_CODE_LENGTH characters)")
         // Every ghostcrab: link is pairing data, so a broken link never gets the plain-URL message.
         trimmed.startsWith(PAIR_SCHEME, ignoreCase = true) -> decodeBundle(trimmed)
+        trimmed.startsWith(SETUP_CODE_SCHEME, ignoreCase = true) ->
+            decodeSetupCode(trimmed.substring(SETUP_CODE_SCHEME.length))
+                ?: PairCodeResult.Invalid("OpenClaw setup code could not be decoded")
         else -> GatewayUrl.parse(trimmed)?.let { PairCodeResult.PlainUrl(it) }
+            ?: GatewayUrl.fromWebSocketUrl(trimmed)?.let { PairCodeResult.PlainUrl(it) }
+            ?: trimmed.takeIf { BASE64URL_TEXT.matches(it) }?.let { decodeSetupCode(it) }
             ?: PairCodeResult.Invalid("QR code doesn't contain a valid gateway URL")
     }
 }
+
+/** @return The setup code's gateway URL, or `null` when [encoded] is not a setup code (no bootstrap token). */
+private fun decodeSetupCode(encoded: String): PairCodeResult.SetupCode? {
+    val payload = decodeBase64Text(encoded)?.let { decodeOrNull(SetupCodePayload.serializer(), it) }
+    if (payload == null || payload.bootstrapToken.isNullOrBlank()) return null
+    return PairCodeResult.SetupCode(payload.url?.let { GatewayUrl.fromWebSocketUrl(it) ?: GatewayUrl.parse(it) })
+}
+
+/**
+ * User-facing explanation for a scanned or pasted setup code (ADR-0007): what it is, why GhostCrab cannot use it,
+ * and what to do instead.
+ *
+ * @param url The gateway URL inside the code, when usable.
+ * @return One paragraph naming the URL (when known), the gateway token and the approval command.
+ */
+fun setupCodeExplanation(url: GatewayUrl?): String =
+    "This is an OpenClaw setup code (`openclaw qr`). Setup codes pair OpenClaw node apps; they cannot give " +
+        "GhostCrab operator access (over plain ws:// they grant no access at all). Open Manual Entry, enter " +
+        (url?.let { "$it" } ?: "the gateway URL") + " and the gateway token, then approve this device on the " +
+        "gateway host with `openclaw devices approve <requestId>`."
 
 private fun decodeBundle(uri: String): PairCodeResult {
     val json = payloadJson(uri)

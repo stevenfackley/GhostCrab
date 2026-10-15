@@ -55,9 +55,9 @@ interface DeviceTokenStore {
  * The key a gateway's device token is stored under: one token per `scheme://host:port`. A path, query or fragment
  * in [url] is ignored (`https://gw.example/ws` and `https://gw.example` share a key).
  *
- * Only `http(s)` URLs are canonicalised ([GatewayUrl.parse]); anything else, `ws://` and `wss://` included, falls
- * back to the trimmed text, so the same gateway written as `ws://gw:18789` and `http://gw:18789` gets two keys.
- * Code that starts accepting `ws(s)://` input (Task 22) must map it to the `http(s)` form first to keep keys stable.
+ * `http(s)` URLs are canonicalised by [GatewayUrl.parse], `ws(s)` URLs by [GatewayUrl.fromWebSocketUrl], so the same
+ * gateway written as `ws://gw:18789/ws` and `http://gw:18789` (or `wss://gw/ws` and `https://gw`) shares one key and
+ * keys saved before `ws(s)` input was accepted stay valid. Anything else falls back to the trimmed text.
  *
  * @param url A gateway base URL as the user or a profile gave it.
  * @return The canonical `scheme://host:port` ([GatewayUrl]) with the host lowercased (host names are
@@ -65,5 +65,6 @@ interface DeviceTokenStore {
  *   when it does not parse.
  */
 fun gatewayKeyOf(url: String): String =
-    GatewayUrl.parse(url)?.let { it.copy(host = it.host.lowercase(Locale.ROOT)).toString() }
+    (GatewayUrl.parse(url) ?: GatewayUrl.fromWebSocketUrl(url))
+        ?.let { it.copy(host = it.host.lowercase(Locale.ROOT)).toString() }
         ?: url.trim().trimEnd('/')

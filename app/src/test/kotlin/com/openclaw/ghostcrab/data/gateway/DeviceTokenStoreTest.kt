@@ -45,6 +45,13 @@ class DeviceTokenStoreTest {
         assertEquals("https://gw.example:443", gatewayKeyOf("HTTPS://GW.Example/ws"))
     }
 
+    @Test fun `ws and wss urls share the key of the equivalent http and https url`() {
+        assertEquals(gatewayKeyOf("http://gw.local:18789"), gatewayKeyOf("ws://GW.local:18789/ws"))
+        assertEquals(gatewayKeyOf("http://192.168.1.50"), gatewayKeyOf("ws://192.168.1.50"))
+        assertEquals(gatewayKeyOf("https://gw.example"), gatewayKeyOf("WSS://GW.Example/ws"))
+        assertEquals("https://gw.example:443", gatewayKeyOf("wss://gw.example:443/ws?x=1"))
+    }
+
     @Test fun `save then load round-trips`() = runTest {
         val store = store()
         store.saveDeviceToken("http://gw.local:18789", token)

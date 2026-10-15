@@ -51,6 +51,12 @@ class GatewayUrlTest {
         assertEquals("http://[fe80::1]:18789", GatewayUrl.ofOrNull("fe80::1%wlan0", 18789).toString())
     }
 
+    @Test fun `ws and wss urls map to http and https base urls`() {
+        assertEquals("http://172.17.0.2:18789", GatewayUrl.fromWebSocketUrl("ws://172.17.0.2:18789")?.toString())
+        assertEquals("https://gw.example:443", GatewayUrl.fromWebSocketUrl("wss://gw.example/ws")?.toString())
+        assertNull(GatewayUrl.fromWebSocketUrl("http://h:1"))
+    }
+
     @Test fun `discovered IPv6 gateway produces a valid URL`() {
         val gw = DiscoveredGateway("gw", "fe80::1%wlan0", 18789, "gw", null)
         assertEquals("http://[fe80::1]:18789", gw.url)

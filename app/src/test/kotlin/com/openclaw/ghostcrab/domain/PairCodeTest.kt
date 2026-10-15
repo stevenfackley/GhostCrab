@@ -1,8 +1,10 @@
 package com.openclaw.ghostcrab.domain
 
+import com.openclaw.ghostcrab.domain.util.GatewayUrl
 import com.openclaw.ghostcrab.domain.util.MAX_PAIR_CODE_LENGTH
 import com.openclaw.ghostcrab.domain.util.PairCodeResult
 import com.openclaw.ghostcrab.domain.util.decodePairCode
+import com.openclaw.ghostcrab.domain.util.setupCodeExplanation
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertInstanceOf
@@ -97,5 +99,45 @@ class PairCodeTest {
         val standard = (decodePairCode("ghostcrab://pair?p=$std") as PairCodeResult.Bundle).bundle
         assertEquals(urlSafe.url.toString(), standard.url.toString())
         assertEquals(urlSafe.name, standard.name)
+    }
+
+    // ── openclaw qr setup codes (ADR-0007): recognised and explained, never used ─────────────
+
+    /** base64url of {"url":"ws://172.17.0.2:18789","bootstrapToken":"bt-test-0001","expiresAtMs":1792028000000}. */
+    private val setupCode =
+        "eyJ1cmwiOiJ3czovLzE3Mi4xNy4wLjI6MTg3ODkiLCJib290c3RyYXBUb2tlbiI6ImJ0LXRlc3QtMDAwMSIs" +
+            "ImV4cGlyZXNBdE1zIjoxNzkyMDI4MDAwMDAwfQ"
+
+    private fun encode(json: String) = Base64.getUrlEncoder().withoutPadding().encodeToString(json.toByteArray())
+
+    @Test fun `a setup code is recognised with its gateway url and nothing else`() {
+        val result = decodePairCode(setupCode) as PairCodeResult.SetupCode
+        assertEquals("http://172.17.0.2:18789", result.url?.toString())
+        assertFalse(result.toString().contains("bt-test-0001"))
+    }
+
+    @Test fun `oc-pair links are setup codes too`() {
+        assertInstanceOf(PairCodeResult.SetupCode::class.java, decodePairCode("oc-pair://$setupCode"))
+    }
+
+    @Test fun `a wss setup code names the https gateway on 443`() {
+        val code = encode("""{"url":"wss://gw.example/ws","bootstrapToken":"bt"}""")
+        assertEquals("https://gw.example:443", (decodePairCode(code) as PairCodeResult.SetupCode).url?.toString())
+    }
+
+    @Test fun `the explanation says why and what to do instead`() {
+        val text = setupCodeExplanation(GatewayUrl("http", "172.17.0.2", 18789))
+        assertTrue(text.contains("http://172.17.0.2:18789"))
+        assertTrue(text.contains("gateway token"))
+        assertTrue(text.contains("openclaw devices approve"))
+    }
+
+    @Test fun `base64 json without a bootstrap token is not a setup code`() {
+        assertInstanceOf(PairCodeResult.Invalid::class.java, decodePairCode(encode("""{"url":"ws://h:1"}""")))
+    }
+
+    @Test fun `a plain ws url is accepted as a gateway url`() {
+        val result = decodePairCode("ws://192.168.1.50:18789") as PairCodeResult.PlainUrl
+        assertEquals("http://192.168.1.50:18789", result.url.toString())
     }
 }
