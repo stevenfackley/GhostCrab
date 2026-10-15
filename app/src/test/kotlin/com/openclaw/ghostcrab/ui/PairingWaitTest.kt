@@ -9,7 +9,11 @@ import com.openclaw.ghostcrab.ui.connection.PAIRING_RETRY_INTERVAL_MS
 import com.openclaw.ghostcrab.ui.connection.PAIRING_TIMEOUT_MS
 import com.openclaw.ghostcrab.ui.connection.PairingPrompt
 import com.openclaw.ghostcrab.ui.connection.PairingWait
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.test.TestScope
@@ -34,7 +38,13 @@ class PairingWaitTest {
     private var cancelled = 0
     private var finished: Result<Boolean>? = null
 
-    private fun TestScope.waitIn() = PairingWait(backgroundScope, manager) { cancelled++ }
+    private fun TestScope.waitIn() = waitOwnedBy(backgroundScope)
+
+    /** [owner] stands in for `viewModelScope`; a test may end it the way `ViewModel.clear()` does. */
+    private fun TestScope.waitOwnedBy(owner: CoroutineScope) =
+        PairingWait(owner, manager, cleanupScope = backgroundScope) { cancelled++ }
+
+    private fun TestScope.ownerScope() = CoroutineScope(backgroundScope.coroutineContext + Job())
 
     private fun PairingWait.startRefused(onAttempt: () -> Unit = {}): Boolean = start(
         url = url,
@@ -151,6 +161,72 @@ class PairingWaitTest {
         assertEquals(listOf(ConnectionWarning.DeviceIdentityRegenerated), prompts.single().warnings)
         assertEquals(pending.url, prompts.single().url)
         wait.cancel()
+    }
+
+    @Test fun `a Check now before the run does not cut its first interval`() = runTest {
+        var attempts = 0
+        val wait = waitIn()
+        wait.checkNow()
+        wait.startRefused { attempts++ }
+        runCurrent()
+
+        advanceTimeBy(PAIRING_RETRY_INTERVAL_MS - 1)
+
+        assertEquals(1, attempts)
+        wait.cancel()
+    }
+
+    @Test fun `release after the owner's scope ended still disconnects the refused connect`() = runTest {
+        val owner = ownerScope()
+        val wait = waitOwnedBy(owner)
+        wait.startRefused()
+        runCurrent()
+
+        owner.cancel()
+        wait.release()
+        runCurrent()
+
+        assertEquals(1, manager.disconnects)
+        assertFalse(wait.isRunning)
+        assertNull(finished)
+    }
+
+    @Test fun `a Cancel just before the owner's scope ends still disconnects`() = runTest {
+        val owner = ownerScope()
+        val wait = waitOwnedBy(owner)
+        wait.startRefused()
+        runCurrent()
+
+        wait.cancel()
+        owner.cancel()
+        runCurrent()
+
+        assertEquals(1, manager.disconnects)
+    }
+
+    @Test fun `release while nothing runs changes nothing`() = runTest {
+        waitIn().release()
+        runCurrent()
+        assertEquals(0, manager.disconnects)
+    }
+
+    @Test fun `Cancel is ignored once the run has reached onFinished`() = runTest {
+        val saving = CompletableDeferred<Unit>()
+        val wait = waitIn()
+        wait.start(url, onPrompt = {}, connect = {}) {
+            saving.await()
+            finished = it
+        }
+        runCurrent()
+        assertTrue(wait.isRunning)
+
+        wait.cancel()
+        saving.complete(Unit)
+        runCurrent()
+
+        assertEquals(true, finished?.getOrNull())
+        assertEquals(0, cancelled)
+        assertEquals(0, manager.disconnects)
     }
 
     private val connectedElsewhere = GatewayConnection.Connected(

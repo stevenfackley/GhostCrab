@@ -9,6 +9,7 @@ import com.openclaw.ghostcrab.domain.repository.ConnectionProfileRepository
 import com.openclaw.ghostcrab.domain.repository.GatewayConnectionManager
 import com.openclaw.ghostcrab.domain.repository.OnboardingRepository
 import com.openclaw.ghostcrab.ui.toUserMessage
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -50,11 +51,14 @@ sealed interface ConnectionPickerEvent {
  * @param profileRepository Provides saved connection profiles.
  * @param connectionManager Manages the active gateway connection.
  * @param onboardingRepository Checks / marks onboarding completion state.
+ * @param cleanupScope Where the approval wait's disconnect runs once this ViewModel is cleared (see
+ *   [PairingWait.release]); tests inject a test scope.
  */
 public class ConnectionPickerViewModel(
     private val profileRepository: ConnectionProfileRepository,
     private val connectionManager: GatewayConnectionManager,
     private val onboardingRepository: OnboardingRepository,
+    cleanupScope: CoroutineScope = pairingCleanupScope(),
 ) : ViewModel() {
 
     public val profiles: StateFlow<List<ConnectionProfile>> = profileRepository
@@ -109,9 +113,11 @@ public class ConnectionPickerViewModel(
      * cancels it before it navigates away.
      */
     public val pairing: PairingWait =
-        PairingWait(viewModelScope, connectionManager) { _uiState.value = ConnectionPickerUiState() }
+        PairingWait(viewModelScope, connectionManager, cleanupScope) { _uiState.value = ConnectionPickerUiState() }
 
     init {
+        // The picker leaves the back stack mid-wait (e.g. Back exits the app): same cleanup as PairingWait.cancel.
+        addCloseable { pairing.release() }
         resumePendingApproval()
     }
 
@@ -176,5 +182,4 @@ public class ConnectionPickerViewModel(
     /** Clears [ConnectionPickerUiState.errorMessage] after the snackbar was shown. */
     public fun clearError() {
         _uiState.update { it.copy(errorMessage = null) }
-    }
-}
+    }}

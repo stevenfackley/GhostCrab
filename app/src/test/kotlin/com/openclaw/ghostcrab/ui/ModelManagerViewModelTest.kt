@@ -22,6 +22,7 @@ import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertInstanceOf
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -241,6 +242,21 @@ class ModelManagerViewModelTest {
 
         val stateAfterClear = vm.state.value as ModelManagerUiState.Ready
         assertTrue(!stateAfterClear.swapSuccess)
+    }
+
+    @Test
+    fun `a silent reconnect keeps the list as is and the reconnected session reloads it`() = runTest {
+        val repo = FakeMMRepository(modelsToReturn = listOf(model("gpt-4o", active = true)))
+        val (vm, connFlow) = makeVm(initialConnection = connectedState, repo = repo)
+        val ready = vm.state.value
+
+        connFlow.value = connectedState.copy(reconnecting = true)
+        assertSame(ready, vm.state.value)
+        assertEquals(1, repo.getCallCount)
+
+        connFlow.value = connectedState.copy(sessionGeneration = 1)
+        assertEquals(2, repo.getCallCount)
+        assertInstanceOf(ModelManagerUiState.Ready::class.java, vm.state.value)
     }
 }
 

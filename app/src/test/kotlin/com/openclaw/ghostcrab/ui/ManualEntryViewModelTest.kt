@@ -19,10 +19,15 @@ import com.openclaw.ghostcrab.ui.connection.ManualEntryViewModel
 import com.openclaw.ghostcrab.ui.connection.PAIRING_RETRY_INTERVAL_MS
 import com.openclaw.ghostcrab.ui.connection.PAIRING_TIMEOUT_MS
 import com.openclaw.ghostcrab.ui.connection.PairingHandoff
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.ViewModelStore
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -370,6 +375,52 @@ class ManualEntryViewModelTest {
         vm.connect()
         advanceTimeBy(PAIRING_TIMEOUT_MS + 1)
         assertTrue((vm.uiState.value as ManualEntryUiState.Error).message.contains("PAIRING_REQUIRED"))
+    }
+
+    @Test fun `leaving the screen mid-wait disconnects, so no stale pairing error stays behind`() = runTest {
+        vm = ManualEntryViewModel(
+            connectionManager, profileRepository, onboardingRepository, PairingHandoff(),
+            cleanupScope = backgroundScope,
+        )
+        coEvery { connectionManager.connect(any(), any()) } throws pending
+        fillForm()
+        vm.connect()
+        runCurrent()
+
+        clear(vm)
+        runCurrent()
+
+        coVerify(exactly = 1) { connectionManager.disconnect() }
+        advanceTimeBy(PAIRING_RETRY_INTERVAL_MS * 3)
+        coVerify(exactly = 1) { connectionManager.connect(any(), any()) }
+    }
+
+    @Test fun `Cancel during the post-approval save is ignored, so the approved gateway is saved`() = runTest {
+        var calls = 0
+        val saving = CompletableDeferred<Unit>()
+        coEvery { connectionManager.connect(any(), any()) } coAnswers { if (calls++ == 0) throw pending }
+        coEvery { profileRepository.saveProfile(any(), any()) } coAnswers { saving.await() }
+        fillForm()
+        vm.events.test {
+            vm.connect()
+            vm.pairing.checkNow()
+            runCurrent()
+
+            vm.pairing.cancel()
+            saving.complete(Unit)
+
+            assertEquals(ManualEntryEvent.NavigateToDashboard, awaitItem())
+        }
+        coVerify(exactly = 1) { onboardingRepository.markCompleted() }
+        coVerify(exactly = 0) { connectionManager.disconnect() }
+        assertEquals(ManualEntryUiState.Idle, vm.uiState.value)
+    }
+
+    /** Clears [viewModel] the way leaving the screen does: `viewModelScope` is cancelled, then its closeables run. */
+    private fun clear(viewModel: ManualEntryViewModel) {
+        val store = ViewModelStore()
+        ViewModelProvider(store, viewModelFactory { initializer { viewModel } })[ManualEntryViewModel::class.java]
+        store.clear()
     }
 
     @Test

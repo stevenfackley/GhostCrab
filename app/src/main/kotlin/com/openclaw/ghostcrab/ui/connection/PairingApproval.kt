@@ -97,23 +97,3 @@ suspend fun awaitPairingApproval(
     }
     return if (approved == true) PairingOutcome.Approved else PairingOutcome.TimedOut
 }
-
-/**
- * Connects once; on `PAIRING_REQUIRED` waits for approval with [awaitPairingApproval].
- *
- * @param wakeUps "Check now" signals.
- * @param onPrompt Receives approval prompts.
- * @param connect The connect call.
- * @return `true` once connected, `false` when the approval window expired.
- * @throws Exception whatever [connect] throws other than [GatewayPairingRequiredException].
- */
-suspend fun connectAwaitingApproval(
-    wakeUps: ReceiveChannel<Unit>,
-    onPrompt: (PairingPrompt) -> Unit,
-    connect: suspend () -> Unit,
-): Boolean = try {
-    connect()
-    true
-} catch (e: GatewayPairingRequiredException) {
-    awaitPairingApproval(e, wakeUps, onPrompt, connect) == PairingOutcome.Approved
-}

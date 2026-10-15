@@ -7,7 +7,6 @@ import com.openclaw.ghostcrab.ui.connection.PAIRING_TIMEOUT_MS
 import com.openclaw.ghostcrab.ui.connection.PairingOutcome
 import com.openclaw.ghostcrab.ui.connection.PairingPrompt
 import com.openclaw.ghostcrab.ui.connection.awaitPairingApproval
-import com.openclaw.ghostcrab.ui.connection.connectAwaitingApproval
 import com.openclaw.ghostcrab.ui.connection.toPrompt
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.TimeoutCancellationException
@@ -113,10 +112,5 @@ class PairingApprovalTest {
 
     @Test fun `the prompt keeps the gateway URL that asked for the approval`() {
         assertEquals(url, pending.toPrompt().url)
-    }
-
-    @Test fun `connectAwaitingApproval connects at once when no approval is needed`() = runTest {
-        assertTrue(connectAwaitingApproval(Channel(Channel.CONFLATED), onPrompt = {}) {})
-        assertEquals(0, currentTime)
     }
 }

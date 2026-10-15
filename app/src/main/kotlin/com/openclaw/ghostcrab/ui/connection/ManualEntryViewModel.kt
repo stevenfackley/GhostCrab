@@ -11,6 +11,7 @@ import com.openclaw.ghostcrab.domain.util.DEFAULT_GATEWAY_PORT
 import com.openclaw.ghostcrab.domain.util.GatewayUrl
 import com.openclaw.ghostcrab.domain.util.suspendRunCatching
 import com.openclaw.ghostcrab.ui.toUserMessage
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -65,11 +66,16 @@ sealed interface ManualEntryEvent {
     data object NavigateToDashboard : ManualEntryEvent
 }
 
+/**
+ * @param cleanupScope Where the approval wait's disconnect runs once this ViewModel is cleared (see
+ *   [PairingWait.release]); tests inject a test scope.
+ */
 class ManualEntryViewModel(
     private val connectionManager: GatewayConnectionManager,
     private val profileRepository: ConnectionProfileRepository,
     private val onboardingRepository: OnboardingRepository,
     private val pairingHandoff: PairingHandoff,
+    cleanupScope: CoroutineScope = pairingCleanupScope(),
 ) : ViewModel() {
 
     /** Display name from a consumed pair bundle; used for the saved profile instead of the gateway's own name. */
@@ -95,7 +101,16 @@ class ManualEntryViewModel(
     val events: Flow<ManualEntryEvent> = _events.receiveAsFlow()
 
     /** The running connect and its approval wait; the approval card's Check now / Cancel go here. */
-    val pairing = PairingWait(viewModelScope, connectionManager) { _uiState.value = ManualEntryUiState.Idle }
+    val pairing = PairingWait(viewModelScope, connectionManager, cleanupScope) {
+        _uiState.value = ManualEntryUiState.Idle
+    }
+
+    init {
+        // Leaving the screen (Back) mid-wait: clearing this ViewModel cancels viewModelScope, and the wait with it,
+        // so the wait's disconnect runs in the cleanup scope instead. Without it a stale Error(PAIRING_REQUIRED)
+        // would stay in the manager. (A closeable rather than onCleared: same moment, one function fewer.)
+        addCloseable { pairing.release() }
+    }
 
     fun onHostChange(value: String) {
         if (value != _form.value.host) addressEditedByHand()
