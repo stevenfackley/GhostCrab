@@ -1,0 +1,74 @@
+import Foundation
+import Testing
+@testable import GhostCrab
+
+@Suite("GatewayError protocol-4 cases")
+struct GatewayErrorCasesTests {
+
+    private let url = "ws://192.168.1.50:18789/ws"
+
+    @Test func pairingRequiredIsRetryableAndNamesTheApproveCommand() {
+        let error = GatewayError.pairingRequired(url: url, requestId: "req-1", reason: "not-paired", requestedScopes: ["operator.read"])
+        #expect(error.isRetryable)
+        #expect(error.errorDescription?.contains("openclaw devices approve req-1") == true)
+    }
+
+    @Test func pairingRequiredWithoutARequestIdNamesTheListCommand() {
+        let error = GatewayError.pairingRequired(url: url, requestId: nil, reason: "not-paired", requestedScopes: [])
+        #expect(error.errorDescription?.contains("openclaw devices list") == true)
+    }
+
+    @Test func connectRejectedNamesUrlAndCode() {
+        let error = GatewayError.connectRejected(url: url, detailCode: "AUTH_TOKEN_MISMATCH", message: "token mismatch", recommendedNextStep: nil)
+        #expect(!error.isRetryable)
+        #expect(error.errorDescription?.contains(url) == true)
+        #expect(error.errorDescription?.contains("AUTH_TOKEN_MISMATCH") == true)
+    }
+
+    @Test func connectRejectedHonoursWaitThenRetryAndTheRetryableHint() {
+        #expect(GatewayError.connectRejected(url: url, detailCode: "AUTH_RATE_LIMITED", message: "too many attempts",
+                                             recommendedNextStep: "wait_then_retry", retryAfterMs: 30_000).isRetryable)
+        #expect(GatewayError.connectRejected(url: url, detailCode: "AUTH_TOKEN_MISMATCH", message: "unauthorized",
+                                             recommendedNextStep: "update_auth_credentials", retryable: true).isRetryable)
+        #expect(!GatewayError.connectRejected(url: url, detailCode: "AUTH_TOKEN_MISMATCH", message: "unauthorized",
+                                              recommendedNextStep: "update_auth_credentials").isRetryable)
+    }
+
+    @Test func rpcHonoursTheRetryableHint() {
+        #expect(GatewayError.rpc(url: url, method: "x", code: "UNAVAILABLE", detailCode: nil, message: "busy", retryable: true).isRetryable)
+        #expect(!GatewayError.rpc(url: url, method: "x", code: "UNAVAILABLE", detailCode: nil, message: "busy", retryable: false).isRetryable)
+    }
+
+    @Test func rpcDescriptionNamesMethodCodesAndMessage() {
+        let error = GatewayError.rpc(url: url, method: "config.patch", code: "INVALID_REQUEST", detailCode: "X_CODE",
+                                     message: "invalid config", retryable: false)
+        #expect(error.errorDescription == "Gateway RPC config.patch failed at \(url): INVALID_REQUEST/X_CODE \u{2014} invalid config")
+    }
+
+    @Test func aPolicyCloseIsNotRetryableAndNamesCodeAndReason() {
+        let error = GatewayError.connectionClosed(url: url, closeCode: 1008, reason: "invalid request frame")
+        #expect(!error.isRetryable)
+        #expect(error.errorDescription == "Gateway at \(url) closed the connection: WebSocket 1008 \u{2014} invalid request frame")
+        #expect(GatewayError.connectionClosed(url: url, closeCode: 1008, reason: "").errorDescription
+            == "Gateway at \(url) closed the connection: WebSocket 1008")
+    }
+
+    @Test func unsupportedScopeAndProtocolCasesAreNotRetryable() {
+        #expect(!GatewayError.methodUnsupported(url: url, method: "skills.list").isRetryable)
+        #expect(!GatewayError.missingScope(url: url, method: "config.get", scope: "operator.admin").isRetryable)
+        #expect(!GatewayError.protocolViolation(url: url, detail: "connect answered without a hello-ok payload").isRetryable)
+    }
+
+    @Test func installMappingUsesTheNewCases() {
+        #expect(GatewayError.missingScope(url: url, method: "skills.install", scope: "operator.admin").toSkillInstallError()
+            == .unauthorized(missingScope: "operator.admin"))
+        let notFound = GatewayError.rpc(url: url, method: "skills.install", code: "UNAVAILABLE", detailCode: nil,
+                                        message: "Skill \"x\" not found on ClawHub.", retryable: false)
+        #expect(notFound.toSkillInstallError(slug: "x") == .notFound(slug: "x"))
+        #expect(GatewayError.rpc(url: url, method: "skills.install", code: "INVALID_REQUEST", detailCode: nil, message: "bad", retryable: false)
+            .toSkillInstallError() == .protocol(code: "INVALID_REQUEST", message: "bad"))
+        #expect(GatewayError.methodUnsupported(url: url, method: "skills.install").toSkillInstallError()
+            == .protocol(code: "INVALID_REQUEST", message: "unknown method: skills.install"))
+        #expect(!GatewayError.connectionClosed(url: url, closeCode: 1008, reason: "bye").toSkillInstallError().isRetryable)
+    }
+}

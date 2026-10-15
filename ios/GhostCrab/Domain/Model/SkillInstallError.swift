@@ -9,7 +9,8 @@ public enum SkillInstallError: Error, Sendable, Hashable {
     case notFound(slug: String)
     case dependencyConflict(conflicts: [String])
     case network(cause: String)
-    case `protocol`(rpcCode: Int, message: String)
+    /// The gateway rejected the install with string `code` (e.g. `UNAVAILABLE`) and `message` (ADR-0007).
+    case `protocol`(code: String, message: String)
     case verificationFailed(expected: String, actual: String)
     /// The app's cleartext policy refused plain HTTP to a public IP before the
     /// request left the device. `message` is the full user-facing text, with

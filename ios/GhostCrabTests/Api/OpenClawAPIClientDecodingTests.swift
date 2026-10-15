@@ -119,7 +119,7 @@ struct OpenClawAPIClientDecodingTests {
 
     /// Pins the convention: REST has no RPC code, so a 200 whose body is not
     /// an installed skill reaches the install stream as
-    /// `.protocol(rpcCode: 200, …)`, the HTTP status standing in for the code.
+    /// `.protocol(code: "HTTP 200", …)`, the HTTP status standing in for the code.
     @Test func skillInstall200WithGarbageBodyIsAProtocolErrorWithCode200() async {
         let (client, _) = makeClient { _ in .init(status: 200, json: "[1,2,3]") }
         do {
@@ -131,7 +131,7 @@ struct OpenClawAPIClientDecodingTests {
                 Issue.record("expected SkillInstallError.protocol, got \(mapped)")
                 return
             }
-            #expect(rpcCode == 200)
+            #expect(rpcCode == "HTTP 200")
             #expect(message.hasPrefix("Response deserialization failed (DecodingError.typeMismatch)"))
             #expect(!mapped.isRetryable)
         } catch {

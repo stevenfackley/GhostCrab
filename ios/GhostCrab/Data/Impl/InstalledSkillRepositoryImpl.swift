@@ -187,30 +187,51 @@ private extension InstalledSkillDTO {
 }
 
 extension GatewayError {
-    /// Maps REST-level ``GatewayError`` cases to the install-time
-    /// ``SkillInstallError`` taxonomy used by the install progress stream.
+    /// Maps a ``GatewayError`` to the install-time ``SkillInstallError``
+    /// taxonomy used by the install progress stream.
     ///
-    /// Mirrors the Kotlin `WsRpcException.toInstallError()` mapping:
-    /// - auth → `.unauthorized(missingScope: "operator.admin")`
-    /// - api 404 → `.notFound(slug:)` (slug is unknown at this point; pass body)
-    /// - api 409 → `.dependencyConflict(conflicts:)`
-    /// - api 422 → `.verificationFailed(expected:actual:)`
-    /// - api other → `.protocol(rpcCode:message:)`. REST has no RPC code, so
-    ///   the HTTP status stands in for it (existing convention). That includes
-    ///   a 200 whose body is not an installed skill: `installSkill` reports it
-    ///   as `.api(statusCode: 200, body: "Response deserialization failed …")`,
-    ///   which lands here as `.protocol(rpcCode: 200, message: <that body>)`.
+    /// - missingScope → `.unauthorized(missingScope:)`
+    /// - rpc `UNAVAILABLE` "not found on ClawHub" → `.notFound(slug:)`; other
+    ///   rpc → `.protocol(code:message:)` with the gateway's string code
+    /// - methodUnsupported → `.protocol(code: "INVALID_REQUEST", …)`
+    /// - auth / profileNeedsReauth / pairingRequired / connectRejected →
+    ///   `.unauthorized(missingScope: "operator.admin")`
+    /// - connectionClosed → `.protocol(code: "WS <close code>", …)` (not
+    ///   retryable: the gateway refused the socket)
+    /// - REST leftovers (removed with the REST client): api 404 →
+    ///   `.notFound(slug:)`, 409 → `.dependencyConflict(conflicts:)`, 422 →
+    ///   `.verificationFailed(expected:actual:)`, other →
+    ///   `.protocol(code: "HTTP <status>", …)`. That includes a 200 whose body
+    ///   is not an installed skill: `installSkill` reports it as
+    ///   `.api(statusCode: 200, body: "Response deserialization failed …")`,
+    ///   which lands here as `.protocol(code: "HTTP 200", message: <that body>)`.
     /// - timeout / unreachable / tls → `.network(cause:)`
-    /// - configValidation → `.protocol(rpcCode: 0, message:)` (not retryable)
+    /// - configValidation → `.protocol(code: "CONFIG_VALIDATION", …)`;
+    ///   protocolViolation → `.protocol(code: "PROTOCOL", …)` (not retryable)
     /// - cleartextBlocked → `.cleartextBlocked(message:)` (not retryable; the
     ///   message carries the fix and is shown as is)
-    /// - everything else → `.unknown(cause:)`
+    /// - AI cases → `.unknown(cause:)`
     ///
     /// Internal (not private) so tests can pin the mapping.
-    func toSkillInstallError() -> SkillInstallError {
+    ///
+    /// - Parameter slug: The slug being installed, for `.notFound`. When empty,
+    ///   the gateway's message stands in for it.
+    /// - Returns: The install error for this gateway error.
+    func toSkillInstallError(slug: String = "") -> SkillInstallError {
         switch self {
-        case .auth:
+        case let .missingScope(_, _, scope):
+            return .unauthorized(missingScope: scope)
+        case let .rpc(_, _, code, _, message, _, _, _):
+            if code == "UNAVAILABLE", message.contains("not found on ClawHub") {
+                return .notFound(slug: slug.isEmpty ? message : slug)
+            }
+            return .protocol(code: code, message: message)
+        case let .methodUnsupported(_, method):
+            return .protocol(code: "INVALID_REQUEST", message: "unknown method: \(method)")
+        case .auth, .profileNeedsReauth, .pairingRequired, .connectRejected:
             return .unauthorized(missingScope: "operator.admin")
+        case let .connectionClosed(url, closeCode, reason):
+            return .protocol(code: "WS \(closeCode)", message: reason.isEmpty ? "gateway closed the connection at \(url)" : reason)
         case let .api(_, statusCode, body):
             let bodyText = body ?? ""
             switch statusCode {
@@ -221,7 +242,7 @@ extension GatewayError {
             case 422:
                 return .verificationFailed(expected: "", actual: bodyText)
             default:
-                return .protocol(rpcCode: statusCode, message: bodyText)
+                return .protocol(code: "HTTP \(statusCode)", message: bodyText)
             }
         case let .timeout(url, _):
             return .network(cause: "timeout at \(url)")
@@ -230,11 +251,11 @@ extension GatewayError {
         case let .tls(url, _):
             return .network(cause: "TLS error at \(url)")
         case let .configValidation(field, reason):
-            return .protocol(rpcCode: 0, message: "\(field): \(reason)")
+            return .protocol(code: "CONFIG_VALIDATION", message: "\(field): \(reason)")
+        case let .protocolViolation(url, detail):
+            return .protocol(code: "PROTOCOL", message: "\(detail) at \(url)")
         case .cleartextBlocked:
             return .cleartextBlocked(message: errorDescription ?? "Cleartext HTTP blocked by app policy")
-        case .profileNeedsReauth:
-            return .unauthorized(missingScope: "operator.admin")
         case let .aiServiceUnavailable(url):
             return .unknown(cause: "ai service unavailable at \(url)")
         case let .aiQuotaExceeded(url):
