@@ -210,7 +210,7 @@ extension GatewayError {
     ///   protocolViolation → `.protocol(code: "PROTOCOL", …)` (not retryable)
     /// - cleartextBlocked → `.cleartextBlocked(message:)` (not retryable; the
     ///   message carries the fix and is shown as is)
-    /// - AI cases → `.unknown(cause:)`
+    /// - AI cases and deviceCredentialStorage → `.unknown(cause:)`
     ///
     /// Internal (not private) so tests can pin the mapping.
     ///
@@ -260,6 +260,8 @@ extension GatewayError {
             return .unknown(cause: "ai service unavailable at \(url)")
         case let .aiQuotaExceeded(url):
             return .unknown(cause: "ai quota exceeded at \(url)")
+        case let .deviceCredentialStorage(operation, _):
+            return .unknown(cause: "could not \(operation) in the Keychain")
         }
     }
 }

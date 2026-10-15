@@ -16,21 +16,28 @@ public enum KeychainError: Error, Equatable, Sendable {
 /// Direct port of the `EncryptedSharedPreferences` token storage from
 /// `ConnectionProfileStore.kt`. Each token is stored as a
 /// `kSecClassGenericPassword` item under service
-/// `"com.qavren.ghostcrab.token"`, with the profile UUID string as the account.
+/// `"com.qavren.ghostcrab.token"` (or the service an instance was built with),
+/// with the profile UUID string as the account.
 ///
 /// All items use `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly` —
 /// equivalent privacy posture to Android's `AES256_GCM` master key:
 /// - no iCloud Keychain sync (`ThisDeviceOnly`)
 /// - inaccessible while the device is locked at first boot
 ///
-/// `SecItem*` calls are themselves thread-safe, so this type is a stateless
-/// `final class` marked `Sendable`.
+/// `SecItem*` calls are themselves thread-safe and the only stored property is
+/// the immutable service name, so this `final class` is `Sendable`.
 public final class Keychain: Sendable {
 
     /// Shared service identifier for every token written by this app.
     public static let service: String = "com.qavren.ghostcrab.token"
 
-    public init() {}
+    /// Keychain service of this instance's items.
+    private let service: String
+
+    /// - Parameter service: Defaults to the token service; ``DeviceIdentityStore`` uses its own.
+    public init(service: String = Keychain.service) {
+        self.service = service
+    }
 
     /// Stores `token` for `profileId`, replacing any existing value.
     ///
@@ -45,7 +52,7 @@ public final class Keychain: Sendable {
 
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: Self.service,
+            kSecAttrService as String: service,
             kSecAttrAccount as String: profileId,
         ]
 
@@ -79,7 +86,7 @@ public final class Keychain: Sendable {
     public func getToken(for profileId: String) throws -> String? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: Self.service,
+            kSecAttrService as String: service,
             kSecAttrAccount as String: profileId,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne,
@@ -110,7 +117,7 @@ public final class Keychain: Sendable {
     public func deleteToken(for profileId: String) throws {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: Self.service,
+            kSecAttrService as String: service,
             kSecAttrAccount as String: profileId,
         ]
         let status = SecItemDelete(query as CFDictionary)
@@ -128,7 +135,7 @@ public final class Keychain: Sendable {
     public func deleteAllTokens() throws {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: Self.service,
+            kSecAttrService as String: service,
         ]
         let status = SecItemDelete(query as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else {

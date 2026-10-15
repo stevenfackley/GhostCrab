@@ -154,13 +154,22 @@ public enum GatewayError: Error, Sendable {
     /// unexpected payload). Not a connectivity problem.
     case protocolViolation(url: String, detail: String)
 
+    /// This device's Keychain refused to read or store the device identity (ADR-0007), e.g. while the device is
+    /// still locked after a restart. Nothing reached the gateway. Retryable, but only at the user's request: an
+    /// automatic retry loop must stop on it.
+    ///
+    /// - Parameters:
+    ///   - operation: What failed, e.g. `read the device identity`. Never contains a secret.
+    ///   - underlying: The Keychain error (an `OSStatus` wrapper; no secret).
+    case deviceCredentialStorage(operation: String, underlying: (any Error & Sendable)? = nil)
+
     /// Upstream's `recommendedNextStep` for a rejection that clears by itself after a back-off.
     private static let nextStepWaitThenRetry = "wait_then_retry"
 
     /// Whether the operation that produced this error is safe to retry.
     public var isRetryable: Bool {
         switch self {
-        case .unreachable, .timeout, .pairingRequired:
+        case .unreachable, .timeout, .pairingRequired, .deviceCredentialStorage:
             return true
         case let .rpc(_, _, _, _, _, retryable, _, _):
             return retryable
@@ -234,6 +243,8 @@ extension GatewayError: LocalizedError {
             return "Gateway at \(url) closed the connection: WebSocket \(closeCode)\(suffix)"
         case let .protocolViolation(url, detail):
             return "Unexpected gateway response at \(url): \(detail)"
+        case let .deviceCredentialStorage(operation, _):
+            return "Could not \(operation) in this device's Keychain. Unlock the device and try again."
         }
     }
 }
