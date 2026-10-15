@@ -108,7 +108,11 @@ class PairingApprovalTest {
 
     @Test fun `the prompt names the exact approve command`() {
         assertEquals("openclaw devices approve req-1", pending.toPrompt().approveCommand)
-        assertEquals("openclaw devices list", PairingPrompt(null, "not-paired", emptyList()).approveCommand)
+        assertEquals("openclaw devices list", PairingPrompt(url, null, "not-paired", emptyList()).approveCommand)
+    }
+
+    @Test fun `the prompt keeps the gateway URL that asked for the approval`() {
+        assertEquals(url, pending.toPrompt().url)
     }
 
     @Test fun `connectAwaitingApproval connects at once when no approval is needed`() = runTest {

@@ -141,8 +141,17 @@ class ConnectionPickerViewModelTest {
 
     // ── Pairing approval (ADR-0007) ───────────────────────────────────────────
 
-    private fun pendingApproval() =
-        GatewayPairingRequiredException("ws://gw/ws", "req-9", "not-paired", emptyList())
+    /** Refuses every connect for approval, like a gateway that has not approved this device yet. */
+    private open class RefusingManager : FakeCpConnectionManager() {
+        var calls = 0
+        override suspend fun connect(url: String, token: String?) {
+            calls++
+            refuse(url)
+        }
+    }
+
+    private fun pickerVm(manager: FakeCpConnectionManager, vararg profiles: ConnectionProfile) =
+        ConnectionPickerViewModel(FakeCpProfileRepo(profiles.toList()), manager, FakeCpOnboardingRepo(true))
 
     @Test
     fun `pairing required shows the prompt on the list and connects once approved`() = runTest {
@@ -150,12 +159,10 @@ class ConnectionPickerViewModelTest {
         var calls = 0
         val manager = object : FakeCpConnectionManager() {
             override suspend fun connect(url: String, token: String?) {
-                if (calls++ == 0) {
-                    throw GatewayPairingRequiredException("ws://gw/ws", "req-9", "not-paired", emptyList())
-                }
+                if (calls++ == 0) refuse(url)
             }
         }
-        val vm = ConnectionPickerViewModel(FakeCpProfileRepo(listOf(p)), manager, FakeCpOnboardingRepo(true))
+        val vm = pickerVm(manager, p)
         vm.events.test {
             vm.connect(p)
             assertEquals("req-9", vm.uiState.value.pairingPrompt?.requestId)
@@ -166,17 +173,18 @@ class ConnectionPickerViewModelTest {
     }
 
     @Test
-    fun `cancelPairing clears the prompt and the connecting state`() = runTest {
+    fun `cancelPairing clears the prompt and the connecting state, stops the retries and disconnects`() = runTest {
         val p = profile()
-        val manager = object : FakeCpConnectionManager() {
-            override suspend fun connect(url: String, token: String?) {
-                throw GatewayPairingRequiredException("ws://gw/ws", "req-9", "not-paired", emptyList())
-            }
-        }
-        val vm = ConnectionPickerViewModel(FakeCpProfileRepo(listOf(p)), manager, FakeCpOnboardingRepo(true))
+        val manager = RefusingManager()
+        val vm = pickerVm(manager, p)
         vm.connect(p)
         vm.pairing.cancel()
+        advanceTimeBy(PAIRING_RETRY_INTERVAL_MS * 10)
+
         assertEquals(ConnectionPickerUiState(), vm.uiState.value)
+        assertEquals(1, manager.calls)
+        assertEquals(1, manager.disconnects)
+        assertEquals(GatewayConnection.Disconnected, manager.state.value)
     }
 
     @Test
@@ -185,10 +193,10 @@ class ConnectionPickerViewModelTest {
         var calls = 0
         val manager = object : FakeCpConnectionManager() {
             override suspend fun connect(url: String, token: String?) {
-                if (calls++ == 0) throw pendingApproval()
+                if (calls++ == 0) refuse(url)
             }
         }
-        val vm = ConnectionPickerViewModel(FakeCpProfileRepo(listOf(p)), manager, FakeCpOnboardingRepo(true))
+        val vm = pickerVm(manager, p)
         vm.connect(p)
         vm.pairing.checkNow()
         runCurrent()
@@ -197,17 +205,29 @@ class ConnectionPickerViewModelTest {
     }
 
     @Test
+    fun `a second connect while waiting for approval starts no second loop`() = runTest {
+        val p = profile()
+        val other = profile(id = "id2").copy(url = "http://192.168.1.51:18789")
+        val manager = RefusingManager()
+        val vm = pickerVm(manager, p, other)
+        vm.connect(p)
+        vm.connect(other)
+        advanceTimeBy(PAIRING_RETRY_INTERVAL_MS + 1)
+
+        assertEquals(2, manager.calls)
+        assertEquals(p.id, vm.uiState.value.connectingProfileId)
+        vm.pairing.cancel()
+    }
+
+    @Test
     fun `the prompt explains a regenerated device identity`() = runTest {
         val p = profile()
         val manager = object : FakeCpConnectionManager() {
-            override val connectionState: StateFlow<GatewayConnection> = MutableStateFlow(
-                GatewayConnection.Error(p.url, pendingApproval(), listOf(ConnectionWarning.DeviceIdentityRegenerated)),
-            )
             override suspend fun connect(url: String, token: String?) {
-                throw pendingApproval()
+                refuse(url, listOf(ConnectionWarning.DeviceIdentityRegenerated))
             }
         }
-        val vm = ConnectionPickerViewModel(FakeCpProfileRepo(listOf(p)), manager, FakeCpOnboardingRepo(true))
+        val vm = pickerVm(manager, p)
         vm.connect(p)
         assertEquals(listOf(ConnectionWarning.DeviceIdentityRegenerated), vm.uiState.value.pairingPrompt?.warnings)
         vm.pairing.cancel()
@@ -216,12 +236,7 @@ class ConnectionPickerViewModelTest {
     @Test
     fun `an expired approval window is an explicit error`() = runTest {
         val p = profile()
-        val manager = object : FakeCpConnectionManager() {
-            override suspend fun connect(url: String, token: String?) {
-                throw pendingApproval()
-            }
-        }
-        val vm = ConnectionPickerViewModel(FakeCpProfileRepo(listOf(p)), manager, FakeCpOnboardingRepo(true))
+        val vm = pickerVm(RefusingManager(), p)
         vm.connect(p)
         advanceTimeBy(PAIRING_TIMEOUT_MS + 1)
         val state = vm.uiState.value
@@ -229,7 +244,45 @@ class ConnectionPickerViewModelTest {
         assertNull(state.connectingProfileId)
         assertTrue(state.errorMessage.orEmpty().contains("PAIRING_REQUIRED"))
     }
+
+    @Test
+    fun `back from the dashboard after a reconnect refused for pairing, the list shows the panel`() = runTest {
+        val p = profile()
+        var calls = 0
+        val manager = object : FakeCpConnectionManager() {
+            override suspend fun connect(url: String, token: String?) {
+                calls++
+            }
+        }
+        manager.state.value = GatewayConnection.Error(p.url, pairingRefusal())
+
+        val vm = pickerVm(manager, p)
+
+        assertEquals("req-9", vm.uiState.value.pairingPrompt?.requestId)
+        assertEquals(p.id, vm.uiState.value.connectingProfileId)
+        assertEquals(0, calls)
+        vm.events.test {
+            advanceTimeBy(PAIRING_RETRY_INTERVAL_MS + 1)
+            assertEquals(ConnectionPickerEvent.NavigateToDashboard, awaitItem())
+        }
+        assertEquals(1, calls)
+    }
+
+    @Test
+    fun `an error that is not a pairing request, or not for a saved gateway, shows no panel`() = runTest {
+        val p = profile()
+        val unrelated = FakeCpConnectionManager()
+        unrelated.state.value = GatewayConnection.Error(p.url, GatewayUnreachableException(p.url))
+        assertNull(pickerVm(unrelated, p).uiState.value.pairingPrompt)
+
+        val unsaved = FakeCpConnectionManager()
+        unsaved.state.value = GatewayConnection.Error("http://10.0.0.9:18789", pairingRefusal())
+        assertNull(pickerVm(unsaved, p).uiState.value.pairingPrompt)
+        assertTrue(unsaved.connectCalls.isEmpty())
+    }
 }
+
+private fun pairingRefusal() = GatewayPairingRequiredException("ws://gw/ws", "req-9", "not-paired", emptyList())
 
 // ── Fakes ─────────────────────────────────────────────────────────────────────
 
@@ -256,12 +309,26 @@ private class FakeCpProfileRepo(
 
 private open class FakeCpConnectionManager : GatewayConnectionManager {
     val connectCalls = mutableListOf<Pair<String, String?>>()
-    override val connectionState: StateFlow<GatewayConnection> =
-        MutableStateFlow(GatewayConnection.Disconnected)
+    val state = MutableStateFlow<GatewayConnection>(GatewayConnection.Disconnected)
+    var disconnects = 0
+        private set
+
+    override val connectionState: StateFlow<GatewayConnection> = state
     override suspend fun probeAuth(url: String) = AuthRequirement.None
     override suspend fun connect(url: String, token: String?) { connectCalls += Pair(url, token) }
-    override suspend fun disconnect() {}
+    override suspend fun disconnect() {
+        disconnects++
+        state.value = GatewayConnection.Disconnected
+    }
+
+    /** Refuses like the real manager: publishes the Error for [url], then throws the pairing request. */
+    fun refuse(url: String, warnings: List<ConnectionWarning> = emptyList()): Nothing {
+        val refusal = pairingRefusal()
+        state.value = GatewayConnection.Error(url, refusal, warnings)
+        throw refusal
+    }
 }
+
 
 private class FakeCpOnboardingRepo(private val completed: Boolean) : OnboardingRepository {
     override suspend fun isCompleted() = completed

@@ -18,6 +18,7 @@ import com.openclaw.ghostcrab.domain.repository.ModelRepository
 import com.openclaw.ghostcrab.domain.repository.ScopeProbe
 import com.openclaw.ghostcrab.domain.repository.ScopeProbeResult
 import com.openclaw.ghostcrab.domain.util.suspendRunCatching
+import com.openclaw.ghostcrab.ui.sessionChanges
 import com.openclaw.ghostcrab.ui.toUserMessage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -66,8 +67,8 @@ class AIRecommendationViewModel(
 
     init {
         viewModelScope.launch {
-            // StateFlow already deduplicates by value (operator fusion) — collect directly
-            connectionManager.connectionState.collect { conn ->
+            // StateFlow already deduplicates by value; a silent reconnect is not a new session (no re-check).
+            connectionManager.connectionState.sessionChanges().collect { conn ->
                 // Explicit arms — sealed interface forces exhaustiveness when used as expression.
                 // Using `when` as statement here, so name every arm for clarity.
                 when (conn) {

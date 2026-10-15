@@ -164,8 +164,7 @@ class GatewayConnectionManagerImpl(
      * @throws GatewayException subtype for transport or protocol failures.
      */
     override suspend fun connect(url: String, token: String?): Unit = withContext(ioDispatcher) {
-        watcher?.cancelAndJoin()
-        mutex.withLock {
+        lockedAfterStoppingWatcher {
             _connectionState.value = GatewayConnection.Connecting(url)
             val opening = Opening()
             try {
@@ -190,6 +189,36 @@ class GatewayConnectionManagerImpl(
                 fail(url, wrapped, opening)
                 throw wrapped
             }
+        }
+    }
+
+    /**
+     * Stops the socket watcher, then runs [body] under [mutex]. When the caller is cancelled in between, the
+     * session the watcher guarded is live but no longer watched; it is ended under [NonCancellable] (see
+     * [endUnwatchedSession]) so a dead socket can never go unnoticed.
+     */
+    private suspend fun lockedAfterStoppingWatcher(body: suspend () -> Unit) {
+        var bodyRan = false
+        try {
+            watcher?.cancelAndJoin()
+            mutex.withLock {
+                bodyRan = true
+                body()
+            }
+        } finally {
+            if (!bodyRan) withContext(NonCancellable) { endUnwatchedSession() }
+        }
+    }
+
+    /**
+     * A [connect] whose caller was cancelled between stopping the watcher and its lock body: the session it meant
+     * to replace is live but no longer watched, so a dead socket would never be noticed. Ends it (Disconnected),
+     * unless another connect has made a session live and watched meanwhile.
+     */
+    private suspend fun endUnwatchedSession() = mutex.withLock {
+        if (active != null && watcher?.isActive != true) {
+            closeActive()
+            _connectionState.value = GatewayConnection.Disconnected
         }
     }
 
@@ -389,7 +418,11 @@ class GatewayConnectionManagerImpl(
         _connectionState.value = GatewayConnection.Error(url, cause, warnings(gatewayKeyOf(url)))
     }
 
-    override suspend fun disconnect() {
+    /**
+     * Ends the session. Runs to completion even when the caller is cancelled: a half-done disconnect could leave a
+     * live session unwatched.
+     */
+    override suspend fun disconnect(): Unit = withContext(NonCancellable) {
         watcher?.cancelAndJoin()
         mutex.withLock {
             closeActive()

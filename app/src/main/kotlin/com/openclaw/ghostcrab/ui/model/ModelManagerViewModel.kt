@@ -9,6 +9,7 @@ import com.openclaw.ghostcrab.domain.model.GatewayConnection
 import com.openclaw.ghostcrab.domain.repository.GatewayConnectionManager
 import com.openclaw.ghostcrab.domain.repository.ModelRepository
 import com.openclaw.ghostcrab.domain.util.suspendRunCatching
+import com.openclaw.ghostcrab.ui.sessionChanges
 import com.openclaw.ghostcrab.ui.toUserMessage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -37,7 +38,8 @@ public class ModelManagerViewModel(
 
     init {
         viewModelScope.launch {
-            connectionManager.connectionState.collect { conn ->
+            // A silent reconnect is not a new session: no reload until the reconnected one arrives.
+            connectionManager.connectionState.sessionChanges().collect { conn ->
                 when (conn) {
                     is GatewayConnection.Connected -> loadModels()
                     is GatewayConnection.Disconnected -> _state.value = ModelManagerUiState.Disconnected

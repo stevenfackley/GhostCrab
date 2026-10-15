@@ -7,6 +7,7 @@ import com.openclaw.ghostcrab.domain.repository.GatewayConnectionManager
 import com.openclaw.ghostcrab.domain.repository.GatewayHealthChecker
 import com.openclaw.ghostcrab.domain.repository.ModelRepository
 import com.openclaw.ghostcrab.domain.util.suspendRunCatching
+import com.openclaw.ghostcrab.ui.sessionChanges
 import com.openclaw.ghostcrab.ui.toUserMessage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -45,7 +46,8 @@ class DashboardViewModel(
 
     init {
         viewModelScope.launch {
-            connectionManager.connectionState.collect { conn ->
+            // A silent reconnect keeps the dashboard (and its polling) as is; the reconnected session restarts it.
+            connectionManager.connectionState.sessionChanges().collect { conn ->
                 pollJob?.cancel()
                 when (conn) {
                     is GatewayConnection.Connected -> startDashboard(conn)

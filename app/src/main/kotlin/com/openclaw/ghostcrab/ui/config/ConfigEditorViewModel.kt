@@ -11,6 +11,7 @@ import com.openclaw.ghostcrab.domain.repository.ConfigRepository
 import com.openclaw.ghostcrab.domain.repository.GatewayConnectionManager
 import com.openclaw.ghostcrab.domain.util.suspendRunCatching
 import com.openclaw.ghostcrab.ui.config.sections.inlineErrorFieldsOf
+import com.openclaw.ghostcrab.ui.sessionChanges
 import com.openclaw.ghostcrab.ui.toUserMessage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -42,7 +43,8 @@ class ConfigEditorViewModel(
 
     init {
         viewModelScope.launch {
-            connectionManager.connectionState.collect { conn ->
+            // A silent reconnect is not a new session: no reload until the reconnected one arrives.
+            connectionManager.connectionState.sessionChanges().collect { conn ->
                 when (conn) {
                     is GatewayConnection.Connected -> loadConfig()
                     is GatewayConnection.Disconnected -> _state.value = ConfigEditorUiState.Disconnected
@@ -55,21 +57,28 @@ class ConfigEditorViewModel(
     /**
      * Fetches (or re-fetches) the config from the gateway.
      *
-     * Transitions to [ConfigEditorUiState.Loading] then either [ConfigEditorUiState.Ready]
-     * or [ConfigEditorUiState.Error].
+     * From any state but [ConfigEditorUiState.Ready]: [ConfigEditorUiState.Loading], then
+     * [ConfigEditorUiState.Ready] or [ConfigEditorUiState.Error]. A reload of a Ready state (a new session after a
+     * reconnect, or Retry) keeps it on screen and keeps the unsaved edits, field errors and open dialogs: only the
+     * config is replaced; a failed reload becomes [ConfigEditorUiState.Ready.saveError] instead of dropping them.
      */
     fun loadConfig() {
         viewModelScope.launch {
-            _state.value = ConfigEditorUiState.Loading
+            if (_state.value !is ConfigEditorUiState.Ready) _state.value = ConfigEditorUiState.Loading
             try {
                 val config = configRepository.getConfig()
-                _state.value = if (config.sections.isEmpty()) {
-                    ConfigEditorUiState.NoConfigApi
-                } else {
-                    ConfigEditorUiState.Ready(config = config)
+                _state.update { current ->
+                    when {
+                        config.sections.isEmpty() -> ConfigEditorUiState.NoConfigApi
+                        current is ConfigEditorUiState.Ready -> current.copy(config = config)
+                        else -> ConfigEditorUiState.Ready(config = config)
+                    }
                 }
             } catch (e: GatewayException) {
-                _state.value = ConfigEditorUiState.Error(e.toUserMessage())
+                _state.update { current ->
+                    (current as? ConfigEditorUiState.Ready)?.copy(saveError = "Reload failed: ${e.toUserMessage()}")
+                        ?: ConfigEditorUiState.Error(e.toUserMessage())
+                }
             }
         }
     }

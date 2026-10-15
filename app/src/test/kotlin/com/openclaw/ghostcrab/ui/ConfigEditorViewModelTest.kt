@@ -121,6 +121,54 @@ class ConfigEditorViewModelTest {
         assertInstanceOf(ConfigEditorUiState.Disconnected::class.java, vm.state.value)
     }
 
+    @Test
+    fun `a silent reconnect neither reloads nor drops unsaved edits`() = runTest(testDispatcher) {
+        val repo = FakeConfigRepository(configToReturn = sampleConfig)
+        val (vm, connFlow) = makeVm(initialConnection = connectedState, repo = repo)
+        vm.editSection("gateway", sampleEdit)
+
+        connFlow.value = connectedState.copy(reconnecting = true)
+        advanceUntilIdle()
+
+        val state = vm.state.value as ConfigEditorUiState.Ready
+        assertEquals(mapOf("gateway" to sampleEdit), state.pendingChanges)
+        assertEquals(1, repo.getCallCount)
+    }
+
+    @Test
+    fun `the reconnected session reloads the config and keeps unsaved edits`() = runTest(testDispatcher) {
+        val repo = FakeConfigRepository(configToReturn = sampleConfig)
+        val (vm, connFlow) = makeVm(initialConnection = connectedState, repo = repo)
+        vm.editSection("gateway", sampleEdit)
+        connFlow.value = connectedState.copy(reconnecting = true)
+        repo.configToReturn = twoSections
+
+        connFlow.value = connectedState.copy(sessionGeneration = 1)
+        advanceUntilIdle()
+
+        val state = vm.state.value as ConfigEditorUiState.Ready
+        assertEquals(twoSections, state.config)
+        assertEquals(mapOf("gateway" to sampleEdit), state.pendingChanges)
+        assertEquals(2, repo.getCallCount)
+    }
+
+    @Test
+    fun `a failed reload keeps unsaved edits and reports the failure`() = runTest(testDispatcher) {
+        val repo = FakeConfigRepository(
+            configToReturn = sampleConfig,
+            reloadError = GatewayApiException("http://192.168.1.50:18789/ws", 503),
+        )
+        val (vm, connFlow) = makeVm(initialConnection = connectedState, repo = repo)
+        vm.editSection("gateway", sampleEdit)
+
+        connFlow.value = connectedState.copy(sessionGeneration = 1)
+        advanceUntilIdle()
+
+        val state = vm.state.value as ConfigEditorUiState.Ready
+        assertEquals(mapOf("gateway" to sampleEdit), state.pendingChanges)
+        assertTrue(state.saveError.orEmpty().startsWith("Reload failed"), state.saveError)
+    }
+
     // Upstream ghcr.io/openclaw/openclaw returns HTML at /config; the API client falls back
     // to an empty section map. Surfacing this as Ready leaves the UI silently blank — instead
     // transition to NoConfigApi so the screen can show an explanatory message.

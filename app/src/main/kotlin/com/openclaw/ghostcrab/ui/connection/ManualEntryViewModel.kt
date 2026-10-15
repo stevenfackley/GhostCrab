@@ -199,6 +199,7 @@ class ManualEntryViewModel(
         val token = state.token.trim().takeIf { it.isNotEmpty() }
         _uiState.value = ManualEntryUiState.Connecting
         pairing.start(
+            url = url,
             onPrompt = { _uiState.value = ManualEntryUiState.AwaitingApproval(it) },
             connect = { connectionManager.connect(url, token) },
         ) { connected ->

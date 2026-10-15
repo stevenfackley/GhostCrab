@@ -38,6 +38,7 @@ import io.mockk.verify
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -649,14 +650,65 @@ class GatewayConnectionManagerImplTest {
         first.drop()
         runCurrent()
 
-        // disconnect() stops the reconnect (whose socket close is still running) and is cancelled while it waits.
-        val caller = launch(UnconfinedTestDispatcher(testScheduler)) { m.disconnect() }
+        // connect() stops the reconnect (whose socket close is still running) and is cancelled while it waits.
+        val caller = launch(UnconfinedTestDispatcher(testScheduler)) { m.connect(url, "shared-token") }
         caller.cancel()
         closeGate.complete(Unit)
         runCurrent()
 
         assertEquals(GatewayConnection.Disconnected, m.connectionState.value)
         assertFalse(assertThrows<GatewayNotConnectedException> { m.requireSession() }.isRetryable)
+    }
+
+    @Test fun `a connect cancelled after stopping the watcher, before its lock body, ends that session`() = runTest {
+        val io = SteppedDispatcher()
+        val session = ScriptedWsSession(respond = fixtures("connect" to "hello-ok-paired"))
+        val m = manager(session, ioDispatcher = io)
+        connectStepped(m, io)
+
+        val caller = launch { m.connect(url, "shared-token") }
+        cancelAfterStoppingTheWatcher(caller, io)
+
+        assertTrue(caller.isCancelled)
+        assertEquals(GatewayConnection.Disconnected, m.connectionState.value)
+        assertTrue(session.closedByClient)
+        coVerify(exactly = 1) { rest.openWsSession() }
+    }
+
+    @Test fun `disconnect runs to completion even when its caller is cancelled`() = runTest {
+        val io = SteppedDispatcher()
+        val session = ScriptedWsSession(respond = fixtures("connect" to "hello-ok-paired"))
+        val m = manager(session, ioDispatcher = io)
+        connectStepped(m, io)
+
+        val caller = launch { m.disconnect() }
+        cancelAfterStoppingTheWatcher(caller, io)
+
+        assertEquals(GatewayConnection.Disconnected, m.connectionState.value)
+        assertTrue(session.closedByClient)
+        assertNull(m.grantedScopes())
+    }
+
+    /** Connects [m], whose IO work runs on [io], and runs everything until the session is live. */
+    private fun TestScope.connectStepped(m: GatewayConnectionManagerImpl, io: SteppedDispatcher) {
+        val opened = launch { m.connect(url, "shared-token") }
+        repeat(STEPS) {
+            runCurrent()
+            io.drain()
+        }
+        assertTrue(opened.isCompleted)
+        assertInstanceOf(GatewayConnection.Connected::class.java, m.connectionState.value)
+    }
+
+    /** Lets [caller] stop the socket watcher, cancels it before it can take the lock, then runs everything. */
+    private fun TestScope.cancelAfterStoppingTheWatcher(caller: Job, io: SteppedDispatcher) {
+        runCurrent() // the caller hops onto the IO dispatcher
+        io.runNext() // it cancels the watcher and waits for it to finish…
+        caller.cancel() // …and is cancelled before its lock body runs
+        repeat(STEPS) {
+            runCurrent()
+            io.drain()
+        }
     }
 
     // ── Kept from main, adapted to the WebSocket flow ────────────────────────
@@ -780,6 +832,26 @@ private class GatedCloseSession(
     override suspend fun close() {
         gate.await()
         inner.close()
+    }
+}
+
+/** Rounds of "run the test scheduler, then the IO queue" that settle every stepped test. */
+private const val STEPS = 20
+
+/** Queues every dispatch; the test runs them one by one ([runNext]) or all ([drain]) to pin an interleaving. */
+private class SteppedDispatcher : CoroutineDispatcher() {
+    private val queue = ArrayDeque<Runnable>()
+
+    override fun dispatch(context: CoroutineContext, block: Runnable) {
+        queue.addLast(block)
+    }
+
+    fun runNext() {
+        queue.removeFirst().run()
+    }
+
+    fun drain() {
+        while (queue.isNotEmpty()) queue.removeFirst().run()
     }
 }
 

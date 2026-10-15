@@ -20,6 +20,7 @@ const val PAIRING_TIMEOUT_MESSAGE: String =
 /**
  * What the gateway owner must do to approve this device (ADR-0007 decision 7).
  *
+ * @param url The gateway endpoint that asked for the approval, shown so the user approves on the right host.
  * @param requestId The pending request, when the gateway sent one.
  * @param reason `not-paired`, `scope-upgrade`, `role-upgrade` or `metadata-upgrade`.
  * @param requestedScopes The scopes this device asked for.
@@ -27,6 +28,7 @@ const val PAIRING_TIMEOUT_MESSAGE: String =
  *   already-paired phone has to be approved again. Empty when there is nothing to explain.
  */
 data class PairingPrompt(
+    val url: String,
     val requestId: String?,
     val reason: String,
     val requestedScopes: List<String>,
@@ -37,7 +39,8 @@ data class PairingPrompt(
 }
 
 /** @return The prompt for this pairing requirement. */
-fun GatewayPairingRequiredException.toPrompt(): PairingPrompt = PairingPrompt(requestId, reason, requestedScopes)
+fun GatewayPairingRequiredException.toPrompt(): PairingPrompt =
+    PairingPrompt(url, requestId, reason, requestedScopes)
 
 /**
  * @param state The connection manager's state right after the refused connect.

@@ -2,7 +2,9 @@ package com.openclaw.ghostcrab.ui.connection
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.openclaw.ghostcrab.domain.exception.GatewayPairingRequiredException
 import com.openclaw.ghostcrab.domain.model.ConnectionProfile
+import com.openclaw.ghostcrab.domain.model.GatewayConnection
 import com.openclaw.ghostcrab.domain.repository.ConnectionProfileRepository
 import com.openclaw.ghostcrab.domain.repository.GatewayConnectionManager
 import com.openclaw.ghostcrab.domain.repository.OnboardingRepository
@@ -102,9 +104,16 @@ public class ConnectionPickerViewModel(
     /** One-shot navigation events, buffered across rotation. */
     public val events: Flow<ConnectionPickerEvent> = _events.receiveAsFlow()
 
-    /** The running connect and its approval wait; the approval card's Check now / Cancel go here. */
+    /**
+     * The running connect and its approval wait; the approval card's Check now / Cancel go here, and the screen
+     * cancels it before it navigates away.
+     */
     public val pairing: PairingWait =
         PairingWait(viewModelScope, connectionManager) { _uiState.value = ConnectionPickerUiState() }
+
+    init {
+        resumePendingApproval()
+    }
 
     /**
      * Connects to [profile] with its stored token. Ignored while another connect is in flight.
@@ -117,13 +126,35 @@ public class ConnectionPickerViewModel(
      */
     public fun connect(profile: ConnectionProfile) {
         if (_uiState.value.connectingProfileId != null || pairing.isRunning) return
+        startConnect(profile, first = null)
+    }
+
+    /**
+     * The dashboard path: a silent reconnect the gateway refused with `PAIRING_REQUIRED` ends in that Error, the
+     * dashboard reads it as disconnected and returns here. When the Error's URL is a saved profile, the approval
+     * wait for it starts at once, from that refusal, instead of the request being dropped.
+     */
+    private fun resumePendingApproval() {
+        val error = connectionManager.connectionState.value as? GatewayConnection.Error ?: return
+        val refusal = error.cause as? GatewayPairingRequiredException ?: return
+        viewModelScope.launch {
+            val profile = profileRepository.getProfiles().first().firstOrNull { it.url == error.url }
+            if (profile != null && _uiState.value.connectingProfileId == null && !pairing.isRunning) {
+                startConnect(profile, first = refusal)
+            }
+        }
+    }
+
+    private fun startConnect(profile: ConnectionProfile, first: GatewayPairingRequiredException?) {
         _uiState.value = ConnectionPickerUiState(connectingProfileId = profile.id)
         pairing.start(
+            url = profile.url,
             onPrompt = { prompt -> _uiState.update { it.copy(pairingPrompt = prompt) } },
             connect = {
                 val token = if (profile.hasToken) profileRepository.getToken(profile.id) else null
                 connectionManager.connect(profile.url, token)
             },
+            first = first,
             onFinished = ::onConnectFinished,
         )
     }

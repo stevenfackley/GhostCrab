@@ -51,6 +51,7 @@ class ManualEntryViewModelTest {
     private lateinit var profileRepository: ConnectionProfileRepository
     private lateinit var onboardingRepository: OnboardingRepository
     private lateinit var vm: ManualEntryViewModel
+    private val connState = MutableStateFlow<GatewayConnection>(GatewayConnection.Disconnected)
 
     @BeforeEach
     fun setUp() {
@@ -58,8 +59,7 @@ class ManualEntryViewModelTest {
         connectionManager = mockk(relaxed = true)
         profileRepository = mockk(relaxed = true)
         onboardingRepository = mockk(relaxed = true)
-        every { connectionManager.connectionState } returns
-            MutableStateFlow(GatewayConnection.Disconnected)
+        every { connectionManager.connectionState } returns connState
         every { profileRepository.getProfiles() } returns flowOf(emptyList())
         vm = ManualEntryViewModel(connectionManager, profileRepository, onboardingRepository, PairingHandoff())
     }
@@ -268,7 +268,11 @@ class ManualEntryViewModelTest {
     private val pending =
         GatewayPairingRequiredException("ws://192.168.1.50:18789/ws", "req-1", "not-paired", listOf("operator.read"))
 
-    private fun fillForm() {
+    private val gatewayUrl = "http://192.168.1.50:18789"
+
+    /** Fills the form for [gatewayUrl]; the manager reports the refusal as the real one does after a connect. */
+    private fun fillForm(warnings: List<ConnectionWarning> = emptyList()) {
+        connState.value = GatewayConnection.Error(gatewayUrl, pending, warnings)
         vm.onHostChange("192.168.1.50")
         vm.onTokenChange("shared-token")
     }
@@ -299,14 +303,12 @@ class ManualEntryViewModelTest {
     }
 
     @Test fun `the approval prompt carries the warnings of the failed connect`() = runTest {
-        every { connectionManager.connectionState } returns MutableStateFlow(
-            GatewayConnection.Error(pending.url, pending, listOf(ConnectionWarning.DeviceIdentityRegenerated)),
-        )
         coEvery { connectionManager.connect(any(), any()) } throws pending
-        fillForm()
+        fillForm(warnings = listOf(ConnectionWarning.DeviceIdentityRegenerated))
         vm.connect()
         val waiting = vm.uiState.value as ManualEntryUiState.AwaitingApproval
         assertEquals(listOf(ConnectionWarning.DeviceIdentityRegenerated), waiting.prompt.warnings)
+        assertEquals(pending.url, waiting.prompt.url)
         vm.pairing.cancel()
     }
 
@@ -318,6 +320,15 @@ class ManualEntryViewModelTest {
         advanceTimeBy(60_000)
         assertEquals(ManualEntryUiState.Idle, vm.uiState.value)
         coVerify(exactly = 1) { connectionManager.connect(any(), any()) }
+    }
+
+    @Test fun `Cancel disconnects, so no stale pairing error stays behind`() = runTest {
+        coEvery { connectionManager.connect(any(), any()) } throws pending
+        fillForm()
+        vm.connect()
+        vm.pairing.cancel()
+        runCurrent()
+        coVerify(exactly = 1) { connectionManager.disconnect() }
     }
 
     @Test fun `checkPairingNow retries without waiting`() = runTest {

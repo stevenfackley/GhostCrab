@@ -261,6 +261,7 @@
     <string name="pair_link_invalid">Pairing link rejected. %1$s</string>
     <string name="pairing_title">Waiting for approval on the gateway</string>
     <string name="pairing_body">This device is not approved yet (%1$s). OpenClaw never auto-approves remote devices. On the gateway host run:</string>
+    <string name="pairing_gateway_url">Gateway %1$s</string>
     <string name="pairing_request_id">Request %1$s</string>
     <string name="pairing_scopes">Requested scopes: %1$s</string>
     <string name="pairing_retry_hint">GhostCrab checks again every 5 s for up to 5 minutes. You can also approve it in the Control UI under Devices.</string>

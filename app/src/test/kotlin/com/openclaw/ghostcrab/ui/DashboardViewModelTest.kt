@@ -22,6 +22,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertInstanceOf
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -104,6 +105,26 @@ class DashboardViewModelTest {
         assertTrue(state.models.first().isActive)
 
         // Cancel the poll loop so runTest does not advance through the infinite delay
+        connFlow.value = GatewayConnection.Disconnected
+    }
+
+    @Test
+    fun `a silent reconnect keeps the dashboard as is and the reconnected session reloads it`() = runTest {
+        val models = FakeModelRepository(listOf(model("gpt-4o")))
+        val connFlow = MutableStateFlow<GatewayConnection>(GatewayConnection.Disconnected)
+        val vm = DashboardViewModel(FakeDashboardConnectionManager(connFlow), models, healthChecker {})
+        connFlow.value = connectedState
+        val ready = vm.state.value
+
+        connFlow.value = connectedState.copy(reconnecting = true)
+        assertSame(ready, vm.state.value)
+        assertEquals(1, models.loads)
+
+        val reconnected = connectedState.copy(sessionGeneration = 1)
+        connFlow.value = reconnected
+        assertEquals(2, models.loads)
+        assertEquals(reconnected, (vm.state.value as DashboardUiState.Ready).connection)
+
         connFlow.value = GatewayConnection.Disconnected
     }
 
@@ -244,7 +265,13 @@ private class FakeDashboardConnectionManager(
 private class FakeModelRepository(
     private val models: List<ModelInfo> = emptyList(),
 ) : ModelRepository {
-    override suspend fun getModels(): List<ModelInfo> = models
+    var loads = 0
+        private set
+
+    override suspend fun getModels(): List<ModelInfo> {
+        loads++
+        return models
+    }
     override suspend fun setActiveModel(modelId: String) = Unit
 }
 

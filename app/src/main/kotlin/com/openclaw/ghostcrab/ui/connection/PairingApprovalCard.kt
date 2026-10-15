@@ -91,6 +91,11 @@ private fun PairingWarning(warning: ConnectionWarning) {
 @Composable
 private fun PairingInstructions(prompt: PairingPrompt) {
     Text(
+        text = stringResource(R.string.pairing_gateway_url, prompt.url),
+        style = MaterialTheme.typography.bodySmall.copy(fontFamily = MonoFontFamily),
+        color = BrandTokens.colorTextPrimary,
+    )
+    Text(
         text = stringResource(R.string.pairing_body, prompt.reason),
         style = MaterialTheme.typography.bodySmall,
         color = BrandTokens.colorTextSecondary,
