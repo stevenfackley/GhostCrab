@@ -22,6 +22,7 @@ Instances on `feat/protocol-alignment-android` (ADR-0007, Android):
 
 - `InstalledSkillRepository.setSkillEnabled()`
 - `InstalledSkill.disabled` (additive model field with a default)
+- `GatewayConnection.Connected.reconnecting` and `GatewayConnection.Connected.sessionGeneration` (additive model fields with defaults: `false` while the manager's one silent reconnect runs; a counter that makes each live session a new value)
 
 Instances on `feat/ios-finish` (PR #127, iOS):
 
