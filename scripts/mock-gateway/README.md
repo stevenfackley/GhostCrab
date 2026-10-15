@@ -37,6 +37,7 @@ npm start        # listens on :18790 by default
 | `TOKEN`    | *(none — unauth)*               | require `Authorization: Bearer <TOKEN>` |
 | `SCOPES`   | `operator.read,operator.admin`  | controls `auth.whoami` response |
 | `FAIL_MODE`| *(none)*                        | comma list — force failure paths |
+| `STATUS_AUTH` | *(off)*                  | `1`: `/status` also needs the token, so GhostCrab (which probes `/status` without one) reports token auth |
 | `MOCK_DISPLAY_NAME` | `Mock OpenClaw Gateway` | `/status` display name |
 | `MOCK_VERSION` | `mock-0.1.0`                 | `/status` and `auth.whoami` version |
 | `MOCK_HARDWARE` | `x86_64 · 32GB · Windows 11 (mock)` | `/status` hardware line |
@@ -62,6 +63,8 @@ HTTP:
 - `PATCH /config/{section}` (honors `If-Match`, 412 on mismatch, 422 on invalid)
 - `GET /api/models/status`, `POST /api/models/active`
 - `POST /api/ai/recommend`
+- `GET /api/skills`, `POST /api/skills/install`, `POST /api/skills/uninstall`,
+  `POST /api/auth/whoami` (the iOS client uses HTTP where Android uses WS)
 
 WebSocket JSON-RPC at `/ws`:
 - `auth.whoami` → `{scopes, nodeId, version}`
