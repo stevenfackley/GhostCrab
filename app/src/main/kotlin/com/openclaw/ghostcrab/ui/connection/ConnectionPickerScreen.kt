@@ -155,6 +155,15 @@ fun ConnectionPickerScreen(
                 contentPadding = PaddingValues(Spacing.md),
                 verticalArrangement = Arrangement.spacedBy(Spacing.sm),
             ) {
+                pickerState.pairingPrompt?.let { prompt ->
+                    item(key = "pairing-approval") {
+                        PairingApprovalCard(
+                            prompt = prompt,
+                            onCheckNow = viewModel::checkPairingNow,
+                            onCancel = viewModel::cancelPairing,
+                        )
+                    }
+                }
                 items(profiles, key = { it.id }) { profile ->
                     ProfileCard(
                         profile = profile,

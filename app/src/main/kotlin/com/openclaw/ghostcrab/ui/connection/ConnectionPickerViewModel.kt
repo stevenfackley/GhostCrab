@@ -8,6 +8,7 @@ import com.openclaw.ghostcrab.domain.repository.GatewayConnectionManager
 import com.openclaw.ghostcrab.domain.repository.OnboardingRepository
 import com.openclaw.ghostcrab.domain.util.suspendRunCatching
 import com.openclaw.ghostcrab.ui.toUserMessage
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -26,10 +27,12 @@ import kotlinx.coroutines.launch
  * @param connectingProfileId Profile whose connect is in flight, or `null`.
  * @param errorMessage Last connect failure, formatted for display; cleared by
  *   [ConnectionPickerViewModel.clearError].
+ * @param pairingPrompt Set while the gateway waits for this device to be approved (ADR-0007).
  */
 data class ConnectionPickerUiState(
     val connectingProfileId: String? = null,
     val errorMessage: String? = null,
+    val pairingPrompt: PairingPrompt? = null,
 )
 
 /** One-shot navigation events for [ConnectionPickerScreen]. */
@@ -101,27 +104,57 @@ public class ConnectionPickerViewModel(
     /** One-shot navigation events, buffered across rotation. */
     public val events: Flow<ConnectionPickerEvent> = _events.receiveAsFlow()
 
+    /** "Check now" on the approval card wakes the retry loop. */
+    private val pairingWakeUps = Channel<Unit>(Channel.CONFLATED)
+
+    /** The running connect, including any approval wait, so [cancelPairing] can stop it. */
+    private var connectJob: Job? = null
+
     /**
      * Connects to [profile] with its stored token. Ignored while another connect is in flight.
      * Sends [ConnectionPickerEvent.NavigateToDashboard] on success; sets
-     * [ConnectionPickerUiState.errorMessage] on failure.
+     * [ConnectionPickerUiState.errorMessage] on failure. On `PAIRING_REQUIRED` sets
+     * [ConnectionPickerUiState.pairingPrompt] and retries until the device is approved, the pending request
+     * expires (an explicit error) or [cancelPairing].
      *
      * @param profile The profile to connect to.
      */
     public fun connect(profile: ConnectionProfile) {
         if (_uiState.value.connectingProfileId != null) return
         _uiState.value = ConnectionPickerUiState(connectingProfileId = profile.id)
-        viewModelScope.launch {
+        connectJob = viewModelScope.launch {
             suspendRunCatching {
                 val token = if (profile.hasToken) profileRepository.getToken(profile.id) else null
-                connectionManager.connect(profile.url, token)
-            }.onSuccess {
-                _uiState.value = ConnectionPickerUiState()
-                _events.send(ConnectionPickerEvent.NavigateToDashboard)
+                connectAwaitingApproval(
+                    wakeUps = pairingWakeUps,
+                    onPrompt = { prompt ->
+                        val explained = prompt.withWarningsFrom(connectionManager.connectionState.value)
+                        _uiState.update { it.copy(pairingPrompt = explained) }
+                    },
+                ) { connectionManager.connect(profile.url, token) }
+            }.onSuccess { approved ->
+                if (approved) {
+                    _uiState.value = ConnectionPickerUiState()
+                    _events.send(ConnectionPickerEvent.NavigateToDashboard)
+                } else {
+                    _uiState.value = ConnectionPickerUiState(errorMessage = PAIRING_TIMEOUT_MESSAGE)
+                }
             }.onFailure { e ->
                 _uiState.value = ConnectionPickerUiState(errorMessage = e.toUserMessage())
             }
         }
+    }
+
+    /** "Check now" on the approval card: retry the connect immediately. */
+    public fun checkPairingNow() {
+        pairingWakeUps.trySend(Unit)
+    }
+
+    /** "Cancel" on the approval card: stop retrying and clear the connecting state. */
+    public fun cancelPairing() {
+        connectJob?.cancel()
+        connectJob = null
+        _uiState.value = ConnectionPickerUiState()
     }
 
     /** Clears [ConnectionPickerUiState.errorMessage] after the snackbar was shown. */

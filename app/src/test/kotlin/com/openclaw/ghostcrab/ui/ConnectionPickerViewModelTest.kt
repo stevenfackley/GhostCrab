@@ -1,22 +1,29 @@
 package com.openclaw.ghostcrab.ui
 
 import app.cash.turbine.test
+import com.openclaw.ghostcrab.domain.exception.GatewayPairingRequiredException
 import com.openclaw.ghostcrab.domain.exception.GatewayUnreachableException
 import com.openclaw.ghostcrab.domain.model.AuthRequirement
 import com.openclaw.ghostcrab.domain.model.ConnectionProfile
+import com.openclaw.ghostcrab.domain.model.ConnectionWarning
 import com.openclaw.ghostcrab.domain.model.GatewayConnection
 import com.openclaw.ghostcrab.domain.model.OnboardingStep
 import com.openclaw.ghostcrab.domain.repository.ConnectionProfileRepository
 import com.openclaw.ghostcrab.domain.repository.GatewayConnectionManager
 import com.openclaw.ghostcrab.domain.repository.OnboardingRepository
 import com.openclaw.ghostcrab.ui.connection.ConnectionPickerEvent
+import com.openclaw.ghostcrab.ui.connection.ConnectionPickerUiState
 import com.openclaw.ghostcrab.ui.connection.ConnectionPickerViewModel
+import com.openclaw.ghostcrab.ui.connection.PAIRING_RETRY_INTERVAL_MS
+import com.openclaw.ghostcrab.ui.connection.PAIRING_TIMEOUT_MS
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.jupiter.api.AfterEach
@@ -130,6 +137,97 @@ class ConnectionPickerViewModelTest {
         assertTrue(state.errorMessage.orEmpty().contains("GatewayUnreachableException"))
         vm.clearError()
         assertNull(vm.uiState.value.errorMessage)
+    }
+
+    // ── Pairing approval (ADR-0007) ───────────────────────────────────────────
+
+    private fun pendingApproval() =
+        GatewayPairingRequiredException("ws://gw/ws", "req-9", "not-paired", emptyList())
+
+    @Test
+    fun `pairing required shows the prompt on the list and connects once approved`() = runTest {
+        val p = profile()
+        var calls = 0
+        val manager = object : FakeCpConnectionManager() {
+            override suspend fun connect(url: String, token: String?) {
+                if (calls++ == 0) {
+                    throw GatewayPairingRequiredException("ws://gw/ws", "req-9", "not-paired", emptyList())
+                }
+            }
+        }
+        val vm = ConnectionPickerViewModel(FakeCpProfileRepo(listOf(p)), manager, FakeCpOnboardingRepo(true))
+        vm.events.test {
+            vm.connect(p)
+            assertEquals("req-9", vm.uiState.value.pairingPrompt?.requestId)
+            advanceTimeBy(PAIRING_RETRY_INTERVAL_MS + 1)
+            assertEquals(ConnectionPickerEvent.NavigateToDashboard, awaitItem())
+        }
+        assertEquals(ConnectionPickerUiState(), vm.uiState.value)
+    }
+
+    @Test
+    fun `cancelPairing clears the prompt and the connecting state`() = runTest {
+        val p = profile()
+        val manager = object : FakeCpConnectionManager() {
+            override suspend fun connect(url: String, token: String?) {
+                throw GatewayPairingRequiredException("ws://gw/ws", "req-9", "not-paired", emptyList())
+            }
+        }
+        val vm = ConnectionPickerViewModel(FakeCpProfileRepo(listOf(p)), manager, FakeCpOnboardingRepo(true))
+        vm.connect(p)
+        vm.cancelPairing()
+        assertEquals(ConnectionPickerUiState(), vm.uiState.value)
+    }
+
+    @Test
+    fun `checkPairingNow retries without waiting`() = runTest {
+        val p = profile()
+        var calls = 0
+        val manager = object : FakeCpConnectionManager() {
+            override suspend fun connect(url: String, token: String?) {
+                if (calls++ == 0) throw pendingApproval()
+            }
+        }
+        val vm = ConnectionPickerViewModel(FakeCpProfileRepo(listOf(p)), manager, FakeCpOnboardingRepo(true))
+        vm.connect(p)
+        vm.checkPairingNow()
+        runCurrent()
+        assertEquals(2, calls)
+        assertEquals(ConnectionPickerUiState(), vm.uiState.value)
+    }
+
+    @Test
+    fun `the prompt explains a regenerated device identity`() = runTest {
+        val p = profile()
+        val manager = object : FakeCpConnectionManager() {
+            override val connectionState: StateFlow<GatewayConnection> = MutableStateFlow(
+                GatewayConnection.Error(p.url, pendingApproval(), listOf(ConnectionWarning.DeviceIdentityRegenerated)),
+            )
+            override suspend fun connect(url: String, token: String?) {
+                throw pendingApproval()
+            }
+        }
+        val vm = ConnectionPickerViewModel(FakeCpProfileRepo(listOf(p)), manager, FakeCpOnboardingRepo(true))
+        vm.connect(p)
+        assertEquals(listOf(ConnectionWarning.DeviceIdentityRegenerated), vm.uiState.value.pairingPrompt?.warnings)
+        vm.cancelPairing()
+    }
+
+    @Test
+    fun `an expired approval window is an explicit error`() = runTest {
+        val p = profile()
+        val manager = object : FakeCpConnectionManager() {
+            override suspend fun connect(url: String, token: String?) {
+                throw pendingApproval()
+            }
+        }
+        val vm = ConnectionPickerViewModel(FakeCpProfileRepo(listOf(p)), manager, FakeCpOnboardingRepo(true))
+        vm.connect(p)
+        advanceTimeBy(PAIRING_TIMEOUT_MS + 1)
+        val state = vm.uiState.value
+        assertNull(state.pairingPrompt)
+        assertNull(state.connectingProfileId)
+        assertTrue(state.errorMessage.orEmpty().contains("PAIRING_REQUIRED"))
     }
 }
 
