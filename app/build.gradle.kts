@@ -205,6 +205,8 @@ dependencies {
     // DataStore + Security
     implementation(libs.datastore.preferences)
     implementation(libs.androidx.security.crypto)
+    // Ed25519 device identity (ADR-0007). Same version security-crypto already pulls in.
+    implementation(libs.tink.android)
 
     // Serialization
     implementation(libs.kotlinx.serialization.json)
