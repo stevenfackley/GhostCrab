@@ -34,8 +34,8 @@ public struct EmptyState: View {
                     .font(AppFont.bodyBold(17))
                     .foregroundStyle(DesignTokens.Color.textPrimary)
                     .multilineTextAlignment(.center)
-                Text(message)
-                    .font(AppFont.body(14))
+                // A CLI line (`openclaw …`) in the message stands on its own line in JetBrains Mono.
+                CommandMessageText(message, size: 14, alignment: .center)
                     .foregroundStyle(DesignTokens.Color.textSecondary)
                     .multilineTextAlignment(.center)
             }
