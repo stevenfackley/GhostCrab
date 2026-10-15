@@ -23,6 +23,9 @@ Instances on `feat/protocol-alignment-android` (ADR-0007, Android):
 - `InstalledSkillRepository.setSkillEnabled()`
 - `InstalledSkill.disabled` (additive model field with a default)
 - `GatewayConnection.Connected.reconnecting` and `GatewayConnection.Connected.sessionGeneration` (additive model fields with defaults: `false` while the manager's one silent reconnect runs; a counter that makes each live session a new value)
+- `GatewayConnection.Connected.warnings` and `GatewayConnection.Error.warnings` (additive model fields, default `emptyList()`: problems that did not fail the connect, or context for the error)
+- `ConnectionWarning` (new sealed interface in `domain/model/` with `DeviceIdentityRegenerated` and `DeviceTokenNotSaved(cause)`; marked `Additive (v1.1)` in its KDoc)
+- `GatewayNotConnectedException.reconnectingTo` (additive constructor parameter, default `null`: the URL of the manager's silent reconnect; when set the exception is retryable)
 
 Instances on `feat/ios-finish` (PR #127, iOS):
 
