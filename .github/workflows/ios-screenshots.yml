@@ -1,0 +1,289 @@
+name: iOS store screenshots
+
+# Manual only: App Store screenshots from the iPhone simulator on the Mac Mini.
+# Runs StoreScreenshotTests (ios/GhostCrabUITests) against the mock gateway
+# (scripts/mock-gateway) started on the runner, and uploads the PNGs as the
+# `ios-screenshots` artifact.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-screenshots-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  screenshots:
+    name: ios-screenshots
+    # Same-repo guard: a fork's dispatch never reaches the self-hosted Mac Mini.
+    if: github.repository == 'stevenfackley/GhostCrab'
+    # Mac Mini self-hosted runner (same label set as ios-pr.yml): free minutes.
+    runs-on: [self-hosted, macOS, ARM64]
+    timeout-minutes: 45
+    env:
+      DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
+      # Not a secret: the mock gateway only exists for this job.
+      GATEWAY_TOKEN: gc_store_demo_token
+      GATEWAY_NAME: Home Lab
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set paths
+        run: |
+          # The runner context is not available in job-level env.
+          {
+            echo "SHOTS_RAW=$RUNNER_TEMP/ios-shots-raw"
+            echo "SHOTS_OUT=$RUNNER_TEMP/ios-screenshots"
+            echo "XCRESULT=$RUNNER_TEMP/StoreScreenshots.xcresult"
+          } >> "$GITHUB_ENV"
+
+      - name: Resolve Xcode
+        run: |
+          xcodebuild -version
+          xcode-select --print-path
+
+      - name: Install xcodegen if missing
+        run: |
+          if ! command -v xcodegen >/dev/null 2>&1; then
+            brew install xcodegen
+          fi
+          xcodegen --version
+
+      - name: Generate Xcode project
+        working-directory: ios
+        run: xcodegen generate
+
+      - name: Start mock gateway
+        id: mock
+        working-directory: scripts/mock-gateway
+        run: |
+          if ! command -v node >/dev/null 2>&1; then
+            brew install node
+          fi
+          node --version
+          npm ci --no-audit --no-fund
+
+          PORT=""
+          for p in 18790 18791 18792 18793 18794; do
+            if ! lsof -nP -iTCP:"$p" -sTCP:LISTEN >/dev/null 2>&1; then PORT=$p; break; fi
+          done
+          if [ -z "$PORT" ]; then
+            echo "::error::Ports 18790-18794 are all in use on this runner"
+            exit 1
+          fi
+
+          PORT=$PORT HOST=0.0.0.0 TOKEN="$GATEWAY_TOKEN" \
+            MOCK_DISPLAY_NAME="$GATEWAY_NAME" MOCK_VERSION="2026.10.1" \
+            MOCK_HARDWARE="arm64 · 32 GB · Ubuntu 24.04" \
+            nohup node server.mjs > "$RUNNER_TEMP/mock-gateway.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/mock-gateway.pid"
+
+          for _ in $(seq 1 30); do
+            curl -fsS -m 2 "http://127.0.0.1:$PORT/health" >/dev/null 2>&1 && break
+            sleep 1
+          done
+          if ! curl -fsS -m 2 "http://127.0.0.1:$PORT/health" >/dev/null; then
+            echo "::error::Mock gateway did not start"
+            cat "$RUNNER_TEMP/mock-gateway.log"
+            exit 1
+          fi
+
+          # A LAN address reads better in the screenshots than loopback; the
+          # simulator shares the host's network stack, so either works.
+          HOST_IP=$(ipconfig getifaddr en0 || ipconfig getifaddr en1 || true)
+          URL_HOST=127.0.0.1
+          if [ -n "$HOST_IP" ] && curl -fsS -m 3 "http://$HOST_IP:$PORT/health" >/dev/null 2>&1; then
+            URL_HOST=$HOST_IP
+          fi
+          echo "Mock gateway: http://$URL_HOST:$PORT"
+          echo "url=http://$URL_HOST:$PORT" >> "$GITHUB_OUTPUT"
+
+      - name: Pick an iPhone simulator
+        id: sim
+        run: |
+          # Prefer iPhone 17 Pro Max (6.9", 1320x2868). Create it on the newest
+          # iOS runtime if the device type exists but no device does; otherwise
+          # fall back to the largest available iPhone.
+          pick() {
+            xcrun simctl list devices available -j | python3 -c '
+          import json, re, sys
+          devices = json.load(sys.stdin)["devices"]
+          cands = []
+          for runtime, devs in devices.items():
+              m = re.search(r"iOS-(\d+)-(\d+)", runtime)
+              if not m or (int(m.group(1)), int(m.group(2))) < (18, 0):
+                  continue
+              version = (int(m.group(1)), int(m.group(2)))
+              for d in devs:
+                  name = d["name"]
+                  if not d.get("isAvailable", True) or not name.startswith("iPhone"):
+                      continue
+                  model = re.search(r"iPhone (\d+)", name)
+                  model = int(model.group(1)) if model else 0
+                  tier = 0 if name == "iPhone 17 Pro Max" else 1 if "Pro Max" in name else 2 if ("Plus" in name or "Air" in name) else 3
+                  cands.append(((tier, -model, -version[0], -version[1]), d["udid"], name, runtime))
+          cands.sort()
+          if cands:
+              print(cands[0][1] + "|" + cands[0][2] + "|" + cands[0][3])
+          '
+          }
+          LINE=$(pick)
+          NAME=$(printf '%s' "$LINE" | cut -d'|' -f2)
+          if [ "$NAME" != "iPhone 17 Pro Max" ]; then
+            DT=com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro-Max
+            RT=$(xcrun simctl list runtimes available -j | python3 -c '
+          import json, sys
+          rts = [r for r in json.load(sys.stdin)["runtimes"] if (r.get("platform") == "iOS" or ".iOS-" in r.get("identifier", "")) and r.get("isAvailable", True)]
+          rts.sort(key=lambda r: [int(x) for x in r["version"].split(".")])
+          print(rts[-1]["identifier"] if rts else "")
+          ')
+            if [ -n "$RT" ] && xcrun simctl list devicetypes | grep -q "$DT"; then
+              echo "Creating iPhone 17 Pro Max on $RT"
+              xcrun simctl create "iPhone 17 Pro Max" "$DT" "$RT" || true
+              LINE=$(pick)
+            fi
+          fi
+          UDID=$(printf '%s' "$LINE" | cut -d'|' -f1)
+          if [ -z "$UDID" ]; then
+            echo "::error::No available iPhone simulator on this runner"
+            xcrun simctl list devices available
+            exit 1
+          fi
+          echo "Using simulator: $LINE"
+          case "$LINE" in
+            *"Pro Max"*) ;;
+            *) echo "::warning::Not a Pro Max simulator; screenshots may not match the 6.9-inch App Store size" ;;
+          esac
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+
+      - name: Boot simulator and set the status bar
+        env:
+          UDID: ${{ steps.sim.outputs.udid }}
+        run: |
+          xcrun simctl boot "$UDID" 2>/dev/null || true
+          xcrun simctl bootstatus "$UDID" -b
+          # Fresh app state: no saved gateways from an earlier run.
+          xcrun simctl uninstall "$UDID" com.qavren.ghostcrab 2>/dev/null || true
+          xcrun simctl status_bar "$UDID" override \
+            --time "9:41" \
+            --dataNetwork wifi --wifiMode active --wifiBars 3 \
+            --cellularMode active --cellularBars 4 \
+            --batteryState charged --batteryLevel 100
+
+      - name: Capture screenshots
+        working-directory: ios
+        env:
+          TEST_RUNNER_GHOSTCRAB_STORE_SCREENSHOTS: "1"
+          TEST_RUNNER_GHOSTCRAB_SCREENSHOT_DIR: ${{ runner.temp }}/ios-shots-raw
+          TEST_RUNNER_GHOSTCRAB_GATEWAY_URL: ${{ steps.mock.outputs.url }}
+          TEST_RUNNER_GHOSTCRAB_GATEWAY_TOKEN: gc_store_demo_token
+          TEST_RUNNER_GHOSTCRAB_GATEWAY_NAME: Home Lab
+        run: |
+          rm -rf "$SHOTS_RAW" "$XCRESULT"
+          mkdir -p "$SHOTS_RAW"
+          # No parallel testing: a cloned simulator would not carry the status-bar override.
+          xcodebuild test \
+            -project GhostCrab.xcodeproj \
+            -scheme GhostCrab \
+            -destination "platform=iOS Simulator,id=${{ steps.sim.outputs.udid }}" \
+            -only-testing:GhostCrabUITests/StoreScreenshotTests \
+            -parallel-testing-enabled NO \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData-screenshots" \
+            -resultBundlePath "$XCRESULT" \
+            -skipPackagePluginValidation \
+            -skipMacroValidation \
+            -quiet
+
+      - name: Test summary
+        if: always()
+        run: |
+          [ -d "$XCRESULT" ] || exit 0
+          xcrun xcresulttool get test-results summary --path "$XCRESULT" --compact || true
+          xcrun xcresulttool get test-results tests --path "$XCRESULT" --compact | head -c 20000 || true
+
+      - name: Collect screenshots
+        if: always()
+        run: |
+          rm -rf "$SHOTS_OUT"
+          mkdir -p "$SHOTS_OUT"
+          if ls "$SHOTS_RAW"/*.png >/dev/null 2>&1; then
+            cp "$SHOTS_RAW"/*.png "$SHOTS_OUT"/
+          elif [ -d "$XCRESULT" ]; then
+            echo "::warning::No PNGs written by the test runner; exporting attachments from the result bundle"
+            EXPORT="$RUNNER_TEMP/xcresult-attachments"
+            rm -rf "$EXPORT"
+            xcrun xcresulttool export attachments --path "$XCRESULT" --output-path "$EXPORT" || true
+            python3 - "$EXPORT" "$SHOTS_OUT" <<'PY'
+          import json, os, re, shutil, sys
+          src, dst = sys.argv[1], sys.argv[2]
+          manifest = os.path.join(src, "manifest.json")
+          if not os.path.exists(manifest):
+              sys.exit(0)
+          def walk(node):
+              if isinstance(node, dict):
+                  if "exportedFileName" in node:
+                      yield node
+                  for value in node.values():
+                      yield from walk(value)
+              elif isinstance(node, list):
+                  for value in node:
+                      yield from walk(value)
+          for att in walk(json.load(open(manifest))):
+              name = att.get("suggestedHumanReadableName", "")
+              m = re.match(r"(\d\d-[a-z0-9-]+)", name)
+              if m:
+                  shutil.copy(os.path.join(src, att["exportedFileName"]), os.path.join(dst, m.group(1) + ".png"))
+          PY
+          fi
+          COUNT=$(ls "$SHOTS_OUT"/*.png 2>/dev/null | wc -l | tr -d ' ')
+          echo "Collected $COUNT screenshot(s)"
+          for f in "$SHOTS_OUT"/*.png; do
+            [ -f "$f" ] || continue
+            W=$(sips -g pixelWidth "$f" | awk '/pixelWidth/ {print $2}')
+            H=$(sips -g pixelHeight "$f" | awk '/pixelHeight/ {print $2}')
+            echo "$(basename "$f"): ${W}x${H}"
+            case "${W}x${H}" in
+              1320x2868|1290x2796) ;;
+              *) echo "::warning file=$(basename "$f")::${W}x${H} is not an App Store 6.9-inch size (1320x2868 or 1290x2796)" ;;
+            esac
+          done
+          [ "$COUNT" -gt 0 ] || { echo "::error::No screenshots captured"; exit 1; }
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ios-screenshots
+          path: ${{ runner.temp }}/ios-screenshots/*.png
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload result bundle
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ios-screenshots-xcresult-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/StoreScreenshots.xcresult
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Clean up
+        if: always()
+        env:
+          UDID: ${{ steps.sim.outputs.udid }}
+        run: |
+          if [ -f "$RUNNER_TEMP/mock-gateway.pid" ]; then
+            kill "$(cat "$RUNNER_TEMP/mock-gateway.pid")" 2>/dev/null || true
+            echo "::group::mock-gateway.log"
+            tail -n 200 "$RUNNER_TEMP/mock-gateway.log" || true
+            echo "::endgroup::"
+          fi
+          if [ -n "$UDID" ]; then
+            xcrun simctl status_bar "$UDID" clear || true
+            xcrun simctl shutdown "$UDID" || true
+          fi

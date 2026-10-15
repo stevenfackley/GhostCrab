@@ -1,0 +1,118 @@
+name: Android store screenshots
+
+# Manual only: Google Play phone screenshots from an API 34 emulator.
+# Runs StoreScreenshotTest (app/src/androidTest) against the mock gateway
+# (scripts/mock-gateway) started on the runner, and uploads the PNGs as the
+# `android-screenshots` artifact. Dispatch-only: never on push or PR.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-screenshots-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  screenshots:
+    name: android-screenshots
+    # Same-repo guard: a fork's dispatch does nothing.
+    if: github.repository == 'stevenfackley/GhostCrab'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      # Not a secret: the mock gateway only exists for this job.
+      GATEWAY_TOKEN: gc_store_demo_token
+      GATEWAY_PORT: "18790"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v6.0.1
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Build debug and androidTest APKs
+        run: ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest --no-configuration-cache --stacktrace
+
+      - name: Start mock gateway
+        working-directory: scripts/mock-gateway
+        run: |
+          node --version
+          npm ci --no-audit --no-fund
+          PORT=$GATEWAY_PORT HOST=0.0.0.0 TOKEN="$GATEWAY_TOKEN" \
+            MOCK_DISPLAY_NAME="Home Lab" MOCK_VERSION="2026.10.1" \
+            MOCK_HARDWARE="arm64 · 32 GB · Ubuntu 24.04" \
+            nohup node server.mjs > "$RUNNER_TEMP/mock-gateway.log" 2>&1 &
+          for _ in $(seq 1 30); do
+            curl -fsS -m 2 "http://127.0.0.1:$GATEWAY_PORT/health" >/dev/null 2>&1 && break
+            sleep 1
+          done
+          curl -fsS -m 2 "http://127.0.0.1:$GATEWAY_PORT/health" || { cat "$RUNNER_TEMP/mock-gateway.log"; exit 1; }
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Capture screenshots on the emulator
+        uses: reactivecircus/android-emulator-runner@v2.38.0
+        env:
+          INSTRUMENT_LOG: ${{ runner.temp }}/android-instrument.log
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          # 1080x1920 (9:16). Play rejects a screenshot whose long side is more
+          # than twice the short side, which rules out 1080x2400 profiles.
+          profile: pixel_2
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -camera-front none
+          # 10.0.2.2 is the runner host as seen from the emulator.
+          script: bash scripts/store-screenshots/android-capture.sh "$RUNNER_TEMP/android-screenshots" "http://10.0.2.2:$GATEWAY_PORT" "$GATEWAY_TOKEN"
+
+      - name: Check screenshot sizes
+        if: always()
+        run: |
+          python3 - "$RUNNER_TEMP/android-screenshots" <<'PY'
+          import glob, os, struct, sys
+          files = sorted(glob.glob(os.path.join(sys.argv[1], "*.png")))
+          print(f"{len(files)} screenshot(s)")
+          for path in files:
+              with open(path, "rb") as f:
+                  head = f.read(24)
+              w, h = struct.unpack(">II", head[16:24])
+              ok = 320 <= min(w, h) and max(w, h) <= 3840 and max(w, h) <= 2 * min(w, h)
+              size_kb = os.path.getsize(path) // 1024
+              print(f"{os.path.basename(path)}: {w}x{h}, {size_kb} KB")
+              if not ok:
+                  print(f"::warning file={os.path.basename(path)}::{w}x{h} is outside Google Play phone screenshot limits")
+          PY
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: android-screenshots
+          path: ${{ runner.temp }}/android-screenshots/*.png
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: android-screenshots-logs-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/android-instrument.log
+            ${{ runner.temp }}/mock-gateway.log
+          if-no-files-found: ignore
+          retention-days: 7
