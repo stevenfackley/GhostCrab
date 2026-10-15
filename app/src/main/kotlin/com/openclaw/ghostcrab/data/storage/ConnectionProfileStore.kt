@@ -10,6 +10,8 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import com.openclaw.ghostcrab.data.gateway.DeviceTokenStore
+import com.openclaw.ghostcrab.data.gateway.StoredDeviceToken
 import com.openclaw.ghostcrab.domain.exception.ProfileNeedsReauthException
 import com.openclaw.ghostcrab.domain.exception.TokenWipeFailedException
 import com.openclaw.ghostcrab.domain.exception.ProfileStoreCorruptedException
@@ -95,25 +97,40 @@ internal fun MutablePreferences.clearProfileKeys() {
  *
  * Writes never discard an undecodable profile list: it is moved to a backup key first (see
  * [profilesForWrite]); [clearAll] is the only operation that removes the backup.
+ *
+ * Also the app's [DeviceTokenStore] (ADR-0007): device tokens live in the same encrypted file as the profile
+ * tokens (one EncryptedSharedPreferences instance, shared with [EncryptedDeviceTokenStore]), so [clearAll] wipes
+ * them too.
  */
-class ConnectionProfileStore(
+class ConnectionProfileStore private constructor(
     private val context: Context,
-    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
-    // Keystore init is 20–200ms and docs warn against multiple instances on the same file.
-    // Injectable for testing — production uses the default lambda.
-    private val encryptedPrefsFactory: (Context) -> SharedPreferences = { ctx ->
-        val masterKey = MasterKey.Builder(ctx)
-            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-            .build()
-        EncryptedSharedPreferences.create(
-            ctx,
-            "ghostcrab_tokens",
-            masterKey,
-            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
-        )
-    },
-) {
+    private val ioDispatcher: CoroutineDispatcher,
+    encryptedPrefsHolder: Lazy<SharedPreferences>,
+) : DeviceTokenStore by EncryptedDeviceTokenStore(encryptedPrefsHolder, ioDispatcher) {
+
+    /**
+     * @param context Application context.
+     * @param ioDispatcher Dispatcher for the blocking EncryptedSharedPreferences I/O.
+     * @param encryptedPrefsFactory Opens the encrypted token file (called once, lazily).
+     */
+    constructor(
+        context: Context,
+        ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+        // Keystore init is 20–200ms and docs warn against multiple instances on the same file.
+        // Injectable for testing — production uses the default lambda.
+        encryptedPrefsFactory: (Context) -> SharedPreferences = { ctx ->
+            val masterKey = MasterKey.Builder(ctx)
+                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                .build()
+            EncryptedSharedPreferences.create(
+                ctx,
+                "ghostcrab_tokens",
+                masterKey,
+                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
+            )
+        },
+    ) : this(context, ioDispatcher, lazy { encryptedPrefsFactory(context) })
 
     // ── DataStore ─────────────────────────────────────────────────────────────
 
@@ -196,9 +213,58 @@ class ConnectionProfileStore(
         }
     }
 
-    private val encryptedPrefs: SharedPreferences by lazy { encryptedPrefsFactory(context) }
+    private val encryptedPrefs: SharedPreferences by encryptedPrefsHolder
 
     private fun tokenKey(profileId: String) = "token_$profileId"
+}
+
+// ── Device tokens (ADR-0007) ──────────────────────────────────────────────────
+
+/**
+ * [DeviceTokenStore] over the profile-token file, so [ConnectionProfileStore.clearAll] removes device tokens with
+ * everything else. [ConnectionProfileStore] delegates to it and shares its single prefs instance.
+ *
+ * @param prefsHolder The token file, opened lazily (shared with [ConnectionProfileStore]).
+ * @param ioDispatcher Dispatcher for the blocking EncryptedSharedPreferences I/O.
+ */
+private class EncryptedDeviceTokenStore(
+    prefsHolder: Lazy<SharedPreferences>,
+    private val ioDispatcher: CoroutineDispatcher,
+) : DeviceTokenStore {
+
+    private val prefs: SharedPreferences by prefsHolder
+
+    override suspend fun loadDeviceToken(gatewayKey: String): StoredDeviceToken? = withContext(ioDispatcher) {
+        // Keystore loss (typed in keystoreReadOrNull) reads as no token: the gateway re-issues one on the next
+        // shared-token connect.
+        val raw = keystoreReadOrNull { prefs.getString(deviceTokenKey(gatewayKey), null) }
+        val decoded = raw?.let(::decodeDeviceToken)
+        if (raw != null && decoded == null) remove(gatewayKey)
+        decoded
+    }
+
+    override suspend fun saveDeviceToken(gatewayKey: String, token: StoredDeviceToken): Unit =
+        withContext(ioDispatcher) {
+            val json = profileJson.encodeToString(StoredDeviceToken.serializer(), token)
+            prefs.edit().putString(deviceTokenKey(gatewayKey), json).apply()
+        }
+
+    override suspend fun clearDeviceToken(gatewayKey: String): Unit = withContext(ioDispatcher) {
+        remove(gatewayKey)
+    }
+
+    private fun remove(gatewayKey: String) {
+        prefs.edit().remove(deviceTokenKey(gatewayKey)).apply()
+    }
+}
+
+private fun deviceTokenKey(gatewayKey: String) = "device_token_$gatewayKey"
+
+/** Decodes a stored device token; `null` for undecodable data (the caller removes the entry). */
+internal fun decodeDeviceToken(json: String): StoredDeviceToken? = try {
+    profileJson.decodeFromString(StoredDeviceToken.serializer(), json)
+} catch (ignored: IllegalArgumentException) { // SerializationException extends it
+    null
 }
 
 // ── Storage DTO ───────────────────────────────────────────────────────────────
