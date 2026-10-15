@@ -1,0 +1,1 @@
+{"type":"res","id":"qa-6","ok":false,"error":{"code":"INVALID_REQUEST","message":"invalid config: gateway.port: Too big: expected number to be <=65535 (maximum: 65535)","details":{"issues":[{"path":"gateway.port","message":"Too big: expected number to be <=65535 (maximum: 65535)"}]}}}

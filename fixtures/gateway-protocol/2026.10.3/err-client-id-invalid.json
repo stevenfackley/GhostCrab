@@ -1,0 +1,1 @@
+{"type":"res","id":"qa-1","ok":false,"error":{"code":"INVALID_REQUEST","message":"invalid connect params: at /client/id: must be equal to one of the allowed values"}}

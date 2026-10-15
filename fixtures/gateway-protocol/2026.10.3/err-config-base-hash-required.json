@@ -1,0 +1,1 @@
+{"type":"res","id":"qa-6","ok":false,"error":{"code":"INVALID_REQUEST","message":"config base hash required for skills.entries.gifgrep.env.QA_MARK; re-run config.get and retry with baseHash"}}

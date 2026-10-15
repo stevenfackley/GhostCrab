@@ -92,6 +92,13 @@ android {
             )
         }
     }
+    // Frames captured from the real gateway (ADR-0007). One copy, shared with the iOS tests
+    // (ios/project.yml) and the mock gateway's conformance tests. On the classpath as /2026.10.3/<name>.json.
+    sourceSets {
+        getByName("test") {
+            resources.srcDir(rootProject.file("fixtures/gateway-protocol"))
+        }
+    }
     buildToolsVersion = "36.0.0"
 }
 

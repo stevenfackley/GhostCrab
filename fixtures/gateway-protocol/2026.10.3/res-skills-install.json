@@ -1,0 +1,1 @@
+{"type":"res","id":"qa-8","ok":true,"payload":{"ok":true,"message":"Installed weather@1.0.0","stdout":"","stderr":"","code":0,"slug":"weather","version":"1.0.0","targetDir":"/home/node/.openclaw/workspace/skills/weather"}}
