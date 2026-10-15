@@ -34,6 +34,31 @@ struct ConfigRepositoryImplTests {
         return String(decoding: try JSONSerialization.data(withJSONObject: frame), as: UTF8.self)
     }
 
+    /// `res-config-get` answering request `id`, with `hash` in place of the fixture's.
+    private func configGetAnswer(id: String, hash: String) throws -> String {
+        var frame = try jsonObject(try GatewayFixtures.text("res-config-get"))
+        frame["id"] = id
+        var payload = try #require(frame["payload"] as? [String: Any])
+        payload["hash"] = hash
+        frame["payload"] = payload
+        return String(decoding: try JSONSerialization.data(withJSONObject: frame), as: UTF8.self)
+    }
+
+    private struct NotSent: Error {}
+
+    /// Waits (up to ~3 s) until the client has sent `count` `config.get` requests.
+    /// - Returns: Their ids, in order.
+    private func configGetIds(_ socket: ScriptedGatewayWebSocket, count: Int) async throws -> [String] {
+        for _ in 0..<300 {
+            let ids = await socket.sentRequests("config.get").compactMap { text in
+                (try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any])?["id"] as? String
+            }
+            if ids.count >= count { return ids }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        throw NotSent()
+    }
+
     // ── config.get ───────────────────────────────────────────────────────────
 
     @Test func getConfigMapsParsedSectionsAndTheHash() async throws {
@@ -90,6 +115,33 @@ struct ConfigRepositoryImplTests {
         try await repo.updateConfig(section: "gateway", value: port(18790))
         try await repo.updateConfig(section: "gateway", value: port(18791))
         #expect(await socket.sentMethods() == ["config.get", "config.patch", "config.get", "config.patch"])
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func anOlderAnswerNeverReplacesANewerHash() async throws {
+        // config.get is answered by hand, so a read can stay in flight while a write lands.
+        let socket = try ScriptedGatewayWebSocket(challenge: false, replies: try .fixtures(["config.patch": "res-config-patch"]))
+        let rpc = await startedRPC(socket)
+        let repo = ConfigRepositoryImpl(session: { rpc })
+
+        let first = Task { try await repo.getConfig() }
+        let firstId = try await configGetIds(socket, count: 1)[0]
+        await socket.push(try configGetAnswer(id: firstId, hash: fixtureHash))
+        _ = try await first.value
+
+        // A second read goes out and is not answered yet; a write is issued after it and lands first.
+        let slowRead = Task { try await repo.getConfig() }
+        let slowId = try await configGetIds(socket, count: 2)[1]
+        try await repo.updateConfig(section: "gateway", value: port(18790)) // answers patchedHash
+
+        // The older read's answer arrives last, carrying the hash from before the write.
+        await socket.push(try configGetAnswer(id: slowId, hash: "hmac-sha256:v1:before-the-write"))
+        #expect(try await slowRead.value.etag == "hmac-sha256:v1:before-the-write")
+
+        try await repo.updateConfig(section: "gateway", value: port(18791))
+        #expect(await socket.sentMethods() == ["config.get", "config.get", "config.patch", "config.patch"])
+        let second = try jsonObject(try #require(await socket.sentRequests("config.patch").last))
+        #expect((second["params"] as? [String: Any])?["baseHash"] as? String == patchedHash)
     }
 
     @Test func aStaleHashIsHTTP412WithTheServerTextSoTheEditorReloads() async throws {

@@ -2,9 +2,8 @@ import Foundation
 
 /// Reports the operator scopes the gateway granted the live session (`hello-ok.auth.scopes`, ADR-0007).
 ///
-/// Treats "unknown" (old gateways without the method) as a distinct state so callers
-/// can fall back to the Phase-4 copy-paste install instructions instead of showing a
-/// misleading "scope missing" error.
+/// Upstream has no `auth.whoami`: ``ScopeProbeResult/unknownOldGateway`` is no longer produced; it stays for
+/// source compatibility.
 public protocol ScopeProbe: Sendable {
     /// - Returns: A `ScopeProbeResult` describing the outcome. Never throws.
     func probe() async -> ScopeProbeResult

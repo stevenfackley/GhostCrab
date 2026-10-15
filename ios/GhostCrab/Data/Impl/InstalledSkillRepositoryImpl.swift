@@ -78,7 +78,7 @@ public final class InstalledSkillRepositoryImpl: InstalledSkillRepository, Senda
                         timeout: .milliseconds(InstalledSkillRepositoryImpl.installTimeoutMs)
                             + InstalledSkillRepositoryImpl.installMargin
                     )
-                    let installed = await self.installedSkill(after: rpc, requested: slug, result: result?.objectValue)
+                    let installed = try await self.installedSkill(after: rpc, requested: slug, result: result?.objectValue)
                     continuation.yield(.succeeded(installed: installed))
                 } catch is CancellationError {
                     // The caller cancelled the stream: no terminal event.
@@ -94,9 +94,16 @@ public final class InstalledSkillRepositoryImpl: InstalledSkillRepository, Senda
 
     /// OpenClaw has no skill-removal RPC (QA §3); nothing is sent. Use ``setSkillEnabled(skillKey:enabled:)``.
     ///
-    /// - Returns: Always a ``GatewayError/methodUnsupported(url:method:)`` failure for `skills.uninstall`.
+    /// - Returns: A ``GatewayError/methodUnsupported(url:method:)`` failure for `skills.uninstall`; a
+    ///   `CancellationError` failure when the caller was cancelled while the session was looked up.
     public func uninstall(slug: String) async -> Result<Void, any Error> {
-        let url = (try? await session().endpoint) ?? Self.notConnectedURL
+        let url: String
+        do {
+            url = try await session().endpoint
+        } catch {
+            if error is CancellationError || Task.isCancelled { return .failure(CancellationError()) }
+            url = Self.notConnectedURL // disconnected: still unsupported, named without a gateway
+        }
         return .failure(GatewayError.methodUnsupported(url: url, method: "skills.uninstall"))
     }
 
@@ -165,9 +172,17 @@ public final class InstalledSkillRepositoryImpl: InstalledSkillRepository, Senda
     /// installed version (`{ok, message, slug, version, targetDir, …}`). A failed or incomplete refresh falls back
     /// to a synthetic entry rather than reporting a successful install as failed; when the refresh failed, that
     /// entry also joins the observed list.
-    private func installedSkill(after rpc: GatewayRPCClient, requested: String, result: [String: AnyCodable]?) async -> InstalledSkill {
+    ///
+    /// - Throws: `CancellationError` only, when the caller was cancelled during the refresh: nothing is added then.
+    private func installedSkill(after rpc: GatewayRPCClient, requested: String, result: [String: AnyCodable]?) async throws -> InstalledSkill {
         let key = result?["slug"]?.value as? String ?? Self.bareKey(requested)
-        let refreshed = try? await fetchStatus(rpc)
+        let refreshed: [InstalledSkill]?
+        do {
+            refreshed = try await fetchStatus(rpc)
+        } catch {
+            if error is CancellationError || Task.isCancelled { throw CancellationError() }
+            refreshed = nil
+        }
         if let found = refreshed?.first(where: { $0.slug == key }) { return found }
         let synthetic = InstalledSkill(
             slug: key,

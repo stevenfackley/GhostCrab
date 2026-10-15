@@ -211,12 +211,25 @@ final class FakeModelRepository: ModelRepository, @unchecked Sendable {
     private var models: [ModelInfo]
     private var setActiveLog: [String] = []
     private var getModelsCalls = 0
+    private let unlistedPrimary: String?
 
-    /// - Parameter getModelsError: When set, every `getModels()` throws it.
-    init(models: [ModelInfo], setActiveError: GatewayError? = nil, getModelsError: GatewayError? = nil) {
+    /// - Parameters:
+    ///   - getModelsError: When set, every `getModels()` / `getModelCatalogue()` throws it.
+    ///   - unlistedPrimary: What `getModelCatalogue()` reports as the unlisted primary.
+    init(
+        models: [ModelInfo],
+        setActiveError: GatewayError? = nil,
+        getModelsError: GatewayError? = nil,
+        unlistedPrimary: String? = nil
+    ) {
         self.models = models
         self.setActiveError = setActiveError
         self.getModelsError = getModelsError
+        self.unlistedPrimary = unlistedPrimary
+    }
+
+    func getModelCatalogue() async throws -> ModelCatalogue {
+        ModelCatalogue(models: try await getModels(), unlistedPrimary: unlistedPrimary)
     }
 
     static func model(_ id: String, active: Bool = false) -> ModelInfo {

@@ -11,9 +11,10 @@ import Foundation
 /// back.
 public actor ConfigRepositoryImpl: ConfigRepository {
 
-    /// The newest known hash, the socket it belongs to and the number of the request that produced it.
+    /// The newest known hash, the socket it belongs to and the number of the request that produced it. The socket is
+    /// held weakly: a cached hash never keeps a closed session's client alive, and a released one matches nothing.
     private struct CachedHash {
-        let socket: GatewayRPCClient
+        weak var socket: GatewayRPCClient?
         let hash: String?
         let ticket: Int
     }

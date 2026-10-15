@@ -22,6 +22,10 @@ public final class ModelManagerViewModel {
     /// Full list of models reported by the gateway.
     public private(set) var models_: [ModelInfo] = []
 
+    /// The gateway's configured primary model, exactly as written, when no single listed model matches it (so none
+    /// is active). Drives an amber banner; `nil` otherwise.
+    public private(set) var unlistedPrimary: String?
+
     /// Identifier of the model currently being activated, or `nil` when idle.
     /// Drives an inline `ProgressView` next to the row.
     public private(set) var activatingId: String?
@@ -58,17 +62,20 @@ public final class ModelManagerViewModel {
         isLoading = models_.isEmpty
         defer { isLoading = false }
         do {
-            let list = try await models.getModels()
-            self.models_ = list
+            let catalogue = try await models.getModelCatalogue()
+            self.models_ = catalogue.models
+            self.unlistedPrimary = catalogue.unlistedPrimary
             self.notSupported = false
             self.lastError = nil
         } catch GatewayError.methodUnsupported {
             self.notSupported = true
             self.models_ = []
+            self.unlistedPrimary = nil
             self.lastError = nil
         } catch GatewayError.api(_, let statusCode, _) where statusCode == 404 {
             self.notSupported = true
             self.models_ = []
+            self.unlistedPrimary = nil
             self.lastError = nil
         } catch let error as GatewayError {
             self.lastError = describe(error)

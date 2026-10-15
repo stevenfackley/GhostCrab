@@ -7,10 +7,6 @@ public final class ModelRepositoryImpl: ModelRepository, Sendable {
 
     /// ``ModelInfo/status`` of a catalogue entry that is not unavailable.
     static let statusReady = "ready"
-    /// ``ModelInfo/status`` of the configured primary when no catalogue entry has that ref.
-    static let statusNotListed = "not-listed"
-    /// ``ModelInfo/status`` of a bare-id primary that several providers list.
-    static let statusAmbiguous = "ambiguous"
 
     private let session: @Sendable () async throws -> GatewayRPCClient
 
@@ -24,16 +20,22 @@ public final class ModelRepositoryImpl: ModelRepository, Sendable {
         self.init(session: { try await connectionManager.requireSession() })
     }
 
+    /// - Returns: ``getModelCatalogue()``'s models.
+    /// - Throws: As ``getModelCatalogue()``.
+    public func getModels() async throws -> [ModelInfo] {
+        try await getModelCatalogue().models
+    }
+
     /// - Returns: The catalogue in server order. The entry `agents.defaults.model.primary` names is active: a
     ///   `provider/model` value matches that ref; a bare model id matches only when exactly one provider lists it.
-    ///   When the primary matches no entry, or a bare id matches several providers, no catalogue entry is active and
-    ///   the raw primary is appended as the active entry (status `not-listed` or `ambiguous`), so it is never hidden
-    ///   and never two providers are active. Without `operator.admin` (`config.get` refused) the list still loads
-    ///   with nothing active.
+    ///   When the primary matches no entry, or a bare id matches several providers, nothing is active (as on
+    ///   Android) and the raw primary is ``ModelCatalogue/unlistedPrimary``, so it is never hidden and never two
+    ///   providers are active. Without `operator.admin` (`config.get` refused) the list still loads with nothing
+    ///   active and no unlisted primary.
     /// - Throws: ``GatewayError/methodUnsupported(url:method:)`` when the gateway has no `models.list`;
     ///   ``GatewayError/protocolViolation(url:detail:)`` for a non-object payload;
     ///   ``GatewayError/unreachable(url:underlying:)`` while disconnected; any other typed RPC error.
-    public func getModels() async throws -> [ModelInfo] {
+    public func getModelCatalogue() async throws -> ModelCatalogue {
         let rpc = try await session()
         guard let payload = try await rpc.request("models.list")?.objectValue else {
             throw GatewayError.protocolViolation(url: rpc.endpoint, detail: "models.list returned a non-object payload")
@@ -41,7 +43,7 @@ public final class ModelRepositoryImpl: ModelRepository, Sendable {
         let entries = ((payload["models"]?.value as? [AnyCodable]) ?? []).compactMap(\.objectValue)
         let catalogue = entries.compactMap(CatalogueEntry.init)
         let primary = try await primaryModel(rpc)
-        return Self.models(catalogue, primary: primary)
+        return Self.resolve(catalogue, primary: primary)
     }
 
     /// Writes `agents.defaults.model.primary` with `config.patch`, against the `hash` of a fresh `config.get`.
@@ -78,25 +80,16 @@ public final class ModelRepositoryImpl: ModelRepository, Sendable {
         return primary.flatMap { $0.isEmpty ? nil : $0 }
     }
 
-    /// - Returns: `catalogue` as ``ModelInfo`` with the entry `primary` names active, plus the raw primary as an
-    ///   active entry when it names no single catalogue entry.
-    static func models(_ catalogue: [CatalogueEntry], primary: String?) -> [ModelInfo] {
-        guard let primary else { return catalogue.map { $0.modelInfo(active: false) } }
+    /// - Returns: `catalogue` as ``ModelInfo`` with the entry `primary` names active; when it names no single
+    ///   catalogue entry, nothing is active and `primary` is the unlisted primary.
+    static func resolve(_ catalogue: [CatalogueEntry], primary: String?) -> ModelCatalogue {
+        guard let primary else { return ModelCatalogue(models: catalogue.map { $0.modelInfo(active: false) }) }
         let matches = Set(catalogue.filter { primary.contains("/") ? $0.ref == primary : $0.id == primary }.map(\.ref))
         let activeRef = matches.count == 1 ? matches.first : nil
-        var list = catalogue.map { $0.modelInfo(active: $0.ref == activeRef) }
-        if activeRef == nil {
-            let provider = primary.firstIndex(of: "/").map { String(primary[..<$0]) } ?? ""
-            list.append(ModelInfo(
-                id: primary,
-                provider: provider,
-                displayName: primary,
-                isActive: true,
-                status: matches.isEmpty ? statusNotListed : statusAmbiguous,
-                capabilities: []
-            ))
-        }
-        return list
+        return ModelCatalogue(
+            models: catalogue.map { $0.modelInfo(active: $0.ref == activeRef) },
+            unlistedPrimary: activeRef == nil ? primary : nil
+        )
     }
 }
 

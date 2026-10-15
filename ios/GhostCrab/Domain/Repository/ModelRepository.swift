@@ -8,8 +8,9 @@ public protocol ModelRepository: Sendable {
 
     /// Fetches the list of all models known to the gateway.
     ///
-    /// - Returns: An array of `ModelInfo`, where at most one entry has `isActive == true`
-    ///   (none when no primary model is configured or it cannot be read), or an empty list.
+    /// - Returns: An array of `ModelInfo`, where at most one entry has `isActive == true`: none when no primary
+    ///   model is configured, when it names a model the catalogue lacks or a bare id several providers list, or
+    ///   when it cannot be read. Or an empty list.
     /// - Throws: `GatewayError.api` on gateway errors.
     func getModels() async throws -> [ModelInfo]
 
@@ -22,4 +23,18 @@ public protocol ModelRepository: Sendable {
     /// - Throws: `GatewayError.api` if the model ID is unknown or the swap fails (412 when the gateway config
     ///   changed while the swap was being written: retry; 422 when the gateway rejects the model).
     func setActiveModel(modelId: String) async throws
+
+    /// `getModels()` plus the configured primary model when no single entry matches it, so the UI can say why
+    /// nothing is active. Additive (v1.1); the default implementation reports no unlisted primary.
+    ///
+    /// - Returns: The models (as `getModels()` returns them) and ``ModelCatalogue/unlistedPrimary``.
+    /// - Throws: As `getModels()`.
+    func getModelCatalogue() async throws -> ModelCatalogue
+}
+
+extension ModelRepository {
+    /// Additive (v1.1) default: `getModels()` with no unlisted primary.
+    public func getModelCatalogue() async throws -> ModelCatalogue {
+        ModelCatalogue(models: try await getModels())
+    }
 }

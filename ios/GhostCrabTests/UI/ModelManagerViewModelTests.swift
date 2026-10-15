@@ -63,6 +63,23 @@ struct ModelManagerViewModelTests {
         #expect(vm.models_.isEmpty)
     }
 
+    @Test func anUnlistedPrimaryIsExposedWithNothingActive() async {
+        let repo = FakeModelRepository(
+            models: [FakeModelRepository.model("m1"), FakeModelRepository.model("m2")],
+            unlistedPrimary: "anthropic/claude-opus-9"
+        )
+        let vm = ModelManagerViewModel(models: repo)
+        await vm.load()
+        #expect(vm.unlistedPrimary == "anthropic/claude-opus-9")
+        #expect(vm.models_.map(\.id) == ["m1", "m2"])
+        #expect(vm.models_.allSatisfy { !$0.isActive })
+    }
+
+    @Test func aMatchedPrimaryShowsNoBanner() async {
+        let (vm, _) = await makeVM()
+        #expect(vm.unlistedPrimary == nil)
+    }
+
     @Test func otherLoadFailuresAreErrorsNotUnsupported() async {
         let repo = FakeModelRepository(
             models: [],

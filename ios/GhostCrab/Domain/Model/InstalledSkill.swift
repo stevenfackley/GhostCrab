@@ -34,3 +34,17 @@ public struct InstalledSkill: Codable, Sendable, Identifiable, Hashable {
         self.disabled = disabled
     }
 }
+
+extension InstalledSkill {
+    /// Decodes `disabled` leniently: a value encoded before it existed (v1.0) has none and reads as enabled.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            slug: try container.decode(String.self, forKey: .slug),
+            installedVersion: try container.decode(String.self, forKey: .installedVersion),
+            source: try container.decode(SkillSource.self, forKey: .source),
+            installedAt: try container.decode(Date.self, forKey: .installedAt),
+            disabled: try container.decodeIfPresent(Bool.self, forKey: .disabled) ?? false
+        )
+    }
+}

@@ -54,27 +54,44 @@ struct ModelRepositoryImplTests {
         #expect(try await repo.getModels().map(\.isActive) == [false, true, false])
     }
 
-    @Test func anAmbiguousBareIdNeverMarksTwoProvidersAndShowsTheRawPrimary() async throws {
-        let (repo, _) = try await makeRepo(["models.list": [sharedCatalogue], "config.get": [configWithPrimary("shared")]])
-        let list = try await repo.getModels()
-        #expect(list.count == 4)
-        #expect(list.prefix(3).allSatisfy { !$0.isActive })
-        let raw = try #require(list.last)
-        #expect(raw.id == "shared")
-        #expect(raw.displayName == "shared")
-        #expect(raw.provider == "")
-        #expect(raw.isActive)
-        #expect(raw.status == "ambiguous")
-        #expect(list.filter(\.isActive).count == 1)
+    @Test func aMatchedPrimaryIsNotReportedAsUnlisted() async throws {
+        let (repo, _) = try await makeRepo(["models.list": [catalogue], "config.get": [configWithPrimary("anthropic/claude-sonnet-4-6")]])
+        let result = try await repo.getModelCatalogue()
+        #expect(result.models.map(\.isActive) == [true, false])
+        #expect(result.unlistedPrimary == nil)
     }
 
-    @Test func aPrimaryTheCatalogueLacksIsShownRawAndActive() async throws {
+    @Test func anAmbiguousBareIdMarksNothingActiveAndReportsTheRawPrimary() async throws {
+        let (repo, _) = try await makeRepo(["models.list": [sharedCatalogue], "config.get": [configWithPrimary("shared")]])
+        let result = try await repo.getModelCatalogue()
+        #expect(result.models.map(\.id) == ["anthropic/shared", "openrouter/shared", "openai/solo"])
+        #expect(result.models.allSatisfy { !$0.isActive })
+        #expect(result.unlistedPrimary == "shared")
+    }
+
+    @Test func aPrimaryTheCatalogueLacksMarksNothingActiveAndIsReportedRaw() async throws {
+        let (repo, _) = try await makeRepo(["models.list": [catalogue], "config.get": [configWithPrimary("anthropic/claude-opus-9")]])
+        let result = try await repo.getModelCatalogue()
+        #expect(result.models.map(\.id) == ["anthropic/claude-sonnet-4-6", "openai/gpt-6-astra"]) // no synthetic row
+        #expect(result.models.allSatisfy { !$0.isActive })
+        #expect(result.unlistedPrimary == "anthropic/claude-opus-9")
+    }
+
+    @Test func getModelsIsTheCatalogueWithoutTheUnlistedPrimary() async throws {
         let (repo, _) = try await makeRepo(["models.list": [catalogue], "config.get": [configWithPrimary("anthropic/claude-opus-9")]])
         let list = try await repo.getModels()
-        #expect(list.map(\.id) == ["anthropic/claude-sonnet-4-6", "openai/gpt-6-astra", "anthropic/claude-opus-9"])
-        #expect(list.map(\.isActive) == [false, false, true])
-        #expect(list[2].provider == "anthropic")
-        #expect(list[2].status == "not-listed")
+        #expect(list.map(\.id) == ["anthropic/claude-sonnet-4-6", "openai/gpt-6-astra"])
+        #expect(list.allSatisfy { !$0.isActive })
+    }
+
+    @Test func aPrimaryWithAnEmptyCatalogueIsStillReported() async throws {
+        let (repo, _) = try await makeRepo([
+            "models.list": [try GatewayFixtures.text("res-models-list")],
+            "config.get": [configWithPrimary("anthropic/claude-opus-9")],
+        ])
+        let result = try await repo.getModelCatalogue()
+        #expect(result.models.isEmpty)
+        #expect(result.unlistedPrimary == "anthropic/claude-opus-9")
     }
 
     @Test func aModelWithoutANameUsesItsIdAsTheDisplayName() async throws {

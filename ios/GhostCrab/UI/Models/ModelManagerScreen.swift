@@ -56,13 +56,20 @@ public struct ModelManagerScreen: View {
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if vm.models_.isEmpty {
-            EmptyState(
-                icon: "tray",
-                title: "No models configured",
-                message: "Use Config Editor to add a provider.",
-                action: ("Open Config Editor", { navigate(.configEditor) })
-            )
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            VStack(spacing: DesignTokens.Spacing.md) {
+                if let primary = vm.unlistedPrimary {
+                    unlistedPrimaryBanner(primary)
+                        .padding(.horizontal, DesignTokens.Spacing.md)
+                        .padding(.top, DesignTokens.Spacing.sm)
+                }
+                EmptyState(
+                    icon: "tray",
+                    title: "No models configured",
+                    message: "Use Config Editor to add a provider.",
+                    action: ("Open Config Editor", { navigate(.configEditor) })
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
         } else {
             modelsList
         }
@@ -71,6 +78,20 @@ public struct ModelManagerScreen: View {
     @ViewBuilder
     private var modelsList: some View {
         List {
+            if let primary = vm.unlistedPrimary {
+                Section {
+                    unlistedPrimaryBanner(primary)
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                        .listRowInsets(EdgeInsets(
+                            top: DesignTokens.Spacing.sm,
+                            leading: DesignTokens.Spacing.md,
+                            bottom: DesignTokens.Spacing.sm,
+                            trailing: DesignTokens.Spacing.md
+                        ))
+                }
+            }
+
             if let error = vm.lastError {
                 Section {
                     errorBanner(error)
@@ -149,6 +170,32 @@ public struct ModelManagerScreen: View {
         default:
             return DesignTokens.Color.textSecondary
         }
+    }
+
+    // MARK: - Unlisted primary banner
+
+    /// Amber: the gateway's primary model names no single listed model, so no row is active.
+    @ViewBuilder
+    private func unlistedPrimaryBanner(_ primary: String) -> some View {
+        HStack(alignment: .top, spacing: DesignTokens.Spacing.sm) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(DesignTokens.Color.amberWarn)
+                .font(.system(size: 16))
+            Text("Gateway primary model \(primary) is not in its catalogue.")
+                .font(AppFont.mono(12))
+                .foregroundStyle(DesignTokens.Color.textPrimary)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, DesignTokens.Spacing.md)
+        .padding(.vertical, DesignTokens.Spacing.sm)
+        .background(
+            DesignTokens.Shape.small
+                .fill(DesignTokens.Color.amberWarn.opacity(0.15))
+        )
+        .overlay(
+            DesignTokens.Shape.small
+                .strokeBorder(DesignTokens.Color.amberWarn, lineWidth: 1)
+        )
     }
 
     // MARK: - Error banner

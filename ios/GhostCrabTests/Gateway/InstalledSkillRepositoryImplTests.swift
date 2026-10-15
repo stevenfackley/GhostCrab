@@ -143,6 +143,60 @@ struct InstalledSkillRepositoryImplTests {
         #expect(await socket.sentMethods().isEmpty)
     }
 
+    @Test func aCancelledUninstallReportsTheCancellationNotUnsupported() async {
+        let repo = InstalledSkillRepositoryImpl(session: { throw CancellationError() })
+        guard case .failure(let error) = await repo.uninstall(slug: "browser-automation") else {
+            Issue.record("expected a failure")
+            return
+        }
+        #expect(error is CancellationError)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func aCancelledInstallAddsNoStandInEntry() async throws {
+        // `skills.status` is never answered: the caller cancels while the post-install re-read is in flight.
+        let socket = try ScriptedGatewayWebSocket(challenge: false, replies: try .fixtures(["skills.install": "res-skills-install"]))
+        let rpc = await startedRPC(socket)
+        let repo = InstalledSkillRepositoryImpl(session: { rpc })
+        let consumer = Task { await events(repo.install(slug: "@steipete/weather", version: nil)) }
+        try await waitUntilSent(socket, "skills.status")
+
+        consumer.cancel()
+        let progress = await consumer.value
+
+        #expect(!progress.contains { event in
+            switch event {
+            case .succeeded, .failed: return true
+            default: return false
+            }
+        })
+        // Let the install task see its re-read fail with the cancellation and finish before reading the list.
+        for _ in 0..<300 {
+            if await rpc.pendingRequestCount == 0 { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(await rpc.pendingRequestCount == 0)
+        try await Task.sleep(for: .milliseconds(100))
+        var observed: [InstalledSkill] = []
+        for await list in repo.observeInstalled() {
+            observed = list
+            break
+        }
+        #expect(observed.isEmpty, "a cancelled install must not add a stand-in entry")
+    }
+
+    @Test func anInstalledSkillEncodedBeforeDisabledExistedDecodesAsEnabled() throws {
+        let json = #"{"slug":"weather","installedVersion":"1.0.0","source":"ClawHub","installedAt":0}"#
+        let skill = try JSONDecoder().decode(InstalledSkill.self, from: Data(json.utf8))
+        #expect(skill.slug == "weather")
+        #expect(skill.source == .clawHub)
+        #expect(skill.disabled == false)
+        let roundTripped = try JSONDecoder().decode(InstalledSkill.self, from: JSONEncoder().encode(
+            InstalledSkill(slug: "weather", installedVersion: "1.0.0", source: .clawHub, installedAt: .distantPast, disabled: true)
+        ))
+        #expect(roundTripped.disabled)
+    }
+
     // ── skills.update ────────────────────────────────────────────────────────
 
     @Test(.timeLimit(.minutes(1)))
