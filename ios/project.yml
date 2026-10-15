@@ -113,7 +113,13 @@ targets:
   GhostCrabTests:
     type: bundle.unit-test
     platform: iOS
-    sources: [GhostCrabTests]
+    sources:
+      - path: GhostCrabTests
+      # Frames captured from the real gateway (ADR-0007), shared with Android and the mock gateway.
+      # A folder reference: the bundle gets a "2026.10.3" directory.
+      - path: ../fixtures/gateway-protocol/2026.10.3
+        type: folder
+        buildPhase: resources
     dependencies:
       - target: GhostCrab
     settings:
