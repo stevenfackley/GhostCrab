@@ -44,7 +44,8 @@ When you connect to a gateway, the app talks only to the gateway URL you entered
   - your gateway token, or the device token that gateway issued to this device earlier, if either exists;
   - your device's language setting (e.g. `en-US`) and a user agent (`ghostcrab-ios/<version>`);
   - the device identity: a device id (a SHA-256 fingerprint of the public key), the public key, and a signature over the gateway's one-time challenge with its timestamp. The private key is never sent.
-- The requests you trigger in that session: reading and saving the gateway configuration, listing models and choosing the active one, listing, installing and enabling or disabling skills, and periodic health checks while the dashboard is open.
+- The requests you trigger in that session: reading and saving the gateway configuration, listing models and choosing the active one, and listing, installing and disabling skills. The app runs no periodic health checks; `GET /health` is sent only before a connect.
+- If the session drops (for example while the app was in the background), one reconnect that repeats the `/health` check and the signed `connect` above, with the device token that gateway issued when there is one.
 
 Credentials travel only inside that signed `connect` message, never in an HTTP header or URL. Tokens and the `connect` message are never written to device logs. LAN discovery sends standard Bonjour (mDNS) queries on your local network only.
 

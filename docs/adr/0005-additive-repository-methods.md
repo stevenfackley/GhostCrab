@@ -33,16 +33,17 @@ Instances on `feat/ios-finish` (PR #127, iOS):
 
 Instances on `feat/protocol-alignment-ios` (ADR-0007, PR #134, iOS):
 
-- `InstalledSkillRepository.setSkillEnabled(skillKey:enabled:)` (`skills.update`; marked `Additive (v1.1, ADR-0005)`)
+- `InstalledSkillRepository.setSkillEnabled(skillKey:enabled:)` (`skills.update`; marked `Additive (v1.1)`)
 - `InstalledSkill.disabled` (additive model field, default `false`; a stored value without it decodes as enabled)
 - `GatewayConnectionManager.connectionWarnings()` (protocol requirement with a default implementation returning `[]`)
 - `ConnectionWarning` (new enum in `Domain/Model/` with `deviceIdentityRegenerated` and `deviceTokenNotSaved`; mirrors Android's)
 - `ModelRepository.getModelCatalogue()` and `ModelCatalogue` (`models` + `unlistedPrimary`; default implementation wraps `getModels()` with no unlisted primary)
 - `DeviceIdentityProviding.regenerated` (`Data/Storage` protocol, not a frozen `Domain/Repository` one; default `false`; true once an unreadable seed was replaced)
+- `GatewayConnection.connected(…, reconnecting:sessionGeneration:)` (additive associated values with defaults `false` / `0`, mirroring Android's fields: `true` while the manager's one silent reconnect runs; a counter that makes each live session a new value) and the helpers `isReconnecting`, `sessionGeneration` and `sessionCapabilities`. Constructing the case is source compatible; a pattern that binds every associated value needs two more `_`
 
 Contract relaxation, same PR: `ModelRepository.getModels()` documented "exactly one entry has `isActive == true`"; it now reads "at most one". The real gateway can name a primary model the catalogue lacks (or a bare id several providers list), so nothing is active then. No signature changed; callers that assumed exactly one must handle none.
 
-Other doc-only changes to frozen iOS interfaces in that PR describe the real transport (`GatewayConnectionManager.probeAuth`, `ScopeProbe`, `AIRecommendationService`); `ScopeProbeResult.unknownOldGateway` is no longer produced but stays for source compatibility. Non-repository additions the ADR-0007 consequences cover: `GatewayError` cases, `SkillInstallError.protocol(code:message:)`, and the `PairingLink` setup-code and `ws(s)` helpers.
+Other doc-only changes to frozen iOS interfaces in that PR describe the real transport (`GatewayConnectionManager.probeAuth`, `ScopeProbe`, `AIRecommendationService`); `ScopeProbeResult.unknownOldGateway` is no longer produced but stays for source compatibility. Non-repository changes the ADR-0007 consequences cover: new `GatewayError` cases; `SkillInstallError.protocol(code:message:)`, which replaced `protocol(rpcCode: Int, message:)` (a change, not an addition: protocol-4 error codes are strings, and ADR-0007 sanctions it); and the `PairingLink` setup-code and `ws(s)` helpers.
 
 ## Reasons
 
