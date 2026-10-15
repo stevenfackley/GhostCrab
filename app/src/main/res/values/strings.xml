@@ -194,6 +194,7 @@
     <!-- Security banners -->
     <string name="banner_http_message">Connection is unencrypted (HTTP). Anyone on this network can read configuration data.</string>
     <string name="banner_no_auth_message">This gateway accepts unauthenticated requests. Ensure it is not publicly reachable.</string>
+    <string name="banner_device_token_not_saved">The gateway\'s device token could not be saved on this phone. This session works; later connects need the gateway token until the device token is saved. %1$s</string>
 
     <!-- Onboarding -->
     <string name="onboarding_welcome_title">Welcome to GhostCrab</string>

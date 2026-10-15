@@ -3,7 +3,9 @@ package com.openclaw.ghostcrab.ui
 import com.openclaw.ghostcrab.data.gateway.SCOPE_OPERATOR_ADMIN
 import com.openclaw.ghostcrab.data.gateway.SCOPE_OPERATOR_READ
 import com.openclaw.ghostcrab.data.gateway.gatewayCapabilities
+import com.openclaw.ghostcrab.domain.exception.DeviceCredentialStorageException
 import com.openclaw.ghostcrab.domain.model.AuthRequirement
+import com.openclaw.ghostcrab.domain.model.ConnectionWarning
 import com.openclaw.ghostcrab.domain.model.GatewayConnection
 import com.openclaw.ghostcrab.domain.model.ModelInfo
 import com.openclaw.ghostcrab.domain.repository.GatewayConnectionManager
@@ -29,6 +31,7 @@ import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import java.security.GeneralSecurityException
 
 /**
  * Unit tests for [DashboardViewModel].
@@ -130,6 +133,31 @@ class DashboardViewModelTest {
 
         val ready = vm.state.value as DashboardUiState.Ready
         assertEquals(GatewayFeatures(config = true, models = true, skills = true), ready.features)
+
+        connFlow.value = GatewayConnection.Disconnected
+    }
+
+    @Test
+    fun `a device token that could not be saved is exposed for the dashboard notice`() = runTest {
+        val (vm, connFlow) = makeVm()
+        val failure = DeviceCredentialStorageException(
+            "save the device token for http://192.168.1.50:18789",
+            GeneralSecurityException("keystore locked"),
+        )
+        connFlow.value = connectedState.copy(warnings = listOf(ConnectionWarning.DeviceTokenNotSaved(failure)))
+
+        val ready = vm.state.value as DashboardUiState.Ready
+        assertEquals(failure.toUserMessage(), ready.deviceTokenNotSaved)
+
+        connFlow.value = GatewayConnection.Disconnected
+    }
+
+    @Test
+    fun `a session without warnings shows no device-token notice`() = runTest {
+        val (vm, connFlow) = makeVm()
+        connFlow.value = connectedState.copy(warnings = listOf(ConnectionWarning.DeviceIdentityRegenerated))
+
+        assertNull((vm.state.value as DashboardUiState.Ready).deviceTokenNotSaved)
 
         connFlow.value = GatewayConnection.Disconnected
     }

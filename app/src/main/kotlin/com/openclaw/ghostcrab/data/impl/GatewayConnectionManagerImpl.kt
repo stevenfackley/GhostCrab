@@ -52,6 +52,13 @@ private const val METHOD_HEALTH = "health"
 private const val DEVICE_TOKEN_MISMATCH = "AUTH_DEVICE_TOKEN_MISMATCH"
 private const val DEFAULT_DISPLAY_NAME = "OpenClaw Gateway"
 private val CREDENTIAL_MISSING_CODES = setOf("AUTH_TOKEN_MISSING", "AUTH_PASSWORD_MISSING", "AUTH_REQUIRED")
+private const val NANOS_PER_MILLI = 1_000_000L
+
+/**
+ * How long a reconnected session must stay live before losing its socket may trigger another silent reconnect.
+ * Shorter-lived sessions end in Error instead, so a gateway that keeps dropping the socket never loops.
+ */
+internal const val RECONNECT_REARM_MS: Long = 5 * 60_000L
 
 /**
  * Production [GatewayConnectionManager] (ADR-0007): `GET /health`, then one control-plane WebSocket per session
@@ -61,9 +68,11 @@ private val CREDENTIAL_MISSING_CODES = setOf("AUTH_TOKEN_MISSING", "AUTH_PASSWOR
  * one silent reconnect with this gateway's stored device token (the shared token when none is stored). Meanwhile
  * the state is [GatewayConnection.Connected] with `reconnecting = true` and [requireSession] fails with a retryable
  * [GatewayNotConnectedException] naming the URL; a successful reconnect publishes a new Connected (next
- * `sessionGeneration`). If the reconnect fails, or the reconnected socket ends too, the state becomes
- * [GatewayConnection.Error]: with the gateway's refusal (pairing required, rejected credential) when the reconnect
- * got one, else with the typed end cause. A reconnect stopped by [connect] or [disconnect] ends Disconnected.
+ * `sessionGeneration`). If the reconnect fails, or the reconnected socket ends within [RECONNECT_REARM_MS], the
+ * state becomes [GatewayConnection.Error]: with the gateway's refusal (pairing required, rejected credential) when
+ * the reconnect got one, else with the typed end cause. A reconnected session that stayed live that long earns
+ * another silent reconnect, so a second blip hours later is covered too. A reconnect stopped by [connect] or
+ * [disconnect] ends Disconnected.
  *
  * A caller's timeout or cancellation always propagates as cancellation (the state returns to
  * [GatewayConnection.Disconnected]); it is never turned into a gateway error.
@@ -75,8 +84,12 @@ private val CREDENTIAL_MISSING_CODES = setOf("AUTH_TOKEN_MISSING", "AUTH_PASSWOR
  * @param settingsRepository Source of the cleartext-to-public-IP opt-in.
  * @param ioDispatcher Blocking work, the socket reader loop and the socket watcher; injected via the Koin
  *   IoDispatcher qualifier.
+ * @param elapsedRealtimeMs Monotonic milliseconds that keep counting in deep sleep (production passes
+ *   `SystemClock::elapsedRealtime`, so Doze counts toward [RECONNECT_REARM_MS]); tests pass virtual time.
  */
-@Suppress("TooManyFunctions") // one session lifecycle: connect, probe, health, watch, reconnect, teardown helpers
+// One session lifecycle (connect, probe, health, watch, reconnect, teardown helpers); collaborators plus two test
+// seams (dispatcher, clock).
+@Suppress("TooManyFunctions", "LongParameterList")
 class GatewayConnectionManagerImpl(
     private val identityProvider: DeviceIdentityProvider,
     private val deviceTokens: DeviceTokenStore,
@@ -84,6 +97,7 @@ class GatewayConnectionManagerImpl(
     private val clientFactory: OpenClawApiClientFactory = DefaultClientFactory,
     private val settingsRepository: SettingsRepository = AlwaysBlockCleartextSettingsRepository,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val elapsedRealtimeMs: () -> Long = { System.nanoTime() / NANOS_PER_MILLI },
 ) : GatewayConnectionManager, GatewayHealthChecker {
 
     /** What a connect attempt has opened so far, so every failure path can release it. */
@@ -227,7 +241,7 @@ class GatewayConnectionManagerImpl(
      *
      * @param opening Records what was opened, for the caller to release on failure.
      * @param reconnecting `true` for the silent reconnect: the stored device token goes first, the shared token is
-     *   the fallback; such a session is not reconnected again.
+     *   the fallback; such a session is not reconnected again until it has been live for [RECONNECT_REARM_MS].
      * @return The session, not yet [activate]d.
      */
     private suspend fun openSession(
@@ -248,7 +262,16 @@ class GatewayConnectionManagerImpl(
         val hello = GatewayHandshake.perform(socket, clientInfo, auth, identity)
         if (identityProvider.regenerated.value) reapprovedGateways += key
         val tokenWarning = rememberDeviceToken(key, identity, hello, stored)
-        return ActiveSession(url, token, rest, socket, hello, !reconnecting, warnings(key, tokenWarning))
+        return ActiveSession(
+            url = url,
+            token = token,
+            client = rest,
+            rpc = socket,
+            hello = hello,
+            reconnected = reconnecting,
+            liveSinceMs = elapsedRealtimeMs(),
+            warnings = warnings(key, tokenWarning),
+        )
     }
 
     /**
@@ -274,12 +297,13 @@ class GatewayConnectionManagerImpl(
      * runs, and the state must never stay Connected without a session.
      */
     private suspend fun onSocketLost(lost: ActiveSession, cause: GatewayException) {
+        val mayReconnect = lost.mayReconnect(nowMs = elapsedRealtimeMs())
         // Set before [active] is cleared, so [requireSession] never reports a plain disconnect mid-reconnect.
-        if (lost.mayReconnect) reconnectingUrl = lost.url
+        if (mayReconnect) reconnectingUrl = lost.url
         active = null
         try {
             release(lost.client, lost.rpc)?.let(cause::addSuppressed)
-            val reported = if (lost.mayReconnect) {
+            val reported = if (mayReconnect) {
                 _connectionState.update { (it as? GatewayConnection.Connected)?.copy(reconnecting = true) ?: it }
                 reconnectQuietly(lost, cause) ?: return
             } else {
@@ -450,8 +474,8 @@ class GatewayConnectionManagerImpl(
  * The live session of [GatewayConnectionManagerImpl].
  *
  * @param token The shared token the user connected with (also in [GatewayConnection.Connected.tokenOrNull]).
- * @param mayReconnect Whether losing this socket may trigger the silent reconnect: `true` for a session the user
- *   opened, `false` for the reconnected one, so a gateway that keeps dropping the socket never loops.
+ * @param reconnected `true` for a session the silent reconnect opened, `false` for one the user opened.
+ * @param liveSinceMs `elapsedRealtimeMs` when the session was opened.
  * @param warnings The [GatewayConnection.Connected.warnings] of this session.
  */
 @Suppress("LongParameterList") // a plain holder of what one connect produced
@@ -461,9 +485,18 @@ private class ActiveSession(
     val client: OpenClawApiClient,
     val rpc: GatewayRpcClient,
     val hello: HelloOk,
-    val mayReconnect: Boolean,
+    val reconnected: Boolean,
+    val liveSinceMs: Long,
     val warnings: List<ConnectionWarning>,
-)
+) {
+    /**
+     * @param nowMs `elapsedRealtimeMs` when the socket ended.
+     * @return Whether losing this socket may trigger the silent reconnect: always for a session the user opened; for
+     *   a reconnected one only after [RECONNECT_REARM_MS] live, so a gateway that keeps dropping the socket never
+     *   loops while a blip hours later is still covered.
+     */
+    fun mayReconnect(nowMs: Long): Boolean = !reconnected || nowMs - liveSinceMs >= RECONNECT_REARM_MS
+}
 
 /** Capabilities come from the methods the gateway offers AND the scopes this socket holds (ADR-0007). */
 private fun connectedState(session: ActiveSession, generation: Long) = GatewayConnection.Connected(

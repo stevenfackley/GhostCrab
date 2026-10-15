@@ -10,6 +10,7 @@ import com.openclaw.ghostcrab.data.gateway.DeviceTokenStore
 import com.openclaw.ghostcrab.data.gateway.StoredDeviceToken
 import com.openclaw.ghostcrab.data.impl.GatewayConnectionManagerImpl
 import com.openclaw.ghostcrab.data.impl.OpenClawApiClientFactory
+import com.openclaw.ghostcrab.data.impl.RECONNECT_REARM_MS
 import com.openclaw.ghostcrab.data.ws.WsSession
 import com.openclaw.ghostcrab.domain.exception.DeviceCredentialStorageException
 import com.openclaw.ghostcrab.domain.exception.GatewayConnectAuthException
@@ -53,6 +54,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
@@ -122,6 +124,7 @@ class GatewayConnectionManagerImplTest {
             clientFactory = factory,
             settingsRepository = settings,
             ioDispatcher = ioDispatcher,
+            elapsedRealtimeMs = { testScheduler.currentTime },
         )
     }
 
@@ -541,6 +544,49 @@ class GatewayConnectionManagerImplTest {
         val state = m.connectionState.value as GatewayConnection.Error
         assertInstanceOf(GatewayUnreachableException::class.java, state.cause)
         coVerify(exactly = 2) { rest.openWsSession() }
+    }
+
+    @Test fun `a reconnected session that drops again within the re-arm interval ends in Error`() = runTest {
+        val first = ScriptedWsSession(respond = fixtures("connect" to "hello-ok-paired"))
+        val second = ScriptedWsSession(respond = fixtures("connect" to "hello-ok-paired"))
+        val m = manager(first)
+        coEvery { rest.openWsSession() } returnsMany listOf(first, second)
+        m.connect(url, "shared-token")
+        first.drop()
+        runCurrent()
+
+        advanceTimeBy(RECONNECT_REARM_MS - 1)
+        second.drop()
+        runCurrent()
+
+        assertInstanceOf(GatewayConnection.Error::class.java, m.connectionState.value)
+        coVerify(exactly = 2) { rest.openWsSession() }
+    }
+
+    @Test fun `a reconnected session healthy for the re-arm interval reconnects silently again`() = runTest {
+        val first = ScriptedWsSession(respond = fixtures("connect" to "hello-ok-paired"))
+        val second = ScriptedWsSession(respond = fixtures("connect" to "hello-ok-paired"))
+        val third = ScriptedWsSession(respond = fixtures("connect" to "hello-ok-paired"))
+        val m = manager(first)
+        coEvery { rest.openWsSession() } returnsMany listOf(first, second, third)
+        m.connect(url, "shared-token")
+        first.drop()
+        runCurrent()
+
+        advanceTimeBy(RECONNECT_REARM_MS)
+        second.drop()
+        runCurrent()
+
+        val state = m.connectionState.value as GatewayConnection.Connected
+        assertFalse(state.reconnecting)
+        assertEquals(3L, state.sessionGeneration)
+        coVerify(exactly = 3) { rest.openWsSession() }
+        assertNotNull(m.requireSession())
+
+        // The re-armed reconnect is one reconnect too: a blip right after it ends in Error.
+        third.drop()
+        runCurrent()
+        assertInstanceOf(GatewayConnection.Error::class.java, m.connectionState.value)
     }
 
     @Test fun `a credential-storage failure during the reconnect surfaces the lost socket, once`() = runTest {

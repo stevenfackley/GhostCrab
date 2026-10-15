@@ -47,6 +47,7 @@ import com.openclaw.ghostcrab.domain.model.AuthRequirement
 import com.openclaw.ghostcrab.domain.model.GatewayConnection
 import com.openclaw.ghostcrab.domain.model.ModelInfo
 import com.openclaw.ghostcrab.ui.GatewayFeatures
+import com.openclaw.ghostcrab.ui.components.DeviceTokenNotSavedBanner
 import com.openclaw.ghostcrab.ui.components.GlassSurface
 import com.openclaw.ghostcrab.ui.components.HttpSecurityBanner
 import com.openclaw.ghostcrab.ui.components.NoAuthSecurityBanner
@@ -151,6 +152,7 @@ private fun ReadyContent(
         val conn = state.connection
         if (!conn.isHttps) HttpSecurityBanner()
         if (conn.authRequirement is AuthRequirement.None) NoAuthSecurityBanner()
+        state.deviceTokenNotSaved?.let { DeviceTokenNotSavedBanner(detail = it) }
 
         // Gateway header card
         GatewayHeaderCard(conn)

@@ -1,5 +1,6 @@
 package com.openclaw.ghostcrab.di
 
+import android.os.SystemClock
 import com.openclaw.ghostcrab.BuildConfig
 import com.openclaw.ghostcrab.data.discovery.NsdDiscoveryServiceImpl
 import com.openclaw.ghostcrab.data.gateway.ClientInfo
@@ -57,6 +58,8 @@ val dataModule = module {
             clientInfo = get(),
             settingsRepository = get(),
             ioDispatcher = get(IoDispatcher),
+            // Counts deep sleep, so a session kept through Doze earns its next silent reconnect.
+            elapsedRealtimeMs = SystemClock::elapsedRealtime,
         )
     }
     single<GatewayConnectionManager> { get<GatewayConnectionManagerImpl>() }
