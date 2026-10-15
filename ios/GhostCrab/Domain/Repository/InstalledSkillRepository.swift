@@ -33,7 +33,7 @@ public protocol InstalledSkillRepository: Sendable {
     /// Enables or disables a skill on the gateway (`skills.update {skillKey, enabled}`). OpenClaw has no skill
     /// removal, so the UI's "remove" action disables instead (ADR-0007).
     ///
-    /// Additive (v1.1, ADR-0005).
+    /// Additive (v1.1) — see docs/adr/0005-additive-repository-methods.md
     ///
     /// - Parameters:
     ///   - skillKey: The skill's key; an `owner/slug` is reduced to `slug`.

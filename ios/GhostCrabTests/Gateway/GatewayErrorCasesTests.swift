@@ -84,10 +84,13 @@ struct GatewayErrorCasesTests {
 
     /// The HTTP status stands in for the missing RPC code, whatever the status.
     @Test func anHttpStatusInstallErrorIsAProtocolErrorNamingTheStatus() {
-        let body = "Response deserialization failed (DecodingError.typeMismatch): expected an object"
-        let mapped = GatewayError.api(url: "http://192.168.1.50:18789/health", statusCode: 200, body: body).toSkillInstallError()
-        #expect(mapped == .protocol(code: "HTTP 200", message: body))
+        // What setSkillEnabled reports for a key skills.status does not list.
+        let body = "skill weather is not listed by skills.status"
+        let mapped = GatewayError.api(url: "ws://192.168.1.50:18789/ws", statusCode: 404, body: body).toSkillInstallError()
+        #expect(mapped == .protocol(code: "HTTP 404", message: body))
         #expect(!mapped.isRetryable)
+        #expect(GatewayError.api(url: "http://192.168.1.50:18789", statusCode: 0, body: "Malformed URL").toSkillInstallError()
+            == .protocol(code: "HTTP 0", message: "Malformed URL"))
         #expect(GatewayError.api(url: "http://192.168.1.50:18789/health", statusCode: 404).toSkillInstallError()
             == .protocol(code: "HTTP 404", message: ""))
     }

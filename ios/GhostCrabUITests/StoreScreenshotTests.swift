@@ -22,7 +22,7 @@ import XCTest
 ///
 /// Runner environment (all optional except the switch):
 /// - `GHOSTCRAB_GATEWAY_URL`: gateway base URL, default `http://127.0.0.1:18790`.
-/// - `GHOSTCRAB_GATEWAY_TOKEN`: bearer token the pairing link carries, default none.
+/// - `GHOSTCRAB_GATEWAY_TOKEN`: gateway token the pairing link carries, default none.
 /// - `GHOSTCRAB_GATEWAY_NAME`: suggested gateway name, default `Home Lab`.
 final class StoreScreenshotTests: XCTestCase {
 

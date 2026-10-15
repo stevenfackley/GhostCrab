@@ -21,9 +21,11 @@ public enum GatewayConnection: Sendable {
     ///   - version: Gateway version string.
     ///   - authRequirement: The auth mode reported by the gateway.
     ///   - isHttps: Whether the connection uses TLS.
-    ///   - capabilities: Capability keys advertised by the gateway (e.g. `"skill-ai-recommend"`).
+    ///   - capabilities: What this session can do: `"config"`, `"models"` and `"skills"`, each present when the
+    ///     gateway offers its methods and the granted scopes allow them (see `GatewayHello.capabilities`).
     ///   - hardwareInfo: Hardware description. Always `nil` since ADR-0007: the gateway reports none.
-    ///   - tokenOrNull: Bearer token for the active session, or `nil` if auth is not required.
+    ///   - tokenOrNull: The gateway token the session connected with (sent in the WebSocket `connect` request), or
+    ///     `nil` if auth is not required.
     ///     Sensitive — never log.
     case connected(
         url: String,
@@ -47,7 +49,7 @@ public enum GatewayConnection: Sendable {
 // MARK: - Redacted descriptions
 
 /// `description`, `debugDescription` and the reflection mirror never include
-/// the bearer token carried by ``GatewayConnection/connected(url:displayName:version:authRequirement:isHttps:capabilities:hardwareInfo:tokenOrNull:)``,
+/// the gateway token carried by ``GatewayConnection/connected(url:displayName:version:authRequirement:isHttps:capabilities:hardwareInfo:tokenOrNull:)``,
 /// so a stray `print`, `dump`, string interpolation or log line cannot leak it.
 extension GatewayConnection: CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
 

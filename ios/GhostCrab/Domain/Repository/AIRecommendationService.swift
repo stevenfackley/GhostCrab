@@ -25,7 +25,7 @@ public protocol AIRecommendationService: Sendable {
     ///   - query: Free-text user query (e.g. `"best coding model for 16GB RAM"`).
     ///   - context: Current session context for grounding the recommendation.
     /// - Returns: The `AIRecommendation` containing the response and optional suggested changes.
-    /// - Throws: `GatewayError.aiServiceUnavailable` if the gateway offers no recommendations.
-    /// - Throws: `GatewayError.aiQuotaExceeded` if the rate limit is exceeded.
+    /// - Throws: `GatewayError.aiServiceUnavailable` if the gateway offers no recommendations (every OpenClaw
+    ///   gateway, ADR-0007).
     func getRecommendation(query: String, context: RecommendationContext) async throws -> AIRecommendation
 }

@@ -5,9 +5,9 @@ import Observation
 ///
 /// Subscribes to ``InstalledSkillRepository/observeInstalled()`` on ``start()``
 /// for live list updates, and spawns one `Task` per ongoing install to fan in
-/// each install's progress stream into a per-slug `progress` map. Uninstall
-/// pending/confirm/in-flight is tracked locally because the underlying REST
-/// uninstall is synchronous.
+/// each install's progress stream into a per-slug `progress` map. Removal
+/// (which disables the skill, `skills.update`) tracks its pending, confirm and
+/// in-flight state locally: the call reports no progress.
 @MainActor
 @Observable
 public final class InstalledSkillsViewModel {
@@ -96,7 +96,7 @@ public final class InstalledSkillsViewModel {
 
     // MARK: - Public API
 
-    /// Triggers a one-shot refresh from `skills.list`. Sets ``lastError`` on
+    /// Triggers a one-shot refresh from `skills.status`. Sets ``lastError`` on
     /// failure; leaves the previous list intact.
     public func refresh() async {
         isRefreshing = true
