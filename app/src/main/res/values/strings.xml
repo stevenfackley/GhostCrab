@@ -162,17 +162,18 @@
     <string name="installed_skills_back_cd">Back</string>
     <string name="installed_skills_refresh_cd">Refresh</string>
     <string name="installed_skills_empty_title">No skills installed</string>
-    <string name="installed_skills_empty_body">Skills extend what your gateway can do. Install one from the AI Recommendations screen.</string>
+    <string name="installed_skills_empty_body">The gateway reports no skills. Install one on the gateway host: openclaw skills install &lt;slug&gt;</string>
     <string name="installed_skills_source_clawhub">ClawHub</string>
     <string name="installed_skills_source_local">Local</string>
     <string name="installed_skills_source_unknown">Unknown source</string>
     <string name="installed_skills_version">v%1$s</string>
     <string name="installed_skills_installed_at">Installed %1$s</string>
-    <string name="installed_skills_uninstall_cd">Uninstall skill</string>
-    <string name="installed_skills_uninstall_title">Uninstall %1$s?</string>
-    <string name="installed_skills_uninstall_body">This removes the skill from the gateway immediately. Any features that depend on it will stop working until it is reinstalled.</string>
-    <string name="installed_skills_uninstall_confirm">Uninstall</string>
-    <string name="installed_skills_uninstall_success">%1$s uninstalled</string>
+    <string name="installed_skills_uninstall_cd">Disable skill</string>
+    <string name="installed_skills_uninstall_title">Disable %1$s?</string>
+    <string name="installed_skills_uninstall_body">OpenClaw gateways cannot remove skills remotely. GhostCrab disables the skill instead (skills.update, enabled = false). It stays on the gateway host and can be enabled there again.</string>
+    <string name="installed_skills_uninstall_confirm">Disable</string>
+    <string name="installed_skills_uninstall_success">%1$s disabled</string>
+    <string name="installed_skills_disabled">disabled</string>
 
     <!-- Settings — About section -->
     <string name="settings_section_about">About</string>

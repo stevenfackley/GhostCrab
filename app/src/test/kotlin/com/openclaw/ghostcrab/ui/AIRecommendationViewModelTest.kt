@@ -699,4 +699,5 @@ private class FakeInstallRepo : InstalledSkillRepository {
         return scripted
     }
     override suspend fun uninstall(slug: String): Result<Unit> = Result.success(Unit)
+    override suspend fun setSkillEnabled(skillKey: String, enabled: Boolean): Result<Unit> = Result.success(Unit)
 }

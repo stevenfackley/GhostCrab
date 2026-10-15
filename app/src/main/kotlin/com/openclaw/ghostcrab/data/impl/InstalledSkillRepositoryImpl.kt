@@ -2,6 +2,7 @@ package com.openclaw.ghostcrab.data.impl
 
 import com.openclaw.ghostcrab.data.gateway.GatewayRpcClient
 import com.openclaw.ghostcrab.data.gateway.stringOrNull
+import com.openclaw.ghostcrab.domain.exception.GatewayApiException
 import com.openclaw.ghostcrab.domain.exception.GatewayException
 import com.openclaw.ghostcrab.domain.exception.GatewayMethodUnsupportedException
 import com.openclaw.ghostcrab.domain.exception.GatewayMissingScopeException
@@ -15,10 +16,15 @@ import com.openclaw.ghostcrab.domain.model.SkillSource
 import com.openclaw.ghostcrab.domain.repository.InstalledSkillRepository
 import com.openclaw.ghostcrab.domain.util.suspendRunCatching
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -31,12 +37,18 @@ import kotlinx.serialization.json.put
 private const val METHOD_STATUS = "skills.status"
 private const val METHOD_INSTALL = "skills.install"
 private const val METHOD_UNINSTALL = "skills.uninstall"
+private const val METHOD_UPDATE = "skills.update"
+private const val EVENT_CONFIG_CHANGED = "config.changed"
+private const val STATUS_NOT_FOUND = 404
 private const val NOT_CONNECTED_URL = "<no active connection>"
 private const val MILLIS_PER_SECOND = 1_000L
 
 /** Sent as `skills.install.timeoutMs`: the gateway downloads and verifies before it answers. */
 private const val INSTALL_TIMEOUT_MS = 120_000L
 private const val INSTALL_TIMEOUT_MARGIN_MS = 10_000L
+
+/** `config.changed` follows a write within ~80 ms; without it the list is re-read anyway after this long. */
+private const val CONFIG_CHANGED_WAIT_MS = 2_000L
 
 /**
  * [InstalledSkillRepository] over the live session socket (ADR-0007): `skills.status` lists, `skills.install`
@@ -90,9 +102,45 @@ class InstalledSkillRepositoryImpl(
         emit(installOutcome(rpc, slug, version))
     }
 
-    /** OpenClaw has no skill-removal RPC (QA §3); nothing is sent. */
+    /** OpenClaw has no skill-removal RPC (QA §3); nothing is sent. See [setSkillEnabled]. */
     override suspend fun uninstall(slug: String): Result<Unit> =
         Result.failure(GatewayMethodUnsupportedException(endpointOrPlaceholder(), METHOD_UNINSTALL))
+
+    /**
+     * `skills.update {skillKey, enabled}`, then a `skills.status` re-read once the gateway emits `config.changed`
+     * (the list is stale until then, and the event can precede the response; after [CONFIG_CHANGED_WAIT_MS]
+     * without it the list is re-read anyway). The gateway answers `ok:true` even for unknown keys, so the key is
+     * first checked against a fresh `skills.status` of this socket: a cached list could come from another gateway.
+     *
+     * @param skillKey The skill's key; an `owner/slug` is reduced to `slug`.
+     * @param enabled `false` to disable.
+     * @return Success after the re-read; failure with a 404-style
+     *   [com.openclaw.ghostcrab.domain.exception.GatewayApiException] for an unlisted key, or the typed RPC error.
+     */
+    override suspend fun setSkillEnabled(skillKey: String, enabled: Boolean): Result<Unit> = suspendRunCatching {
+        val rpc = session()
+        val key = skillKey.substringAfterLast('/')
+        if (fetchStatus(rpc).none { it.slug == key }) {
+            throw GatewayApiException(rpc.endpoint, STATUS_NOT_FOUND, "skill $key is not listed by skills.status")
+        }
+        coroutineScope {
+            // Subscribed before the request goes out, so an early config.changed is not missed.
+            val changed = async(start = CoroutineStart.UNDISPATCHED) {
+                withTimeoutOrNull(CONFIG_CHANGED_WAIT_MS) {
+                    // firstOrNull: a socket that ends completes the flow; the re-read below then fails typed.
+                    rpc.events.firstOrNull { it.event == EVENT_CONFIG_CHANGED }
+                }
+            }
+            val params = buildJsonObject {
+                put("skillKey", key)
+                put("enabled", enabled)
+            }
+            rpc.request(METHOD_UPDATE, params)
+            changed.await()
+        }
+        fetchStatus(rpc)
+        Unit
+    }
 
     private suspend fun installOutcome(rpc: GatewayRpcClient, slug: String, version: String?): SkillInstallProgress =
         try {

@@ -14,7 +14,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -280,7 +280,7 @@ private fun SkillRow(
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
         SkillDetails(skill = skill, modifier = Modifier.weight(1f))
-        SkillRowTrailing(isUninstalling = isUninstalling, onUninstall = onUninstall)
+        if (!skill.disabled) SkillRowTrailing(isUninstalling = isUninstalling, onUninstall = onUninstall)
     }
 }
 
@@ -297,21 +297,33 @@ private fun SkillDetails(skill: InstalledSkill, modifier: Modifier = Modifier) {
         )
         Spacer(Modifier.height(2.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
-            Text(
-                text = stringResource(R.string.installed_skills_version, skill.installedVersion),
-                style = MaterialTheme.typography.bodySmall.copy(
-                    fontFamily = MonoFontFamily,
-                    color = BrandTokens.colorCyanPulse,
-                ),
-            )
-            Text(
-                text = "·",
-                style = MaterialTheme.typography.bodySmall.copy(color = BrandTokens.colorTextSecondary),
-            )
+            if (skill.installedVersion.isNotBlank()) {
+                Text(
+                    text = stringResource(R.string.installed_skills_version, skill.installedVersion),
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        fontFamily = MonoFontFamily,
+                        color = BrandTokens.colorCyanPulse,
+                    ),
+                )
+                Text(
+                    text = "·",
+                    style = MaterialTheme.typography.bodySmall.copy(color = BrandTokens.colorTextSecondary),
+                )
+            }
             Text(
                 text = skill.source.label(),
                 style = MaterialTheme.typography.bodySmall.copy(color = BrandTokens.colorTextSecondary),
             )
+            if (skill.disabled) {
+                Text(
+                    text = "·",
+                    style = MaterialTheme.typography.bodySmall.copy(color = BrandTokens.colorTextSecondary),
+                )
+                Text(
+                    text = stringResource(R.string.installed_skills_disabled),
+                    style = MaterialTheme.typography.bodySmall.copy(color = BrandTokens.colorAmberWarn),
+                )
+            }
         }
         if (skill.installedAt > 0) {
             Text(
@@ -336,7 +348,7 @@ private fun SkillRowTrailing(isUninstalling: Boolean, onUninstall: () -> Unit) {
     } else {
         IconButton(onClick = onUninstall) {
             Icon(
-                imageVector = Icons.Default.Delete,
+                imageVector = Icons.Default.Block,
                 contentDescription = stringResource(R.string.installed_skills_uninstall_cd),
                 tint = BrandTokens.colorCrimsonError,
             )

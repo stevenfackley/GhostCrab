@@ -80,15 +80,17 @@ class InstalledSkillsViewModel(
     }
 
     /**
-     * Confirms uninstall of the skill currently pending. Closes the dialog, emits
-     * an in-flight indicator, and sets [InstalledSkillsUiState.Ready.uninstallSuccessSlug]
+     * Confirms the pending skill's removal, which on OpenClaw means disabling it
+     * ([InstalledSkillRepository.setSkillEnabled] with `enabled = false`; there is no removal RPC). Closes the
+     * dialog, emits an in-flight indicator, and sets [InstalledSkillsUiState.Ready.uninstallSuccessSlug]
      * on success or [InstalledSkillsUiState.Ready.errorMessage] on failure.
      */
     fun confirmUninstall() {
         val slug = (_state.value as? InstalledSkillsUiState.Ready)?.pendingUninstallSlug ?: return
         withReady { it.copy(pendingUninstallSlug = null, uninstallingSlug = slug) }
         viewModelScope.launch {
-            repo.uninstall(slug)
+            // OpenClaw has no skill removal (ADR-0007): the confirm action disables the skill.
+            repo.setSkillEnabled(slug, enabled = false)
                 .onSuccess {
                     withReady { s -> s.copy(uninstallingSlug = null, uninstallSuccessSlug = slug) }
                 }

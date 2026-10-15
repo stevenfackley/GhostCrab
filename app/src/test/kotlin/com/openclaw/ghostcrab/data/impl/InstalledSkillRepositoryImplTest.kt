@@ -3,7 +3,9 @@ package com.openclaw.ghostcrab.data.impl
 import app.cash.turbine.test
 import com.openclaw.ghostcrab.data.gateway.GatewayRpcClient
 import com.openclaw.ghostcrab.data.gateway.stringOrNull
+import com.openclaw.ghostcrab.domain.exception.GatewayApiException
 import com.openclaw.ghostcrab.domain.exception.GatewayMethodUnsupportedException
+import com.openclaw.ghostcrab.domain.exception.GatewayMissingScopeException
 import com.openclaw.ghostcrab.domain.exception.GatewayNotConnectedException
 import com.openclaw.ghostcrab.domain.exception.GatewayProtocolException
 import com.openclaw.ghostcrab.domain.exception.GatewayTimeoutException
@@ -213,6 +215,87 @@ class InstalledSkillRepositoryImplTest {
         val result = skillsRepo(session).uninstall("a/b")
         assertEquals("skills.uninstall", (result.exceptionOrNull() as GatewayMethodUnsupportedException).method)
         assertTrue(session.sent.isEmpty())
+    }
+
+    @Test fun `disable waits for config changed, then re-reads skills status`() = runTest {
+        lateinit var session: ScriptedWsSession
+        session = ScriptedWsSession(
+            respond = { method, _ ->
+                when (method) {
+                    "skills.status" -> GatewayFixtures.frame("res-skills-status")
+                    // Like the real gateway: config.changed can arrive before the skills.update response.
+                    "skills.update" -> GatewayFixtures.frame("res-skills-update").also {
+                        session.push(GatewayFixtures.frame("evt-config-changed"))
+                    }
+                    else -> null
+                }
+            },
+        )
+        val repo = skillsRepo(session)
+        assertTrue(repo.setSkillEnabled("browser-automation", enabled = false).isSuccess)
+        val params = session.paramsOf("skills.update")
+        assertEquals("browser-automation", params.stringOrNull("skillKey"))
+        assertEquals("false", params["enabled"].toString())
+        val methods = session.sent.map { it.stringOrNull("method") }
+        assertEquals(listOf("skills.status", "skills.update", "skills.status"), methods)
+        assertEquals(3, repo.observeInstalled().first().size)
+    }
+
+    @Test fun `without config changed the list is re-read after the wait cap`() = runTest {
+        val session = ScriptedWsSession(
+            respond = fixtures("skills.status" to "res-skills-status", "skills.update" to "res-skills-update"),
+        )
+        val repo = skillsRepo(session)
+        val started = testScheduler.currentTime
+        assertTrue(repo.setSkillEnabled("browser-automation", enabled = false).isSuccess)
+        assertEquals(2_000L, testScheduler.currentTime - started)
+        val methods = session.sent.map { it.stringOrNull("method") }
+        assertEquals(listOf("skills.status", "skills.update", "skills.status"), methods)
+    }
+
+    @Test fun `an owner-qualified key is reduced to the bare skill key`() = runTest {
+        val session = ScriptedWsSession(
+            respond = fixtures("skills.status" to "res-skills-status", "skills.update" to "res-skills-update"),
+        )
+        assertTrue(skillsRepo(session).setSkillEnabled("@steipete/weather", enabled = true).isSuccess)
+        val params = session.paramsOf("skills.update")
+        assertEquals("weather", params.stringOrNull("skillKey"))
+        assertEquals("true", params["enabled"].toString())
+    }
+
+    @Test fun `a key skills status does not list is refused without a write`() = runTest {
+        val session = ScriptedWsSession(respond = fixtures("skills.status" to "res-skills-status"))
+        val result = skillsRepo(session).setSkillEnabled("qa-does-not-exist", enabled = false)
+        assertEquals(404, (result.exceptionOrNull() as GatewayApiException).statusCode)
+        assertTrue(session.sent.none { it.stringOrNull("method") == "skills.update" })
+    }
+
+    @Test fun `a key from an earlier list is checked against a fresh skills status`() = runTest {
+        val status = Json.parseToJsonElement(
+            """{"type":"res","ok":true,"payload":{"skills":[{"skillKey":"only-here","source":"openclaw-extra"}]}}""",
+        ).jsonObject
+        var reply = GatewayFixtures.frame("res-skills-status")
+        val session = ScriptedWsSession(respond = { method, _ -> if (method == "skills.status") reply else null })
+        val repo = skillsRepo(session)
+        repo.refreshFromGateway().getOrThrow()
+        reply = status // the gateway no longer lists browser-automation
+        val result = repo.setSkillEnabled("browser-automation", enabled = false)
+        assertEquals(404, (result.exceptionOrNull() as GatewayApiException).statusCode)
+        assertTrue(session.sent.none { it.stringOrNull("method") == "skills.update" })
+    }
+
+    @Test fun `a missing admin scope fails the toggle typed`() = runTest {
+        val session = ScriptedWsSession(
+            respond = fixtures("skills.status" to "res-skills-status", "skills.update" to "err-missing-scope"),
+        )
+        val result = skillsRepo(session).setSkillEnabled("browser-automation", enabled = false)
+        assertInstanceOf(GatewayMissingScopeException::class.java, result.exceptionOrNull())
+    }
+
+    @Test fun `toggling while disconnected fails NotConnected`() = runTest {
+        val result = InstalledSkillRepositoryImpl { throw GatewayNotConnectedException() }
+            .setSkillEnabled("weather", enabled = false)
+        assertInstanceOf(GatewayNotConnectedException::class.java, result.exceptionOrNull())
     }
 
     @Test fun `skills status entries map to SkillSource`() {

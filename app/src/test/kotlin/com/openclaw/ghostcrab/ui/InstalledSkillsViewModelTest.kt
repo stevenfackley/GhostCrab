@@ -118,7 +118,8 @@ class InstalledSkillsViewModelTest {
         assertNull(s.pendingUninstallSlug)
         assertNull(s.uninstallingSlug)
         assertEquals("a/b", s.uninstallSuccessSlug)
-        assertEquals(listOf("a/b"), repo.uninstallCalls)
+        assertEquals(listOf("a/b" to false), repo.enabledCalls)
+        assertTrue(repo.uninstallCalls.isEmpty())
     }
 
     @Test
@@ -149,6 +150,7 @@ class InstalledSkillsViewModelTest {
 
         vm.confirmUninstall()
         assertTrue(repo.uninstallCalls.isEmpty())
+        assertTrue(repo.enabledCalls.isEmpty())
     }
 
     @Test
@@ -208,6 +210,12 @@ private class FakeInstalledRepo(
 ) : InstalledSkillRepository {
     var refreshCalls = 0
     val uninstallCalls = mutableListOf<String>()
+    val enabledCalls = mutableListOf<Pair<String, Boolean>>()
+
+    override suspend fun setSkillEnabled(skillKey: String, enabled: Boolean): Result<Unit> {
+        enabledCalls += skillKey to enabled
+        return uninstallResult
+    }
 
     override fun observeInstalled(): Flow<List<InstalledSkill>> = observed
     override suspend fun refreshFromGateway(): Result<List<InstalledSkill>> {
