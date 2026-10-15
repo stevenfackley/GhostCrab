@@ -207,6 +207,16 @@ struct DeviceStoresTests {
         #expect(GatewayKey.of(" garbage/ ") == "garbage")
     }
 
+    @Test func webSocketSpellingsShareTheHttpKey() {
+        // Android's `gatewayKeyOf` via `GatewayUrl.fromWebSocketUrl`: scheme-insensitive, host lowercased, path ignored.
+        #expect(GatewayKey.of("ws://gw.local:18789/ws") == "http://gw.local:18789")
+        #expect(GatewayKey.of("WS://GW.Local/ws") == GatewayKey.of("http://gw.local:18789"))
+        #expect(GatewayKey.of("wss://gw.example/ws") == GatewayKey.of("https://gw.example"))
+        #expect(GatewayKey.of(" WSS://GW.Example:8443/ws?x=1 ") == "https://gw.example:8443")
+        #expect(GatewayKey.of("ws://[fe80::1%en0]:18789/ws") == GatewayKey.of("http://[fe80::1]:18789"))
+        #expect(GatewayKey.of("ws://user@gw.local/ws") != GatewayKey.of("http://gw.local:18789")) // userinfo is refused
+    }
+
     @Test func descriptionRedactsTheToken() {
         var dumped = ""
         dump(token, to: &dumped)
