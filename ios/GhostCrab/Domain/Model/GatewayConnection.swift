@@ -58,7 +58,7 @@ public enum GatewayConnection: Sendable {
 
 // MARK: - Session capabilities
 
-/// Additive (v1.1) — the keys of ``GatewayConnection/sessionCapabilities`` (`.connected(capabilities:)`). The Data layer
+/// Additive (v1.1) â€” the keys of ``GatewayConnection/sessionCapabilities`` (`.connected(capabilities:)`). The Data layer
 /// puts a key in when the gateway offers the methods and the granted scopes allow them; screens gate on them.
 public enum SessionCapability {
     /// `config.get` + `config.patch` offered and the socket holds `operator.admin`.
