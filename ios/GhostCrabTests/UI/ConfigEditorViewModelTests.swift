@@ -20,6 +20,28 @@ struct ConfigEditorViewModelTests {
         #expect(vm.saveTask == nil)
     }
 
+    @Test func aServerValidationErrorLandsOnItsFieldAndKeepsTheEdit() async {
+        let reason = "Too big: expected number to be <=65535 (maximum: 65535)"
+        let repo = RejectingConfigRepository(
+            config: OpenClawConfig(sections: ["gateway": AnyCodable(["port": 18789])]),
+            error: .configValidation(field: "gateway.port", reason: reason)
+        )
+        let vm = ConfigEditorViewModel(config: repo, gateway: FakeGatewayConnectionManager())
+        vm.loadConfig()
+        await vm.loadTask?.value
+        vm.editSection("gateway", value: AnyCodable(["port": 99_999]))
+
+        vm.confirmSave("gateway")
+        await vm.saveTask?.value
+
+        guard case .ready(_, let pending, let fieldErrors, _, _, _) = vm.state else {
+            Issue.record("expected ready, got \(vm.state)")
+            return
+        }
+        #expect(fieldErrors == ["gateway.port": reason])
+        #expect(pending["gateway"] != nil)
+    }
+
     @Test func repeatedLoadWhileLoadingIsIgnored() async {
         let repo = FakeConfigRepository(config: OpenClawConfig(sections: ["gateway": AnyCodable(["port": 18789])]))
         let vm = ConfigEditorViewModel(config: repo, gateway: FakeGatewayConnectionManager())
@@ -62,6 +84,16 @@ struct ConfigEditorViewModelTests {
         if case .error = vm.state { showsError = true } else { showsError = false }
         #expect(!showsError)
     }
+}
+
+/// `getConfig()` answers `config`; every `updateConfig` throws `error`.
+private struct RejectingConfigRepository: ConfigRepository {
+    let config: OpenClawConfig
+    let error: GatewayError
+
+    func getConfig() async throws -> OpenClawConfig { config }
+
+    func updateConfig(section: String, value: AnyCodable) async throws { throw error }
 }
 
 /// `getConfig()` waits until its task is cancelled, then fails the way a

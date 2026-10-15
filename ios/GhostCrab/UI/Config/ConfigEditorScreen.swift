@@ -97,15 +97,19 @@ public struct ConfigEditorScreen: View {
             )
             .frame(maxHeight: .infinity)
 
-        case .ready(let config, let pending, _, _, _, _):
-            readyContent(config: config, pending: pending)
+        case .ready(let config, let pending, let fieldErrors, _, _, _):
+            readyContent(config: config, pending: pending, fieldErrors: fieldErrors)
         }
     }
 
     // MARK: - Ready content
 
     @ViewBuilder
-    private func readyContent(config: OpenClawConfig, pending: [String: AnyCodable]) -> some View {
+    private func readyContent(
+        config: OpenClawConfig,
+        pending: [String: AnyCodable],
+        fieldErrors: [String: String]
+    ) -> some View {
         let orderedKeys = orderedSectionKeys(config.sections.keys)
 
         ScrollView {
@@ -121,7 +125,8 @@ public struct ConfigEditorScreen: View {
                             sectionCard(
                                 key: key,
                                 editableCount: editableCount,
-                                hasPending: hasPending
+                                hasPending: hasPending,
+                                errors: errorLines(fieldErrors, section: key)
                             )
                         }
                         .buttonStyle(.plain)
@@ -136,6 +141,7 @@ public struct ConfigEditorScreen: View {
                 sectionKey: sectionEdit.key,
                 originalValue: sectionEdit.original,
                 pendingValue: pending[sectionEdit.key],
+                fieldErrors: errorLines(fieldErrors, section: sectionEdit.key),
                 onSave: { newValue in
                     vm.editSection(sectionEdit.key, value: newValue)
                     vm.requestSave(sectionEdit.key)
@@ -154,7 +160,8 @@ public struct ConfigEditorScreen: View {
         }
     }
 
-    private func sectionCard(key: String, editableCount: Int, hasPending: Bool) -> some View {
+    /// - Parameter errors: Server validation errors under this section (`path: message`), shown on the card.
+    private func sectionCard(key: String, editableCount: Int, hasPending: Bool, errors: [String]) -> some View {
         GlassSurface {
             HStack(alignment: .center, spacing: DesignTokens.Spacing.sm) {
                 VStack(alignment: .leading, spacing: DesignTokens.Spacing.xxs) {
@@ -178,6 +185,12 @@ public struct ConfigEditorScreen: View {
                     Text(editableCountLabel(editableCount))
                         .font(AppFont.body(12))
                         .foregroundStyle(DesignTokens.Color.textSecondary)
+                    ForEach(errors, id: \.self) { line in
+                        Text(line)
+                            .font(AppFont.mono(12))
+                            .foregroundStyle(DesignTokens.Color.crimsonError)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
                 Spacer(minLength: 0)
                 Image(systemName: "chevron.right")
@@ -250,6 +263,14 @@ public struct ConfigEditorScreen: View {
         n == 1 ? "1 editable key" : "\(n) editable keys"
     }
 
+    /// - Returns: The field errors under `section` (paths `<section>.…`) as `path: message` lines, sorted by path.
+    private func errorLines(_ fieldErrors: [String: String], section: String) -> [String] {
+        fieldErrors
+            .filter { $0.key.hasPrefix("\(section).") }
+            .sorted { $0.key < $1.key }
+            .map { "\($0.key): \($0.value)" }
+    }
+
     private func bindingForEditingSection(config: OpenClawConfig) -> Binding<SectionEdit?> {
         Binding(
             get: {
@@ -293,6 +314,8 @@ private struct SectionEditorSheet: View {
     let sectionKey: String
     let originalValue: AnyCodable
     let pendingValue: AnyCodable?
+    /// The gateway's validation errors for this section (`path: message`), from the last save.
+    let fieldErrors: [String]
     let onSave: (AnyCodable) -> Void
     let onDiscard: () -> Void
     let onCancel: () -> Void
@@ -320,6 +343,13 @@ private struct SectionEditorSheet: View {
                             .frame(minHeight: 240)
                     }
                     .padding(.horizontal, DesignTokens.Spacing.md)
+
+                    ForEach(fieldErrors, id: \.self) { line in
+                        Text(line)
+                            .font(AppFont.mono(12))
+                            .foregroundStyle(DesignTokens.Color.crimsonError)
+                            .padding(.horizontal, DesignTokens.Spacing.md)
+                    }
 
                     if let parseError {
                         Text(parseError)
