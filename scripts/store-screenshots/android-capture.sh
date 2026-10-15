@@ -32,6 +32,10 @@ if [ -z "$RUNNER" ]; then
 fi
 echo "Instrumentation runner: $RUNNER"
 
+# System dark theme: the app is dark-only, and in light mode the status bar draws
+# dark icons on its dark background.
+adb shell cmd uimode night yes
+
 # Demo-mode status bar: 9:41, full battery, full signal, no notification icons.
 adb shell settings put global sysui_demo_allowed 1
 demo() { adb shell am broadcast -a com.android.systemui.demo -e command "$@" >/dev/null; }

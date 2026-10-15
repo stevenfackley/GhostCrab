@@ -156,6 +156,8 @@ class StoreScreenshotTest {
             true
         } catch (e: ComposeTimeoutException) {
             misses += "\"$text\" did not appear within ${timeoutMs / 1_000}s (${e.message})"
+            // What was on screen instead; zz- names keep these apart from the store set.
+            snap("zz-miss-${misses.size}")
             false
         }
 
