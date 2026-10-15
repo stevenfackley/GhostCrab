@@ -3,6 +3,7 @@ package com.openclaw.ghostcrab.ui.navigation
 import android.net.Uri
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.navigation.NavController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -39,11 +40,7 @@ fun NavGraph(pairRequest: Int = 0) {
                 onNavigateToManualEntry = { navController.navigate("manual_entry") },
                 onNavigateToScan = { navController.navigate("scan") },
                 onNavigateToQrScan = { navController.navigate("qr_scan") },
-                onNavigateToDashboard = {
-                    navController.navigate("dashboard") {
-                        popUpTo("connection_picker") { inclusive = true }
-                    }
-                },
+                onNavigateToDashboard = { navController.navigateAsOnlyEntry("dashboard") },
                 onNavigateToOnboarding = {
                     // First-run redirect only while the picker is on top: if a deep link already pushed
                     // ManualEntry, popUpTo would pop the prefilled form.
@@ -87,11 +84,7 @@ fun NavGraph(pairRequest: Int = 0) {
             ManualEntryScreen(
                 prefillUrl = prefillUrl,
                 onNavigateBack = { navController.popBackStack() },
-                onNavigateToDashboard = {
-                    navController.navigate("dashboard") {
-                        popUpTo("connection_picker") { inclusive = true }
-                    }
-                },
+                onNavigateToDashboard = { navController.navigateAsOnlyEntry("dashboard") },
             )
         }
 
@@ -105,21 +98,15 @@ fun NavGraph(pairRequest: Int = 0) {
                 onEnterManually = {
                     navController.navigate("manual_entry")
                 },
-                onNavigateToDashboard = {
-                    navController.navigate("dashboard") {
-                        popUpTo("connection_picker") { inclusive = true }
-                    }
-                },
+                onNavigateToDashboard = { navController.navigateAsOnlyEntry("dashboard") },
             )
         }
 
         composable("dashboard") {
             DashboardScreen(
-                onNavigateBack = {
-                    navController.navigate("connection_picker") {
-                        popUpTo("connection_picker") { inclusive = true }
-                    }
-                },
+                // The picker was popped when this dashboard opened, so popping up to it would keep this dashboard in
+                // the stack; a resumed pairing wait would then push a second one, and both would poll.
+                onNavigateBack = { navController.navigateAsOnlyEntry("connection_picker") },
                 onNavigateToConfig = { navController.navigate("config_editor") },
                 onNavigateToModels = { navController.navigate("model_manager") },
                 onNavigateToAiRecommend = {
@@ -180,4 +167,13 @@ fun NavGraph(pairRequest: Int = 0) {
             }
         }
     }
+}
+
+/**
+ * Opens [route] as the only back-stack entry. Every dashboard opening and the dashboard's way back to the picker use
+ * it, so exactly one dashboard (one polling `DashboardViewModel`) lives in the back stack whichever screen opened it:
+ * the picker, Manual Entry (also when a pairing link opened it over the dashboard), Scan, or a resumed pairing wait.
+ */
+private fun NavController.navigateAsOnlyEntry(route: String) {
+    navigate(route) { popUpTo(graph.id) { inclusive = true } }
 }
