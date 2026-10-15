@@ -6,6 +6,10 @@ name: iOS store screenshots
 # `ios-screenshots` artifact.
 on:
   workflow_dispatch:
+  # TEMPORARY: workflow_dispatch needs the file on main; this registers the
+  # workflow from the branch. Removed before merge.
+  push:
+    branches: [feat/store-screenshots]
 
 permissions:
   contents: read
@@ -78,7 +82,7 @@ jobs:
           fi
 
           # STATUS_AUTH: the app probes /status without the token to detect token auth.
-          PORT=$PORT HOST=0.0.0.0 TOKEN="$GATEWAY_TOKEN" STATUS_AUTH=1 \
+          PORT=$PORT HOST=127.0.0.1 TOKEN="$GATEWAY_TOKEN" STATUS_AUTH=1 \
             MOCK_DISPLAY_NAME="$GATEWAY_NAME" MOCK_VERSION="2026.10.1" \
             MOCK_HARDWARE="arm64 · 32 GB · Ubuntu 24.04" \
             nohup node server.mjs > "$RUNNER_TEMP/mock-gateway.log" 2>&1 &
@@ -94,15 +98,10 @@ jobs:
             exit 1
           fi
 
-          # A LAN address reads better in the screenshots than loopback; the
-          # simulator shares the host's network stack, so either works.
-          HOST_IP=$(ipconfig getifaddr en0 || ipconfig getifaddr en1 || true)
-          URL_HOST=127.0.0.1
-          if [ -n "$HOST_IP" ] && curl -fsS -m 3 "http://$HOST_IP:$PORT/health" >/dev/null 2>&1; then
-            URL_HOST=$HOST_IP
-          fi
-          echo "Mock gateway: http://$URL_HOST:$PORT"
-          echo "url=http://$URL_HOST:$PORT" >> "$GITHUB_OUTPUT"
+          # Loopback only: the simulator shares the host's network stack, and the
+          # screenshots must never show the runner's real LAN address.
+          echo "Mock gateway: http://127.0.0.1:$PORT"
+          echo "url=http://127.0.0.1:$PORT" >> "$GITHUB_OUTPUT"
 
       - name: Pick an iPhone simulator
         id: sim

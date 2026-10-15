@@ -32,15 +32,15 @@ import java.util.Base64
  * Walks onboarding → empty gateway picker → LAN scan → Manual Entry (pre-filled through a
  * `ghostcrab://pair` link) → dashboard → config editor → models → AI recommendations → settings →
  * picker with the saved gateway. The connected screens need the mock gateway
- * (`scripts/mock-gateway`) the workflow starts on the runner host, reachable from the emulator at
- * `10.0.2.2`.
+ * (`scripts/mock-gateway`) the workflow starts on the runner host; the capture script forwards the
+ * emulator's `127.0.0.1:<port>` to it with `adb reverse`.
  *
  * Skipped unless the instrumentation argument `storeScreenshots=true` is set, so a plain
  * `connectedDebugAndroidTest` never depends on a gateway. Screens are captured with `screencap`
  * (status bar included) into [OUTPUT_DIR] on the device; the workflow pulls them. A screen that
  * does not appear is recorded and the walk continues; every miss fails the test at the end.
  *
- * Instrumentation arguments: `gatewayUrl` (default `http://10.0.2.2:18790`), `gatewayToken`
+ * Instrumentation arguments: `gatewayUrl` (default `http://127.0.0.1:18790`), `gatewayToken`
  * (default none) and `gatewayName` (default `Home Lab`).
  */
 @RunWith(AndroidJUnit4::class)
@@ -216,7 +216,7 @@ class StoreScreenshotTest {
         const val ARG_URL = "gatewayUrl"
         const val ARG_TOKEN = "gatewayToken"
         const val ARG_NAME = "gatewayName"
-        const val DEFAULT_URL = "http://10.0.2.2:18790"
+        const val DEFAULT_URL = "http://127.0.0.1:18790"
         const val DEFAULT_NAME = "Home Lab"
         const val OUTPUT_DIR = "/data/local/tmp/ghostcrab-store-screenshots"
         const val WAIT_TIMEOUT_MS = 15_000L

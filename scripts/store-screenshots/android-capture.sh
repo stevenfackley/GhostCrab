@@ -32,9 +32,10 @@ if [ -z "$RUNNER" ]; then
 fi
 echo "Instrumentation runner: $RUNNER"
 
-# System dark theme: the app is dark-only, and in light mode the status bar draws
-# dark icons on its dark background.
-adb shell cmd uimode night yes
+# The emulator's 127.0.0.1:<port> reaches the mock gateway on the runner, so the
+# screenshots show a loopback address rather than the emulator's 10.0.2.2 alias.
+GATEWAY_PORT=${GATEWAY_URL##*:}
+adb reverse "tcp:$GATEWAY_PORT" "tcp:$GATEWAY_PORT"
 
 # Demo-mode status bar: 9:41, full battery, full signal, no notification icons.
 adb shell settings put global sysui_demo_allowed 1

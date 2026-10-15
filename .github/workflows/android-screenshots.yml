@@ -6,6 +6,10 @@ name: Android store screenshots
 # `android-screenshots` artifact. Dispatch-only: never on push or PR.
 on:
   workflow_dispatch:
+  # TEMPORARY: workflow_dispatch needs the file on main; this registers the
+  # workflow from the branch. Removed before merge.
+  push:
+    branches: [feat/store-screenshots]
 
 permissions:
   contents: read
@@ -47,7 +51,7 @@ jobs:
           node --version
           npm ci --no-audit --no-fund
           # STATUS_AUTH: the app probes /status without the token to detect token auth.
-          PORT=$GATEWAY_PORT HOST=0.0.0.0 TOKEN="$GATEWAY_TOKEN" STATUS_AUTH=1 \
+          PORT=$GATEWAY_PORT HOST=127.0.0.1 TOKEN="$GATEWAY_TOKEN" STATUS_AUTH=1 \
             MOCK_DISPLAY_NAME="Home Lab" MOCK_VERSION="2026.10.1" \
             MOCK_HARDWARE="arm64 · 32 GB · Ubuntu 24.04" \
             nohup node server.mjs > "$RUNNER_TEMP/mock-gateway.log" 2>&1 &
@@ -77,8 +81,8 @@ jobs:
           profile: pixel_2
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -camera-front none
-          # 10.0.2.2 is the runner host as seen from the emulator.
-          script: bash scripts/store-screenshots/android-capture.sh "$RUNNER_TEMP/android-screenshots" "http://10.0.2.2:$GATEWAY_PORT" "$GATEWAY_TOKEN"
+          # The capture script forwards the emulator's 127.0.0.1:<port> to the runner (adb reverse).
+          script: bash scripts/store-screenshots/android-capture.sh "$RUNNER_TEMP/android-screenshots" "http://127.0.0.1:$GATEWAY_PORT" "$GATEWAY_TOKEN"
 
       - name: Check screenshot sizes
         if: always()
