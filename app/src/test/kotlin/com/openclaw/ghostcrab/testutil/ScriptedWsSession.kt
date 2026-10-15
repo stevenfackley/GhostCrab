@@ -45,7 +45,11 @@ class ScriptedWsSession(
         sentFrames.first { it["method"]?.jsonPrimitive?.content == method }["params"] as? JsonObject
             ?: JsonObject(emptyMap())
 
+    /** When set, every [send] throws this instead of delivering the frame (a broken pipe on write). */
+    @Volatile var failSendWith: Throwable? = null
+
     override suspend fun send(text: String) {
+        failSendWith?.let { throw it }
         val request = Json.parseToJsonElement(text).jsonObject
         sentFrames.add(request)
         val method = request.getValue("method").jsonPrimitive.content
@@ -73,6 +77,14 @@ class ScriptedWsSession(
     fun drop(closeCode: Int? = null, closeReason: String = "") {
         serverClose = closeCode?.let { WsCloseReason(it, closeReason) }
         inbound.close()
+    }
+
+    /**
+     * Simulates a transport failure mid-session: frames already queued are delivered, then [incoming] throws
+     * [error] instead of completing.
+     */
+    fun failIncoming(error: Throwable) {
+        inbound.close(error)
     }
 
     override fun incoming(): Flow<String> = inbound.receiveAsFlow()

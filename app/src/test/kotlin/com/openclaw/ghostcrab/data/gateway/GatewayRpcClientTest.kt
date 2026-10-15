@@ -8,6 +8,7 @@ import com.openclaw.ghostcrab.domain.exception.GatewayTimeoutException
 import com.openclaw.ghostcrab.domain.exception.GatewayUnreachableException
 import com.openclaw.ghostcrab.testutil.GatewayFixtures
 import com.openclaw.ghostcrab.testutil.ScriptedWsSession
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
@@ -29,6 +30,8 @@ import org.junit.jupiter.api.Assertions.assertInstanceOf
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
+import java.io.IOException
+import java.util.concurrent.CopyOnWriteArrayList
 
 class GatewayRpcClientTest {
 
@@ -221,6 +224,38 @@ class GatewayRpcClientTest {
         val byClient = client(silent())
         byClient.close()
         assertInstanceOf(GatewayNotConnectedException::class.java, byClient.awaitClosed())
+    }
+
+    @Test fun `send failure surfaces as GatewayUnreachableException with the cause`() = runTest {
+        val session = silent().apply { failSendWith = IOException("broken pipe") }
+        val rpc = client(session)
+        val failure = assertThrows<GatewayUnreachableException> { rpc.request("health") }
+        assertInstanceOf(IOException::class.java, failure.cause)
+        assertEquals(endpoint, failure.url)
+        assertEquals(0, rpc.pendingRequestCount)
+    }
+
+    @Test fun `transport error fails pending requests with the error as cause`() = runTest {
+        val uncaught = CopyOnWriteArrayList<Throwable>()
+        val recordUncaught = CoroutineExceptionHandler { _, e -> uncaught.add(e) }
+        val session = silent()
+        val rpc = GatewayRpcClient.create(session, endpoint, UnconfinedTestDispatcher(testScheduler) + recordUncaught)
+        val events = async { rpc.events.toList() }
+        val first = async { runCatching { rpc.request("health") } }
+        val second = async { runCatching { rpc.request("status") } }
+        runCurrent()
+        assertEquals(2, rpc.pendingRequestCount)
+
+        session.failIncoming(IOException("connection reset"))
+
+        listOf(first.await(), second.await()).forEach { result ->
+            val failure = assertInstanceOf(GatewayUnreachableException::class.java, result.exceptionOrNull())
+            assertInstanceOf(IOException::class.java, failure.cause)
+        }
+        events.await() // completes instead of hanging
+        assertEquals(0, rpc.pendingRequestCount)
+        assertTrue(rpc.isClosed)
+        assertEquals(emptyList<Throwable>(), uncaught.toList())
     }
 
     @Test fun `the challenge payload carries the captured nonce`() = runTest {
