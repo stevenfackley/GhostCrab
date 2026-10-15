@@ -6,6 +6,11 @@ import com.openclaw.ghostcrab.domain.exception.GatewayMissingScopeException
 import com.openclaw.ghostcrab.domain.exception.GatewayPairingRequiredException
 import com.openclaw.ghostcrab.domain.exception.GatewayRpcException
 import com.openclaw.ghostcrab.testutil.GatewayFixtures
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertInstanceOf
@@ -76,6 +81,59 @@ class GatewayErrorsTest {
         assertNull(e.detailCode)
         assertTrue(e.rpcMessage.startsWith("Skill \"qa-nonexistent-skill-zz9\" not found on ClawHub"))
         assertFalse(e.isRetryable)
+    }
+
+    @Test fun `a metadata-upgrade re-pairing carries its own request id and reason`() {
+        val e = errorOf("err-pairing-metadata-upgrade").toGatewayException(url, "connect")
+            as GatewayPairingRequiredException
+        assertEquals("6837c6b0-f559-445b-bc0c-a50fbe5b5998", e.requestId)
+        assertEquals("metadata-upgrade", e.reason)
+        assertEquals(listOf("operator.read", "operator.write", "operator.admin"), e.requestedScopes)
+        assertTrue(e.isRetryable)
+    }
+
+    @Test fun `a client id outside the allow-list is a non-retryable rpc error`() {
+        val e = errorOf("err-client-id-invalid").toGatewayException(url, "connect") as GatewayRpcException
+        assertEquals("INVALID_REQUEST", e.code)
+        assertNull(e.detailCode)
+        assertTrue(e.rpcMessage.contains("/client/id"))
+        assertFalse(e.isRetryable)
+    }
+
+    @Test fun `a generic rpc error keeps the structured details`() {
+        val e = errorOf("err-config-invalid").toGatewayException(url, "config.patch") as GatewayRpcException
+        val issue = e.details?.get("issues")?.jsonArray?.single()?.jsonObject
+        assertEquals("gateway.port", issue?.get("path")?.jsonPrimitive?.content)
+    }
+
+    @Test fun `a generic rpc error carries the retry hints`() {
+        val e = ErrorShape(code = "UNAVAILABLE", message = "starting", retryable = true, retryAfterMs = 2_000)
+            .toGatewayException(url, "health") as GatewayRpcException
+        assertTrue(e.isRetryable)
+        assertEquals(2_000L, e.retryAfterMs)
+    }
+
+    @Test fun `a connect-auth rejection honours wait_then_retry and the retry hints`() {
+        // Synthetic: no captured frame yet for a rate-limited connect.
+        val waited = ErrorShape(
+            code = "UNAVAILABLE",
+            message = "too many attempts",
+            details = buildJsonObject {
+                put("code", "AUTH_RATE_LIMITED")
+                put("recommendedNextStep", "wait_then_retry")
+            },
+            retryAfterMs = 30_000,
+        ).toGatewayException(url, "connect") as GatewayConnectAuthException
+        assertTrue(waited.isRetryable)
+        assertEquals(30_000L, waited.retryAfterMs)
+
+        val hinted = ErrorShape(
+            code = "INVALID_REQUEST",
+            message = "unauthorized",
+            details = buildJsonObject { put("code", "AUTH_TOKEN_MISMATCH") },
+            retryable = true,
+        ).toGatewayException(url, "connect") as GatewayConnectAuthException
+        assertTrue(hinted.isRetryable)
     }
 
     @Test fun `the retryable hint is honoured`() {

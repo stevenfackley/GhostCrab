@@ -29,7 +29,14 @@ internal fun ErrorShape.toGatewayException(url: String, method: String): Gateway
             requestedScopes = details?.stringListOrEmpty("requestedScopes").orEmpty(),
         )
         detail != null && (detail.startsWith("AUTH_") || detail.startsWith("DEVICE_")) ->
-            GatewayConnectAuthException(url, detail, message, details?.stringOrNull("recommendedNextStep"))
+            GatewayConnectAuthException(
+                url = url,
+                detailCode = detail,
+                rpcMessage = message,
+                recommendedNextStep = details?.stringOrNull("recommendedNextStep"),
+                retryable = retryable == true,
+                retryAfterMs = retryAfterMs,
+            )
         code == "FORBIDDEN" && (detail == "MISSING_SCOPE" || message.startsWith(MISSING_SCOPE_PREFIX)) ->
             GatewayMissingScopeException(
                 url = url,
@@ -38,6 +45,14 @@ internal fun ErrorShape.toGatewayException(url: String, method: String): Gateway
             )
         code == "INVALID_REQUEST" && message.startsWith(UNKNOWN_METHOD_PREFIX) ->
             GatewayMethodUnsupportedException(url, method)
-        else -> GatewayRpcException(url, method, code, detail, message, retryable == true)
+        else -> GatewayRpcException(
+            url = url,
+            method = method,
+            code = code,
+            rpcMessage = message,
+            retryable = retryable == true,
+            details = details,
+            retryAfterMs = retryAfterMs,
+        )
     }
 }

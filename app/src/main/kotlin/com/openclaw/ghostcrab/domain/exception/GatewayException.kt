@@ -1,5 +1,8 @@
 package com.openclaw.ghostcrab.domain.exception
 
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+
 /**
  * Sealed hierarchy for all errors originating from gateway communication or local profile state.
  *
@@ -205,20 +208,32 @@ class GatewayNotConnectedException :
  * @param url The gateway WebSocket endpoint.
  * @param method The RPC method.
  * @param code Top-level error code (e.g. `UNAVAILABLE`, `INVALID_REQUEST`).
- * @param detailCode `error.details.code`, when the server sent one.
  * @param rpcMessage The server's message, verbatim.
  * @param retryable The server's `retryable` hint.
+ * @param details `error.details` when it is an object (e.g. `config.patch` validation `issues[]`), else `null`.
+ * @param retryAfterMs The server's back-off hint, if any.
  */
+@Suppress("LongParameterList") // The request context plus upstream's ErrorShape, field for field.
 class GatewayRpcException(
     val url: String,
     val method: String,
     val code: String,
-    val detailCode: String?,
     val rpcMessage: String,
     retryable: Boolean,
-) : GatewayException("Gateway RPC $method failed at $url: $code${detailCode?.let { "/$it" } ?: ""} — $rpcMessage") {
+    val details: JsonObject? = null,
+    val retryAfterMs: Long? = null,
+) : GatewayException(
+    "Gateway RPC $method failed at $url: $code${detailCodeOf(details)?.let { "/$it" } ?: ""} — $rpcMessage",
+) {
     override val isRetryable: Boolean = retryable
+
+    /** `error.details.code`, when the server sent one. */
+    val detailCode: String? = detailCodeOf(details)
 }
+
+/** `details.code` when it is a JSON string, else `null`. */
+private fun detailCodeOf(details: JsonObject?): String? =
+    (details?.get("code") as? JsonPrimitive)?.takeIf { it.isString }?.content
 
 /**
  * The gateway does not implement [method] (`INVALID_REQUEST unknown method: …`). The feature is unsupported
@@ -279,12 +294,41 @@ class GatewayPairingRequiredException(
  * @param detailCode The structured code.
  * @param rpcMessage The server's message, verbatim.
  * @param recommendedNextStep Upstream recovery hint (`update_auth_credentials`, `wait_then_retry`, …), if any.
+ * @param retryable The server's `retryable` hint. The rejection is retryable when this is `true` or
+ *   [recommendedNextStep] is `wait_then_retry`; otherwise the credential has to change first.
+ * @param retryAfterMs The server's back-off hint, if any.
  */
 class GatewayConnectAuthException(
     val url: String,
     val detailCode: String,
     val rpcMessage: String,
     val recommendedNextStep: String?,
+    retryable: Boolean = false,
+    val retryAfterMs: Long? = null,
 ) : GatewayException("Gateway at $url rejected the connect handshake: $detailCode — $rpcMessage") {
+    override val isRetryable: Boolean = retryable || recommendedNextStep == NEXT_STEP_WAIT_THEN_RETRY
+
+    private companion object {
+        const val NEXT_STEP_WAIT_THEN_RETRY = "wait_then_retry"
+    }
+}
+
+/**
+ * The gateway closed the control-plane socket with a policy-violation close (WebSocket 1008) and no response
+ * explaining it, e.g. a socket that never sent `connect` or a frame the gateway refused. Not retryable as-is:
+ * the same frames would be refused again.
+ *
+ * @param url The gateway WebSocket endpoint.
+ * @param closeCode The WebSocket close code.
+ * @param closeReason The close reason the gateway sent; may be empty.
+ */
+class GatewayConnectionClosedException(
+    val url: String,
+    val closeCode: Int,
+    val closeReason: String,
+) : GatewayException(
+    "Gateway at $url closed the connection: WebSocket $closeCode" +
+        (closeReason.takeIf { it.isNotBlank() }?.let { " — $it" } ?: ""),
+) {
     override val isRetryable: Boolean = false
 }

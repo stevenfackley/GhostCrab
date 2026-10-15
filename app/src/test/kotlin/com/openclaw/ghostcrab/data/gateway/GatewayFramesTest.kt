@@ -7,6 +7,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonObject
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
@@ -65,6 +66,48 @@ class GatewayFramesTest {
         assertEquals("gc-1", obj.stringOrNull("id"))
         assertEquals("health", obj.stringOrNull("method"))
         assertEquals("true", obj.getValue("params").jsonObject["probe"]?.jsonPrimitive?.content)
+    }
+
+    @Test fun `ok given as a string is not a boolean`() {
+        assertNull(GatewayFrameCodec.decode("""{"type":"res","id":"x","ok":"true"}"""))
+    }
+
+    @Test fun `bad optional error fields do not downgrade a pairing error`() {
+        val frame = GatewayFrameCodec.decode(
+            """{"type":"res","id":"x","ok":false,"error":{"code":"NOT_PAIRED","message":"pairing required",""" +
+                """"retryable":"yes","retryAfterMs":"soon","details":{"code":"PAIRING_REQUIRED","requestId":"r-1"}}}""",
+        ) as GatewayFrame.Response
+        val error = requireNotNull(frame.error)
+        assertEquals("NOT_PAIRED", error.code)
+        assertEquals("PAIRING_REQUIRED", error.detailCode)
+        assertNull(error.retryable)
+        assertNull(error.retryAfterMs)
+    }
+
+    @Test fun `an error without a string code is malformed and does not echo the raw object`() {
+        val frame = GatewayFrameCodec.decode(
+            """{"type":"res","id":"x","ok":false,"error":{"code":7,"message":"m","details":{"secret":"s3cr3t"}}}""",
+        ) as GatewayFrame.Response
+        val error = requireNotNull(frame.error)
+        assertEquals("MALFORMED_ERROR", error.code)
+        assertFalse(error.message.contains("s3cr3t"))
+    }
+
+    @Test fun `frames never print tokens`() {
+        val connect = RequestFrame(
+            id = "gc-1",
+            method = "connect",
+            params = buildJsonObject { putJsonObject("auth") { put("token", "shared-token") } },
+        )
+        assertFalse(connect.toString().contains("shared-token"), connect.toString())
+        assertTrue(connect.toString().contains("connect"))
+
+        val hello = GatewayFrameCodec.decode(GatewayFixtures.text("hello-ok-paired")) as GatewayFrame.Response
+        assertFalse(hello.toString().contains("dt-test-0001"), hello.toString())
+        assertTrue(hello.toString().contains("qa-1"))
+
+        val event = GatewayFrame.Event("test.event",buildJsonObject { put("deviceToken", "dt-test-0001") }, 1)
+        assertFalse(event.toString().contains("dt-test-0001"), event.toString())
     }
 
     @Test fun `objectAt walks nested objects and stops at non-objects`() {

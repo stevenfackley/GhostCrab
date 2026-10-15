@@ -1,11 +1,13 @@
 package com.openclaw.ghostcrab.testutil
 
+import com.openclaw.ghostcrab.data.ws.WsCloseReason
 import com.openclaw.ghostcrab.data.ws.WsSession
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.util.concurrent.CopyOnWriteArrayList
@@ -32,6 +34,8 @@ class ScriptedWsSession(
     @Volatile var closedByClient: Boolean = false
         private set
 
+    @Volatile private var serverClose: WsCloseReason? = null
+
     init {
         if (sendChallenge) inbound.trySend(GatewayFixtures.text("challenge"))
     }
@@ -55,12 +59,25 @@ class ScriptedWsSession(
         inbound.trySend(frame.toString())
     }
 
-    /** Simulates the gateway dropping the socket. */
-    fun drop() {
+    /** Delivers [frame] as the answer to the request with [requestId] (for out-of-order or late replies). */
+    fun reply(requestId: String, frame: JsonObject) {
+        push(JsonObject(frame + ("id" to JsonPrimitive(requestId))))
+    }
+
+    /**
+     * Simulates the gateway ending the socket.
+     *
+     * @param closeCode The close frame's code (e.g. 1008), or `null` for a drop without a close frame.
+     * @param closeReason The close frame's reason text.
+     */
+    fun drop(closeCode: Int? = null, closeReason: String = "") {
+        serverClose = closeCode?.let { WsCloseReason(it, closeReason) }
         inbound.close()
     }
 
     override fun incoming(): Flow<String> = inbound.receiveAsFlow()
+
+    override suspend fun closeReason(): WsCloseReason? = serverClose
 
     override suspend fun close() {
         closedByClient = true

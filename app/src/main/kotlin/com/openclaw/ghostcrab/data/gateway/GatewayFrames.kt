@@ -6,6 +6,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
@@ -25,7 +26,8 @@ internal val gatewayJson: Json = Json {
  *
  * @param id Unique per socket; the response echoes it.
  * @param method RPC method name, e.g. `skills.status`.
- * @param params Method parameters; omitted from the frame when `null`.
+ * @param params Method parameters; omitted from the frame when `null`. `connect` params carry the gateway
+ *   token and device proof, so [toString] never prints them.
  * @param type Always `req`.
  */
 @OptIn(ExperimentalSerializationApi::class)
@@ -35,7 +37,9 @@ data class RequestFrame(
     val method: String,
     val params: JsonElement? = null,
     @EncodeDefault val type: String = "req",
-)
+) {
+    override fun toString(): String = "RequestFrame(id=$id, method=$method, params=${redacted(params)})"
+}
 
 /**
  * `error` of a failed response (upstream `ErrorShape`).
@@ -69,7 +73,8 @@ sealed interface GatewayFrame {
      *
      * @param id The request id it answers.
      * @param ok `true` on success.
-     * @param payload Result (may also be present on failure, e.g. `skills.install`).
+     * @param payload Result (may also be present on failure, e.g. `skills.install`). `hello-ok` carries the
+     *   issued device token, so [toString] never prints it.
      * @param error Present when [ok] is `false`.
      */
     data class Response(
@@ -77,21 +82,28 @@ sealed interface GatewayFrame {
         val ok: Boolean,
         val payload: JsonElement?,
         val error: ErrorShape?,
-    ) : GatewayFrame
+    ) : GatewayFrame {
+        override fun toString(): String = "Response(id=$id, ok=$ok, payload=${redacted(payload)}, error=$error)"
+    }
 
     /**
      * Server push, e.g. `connect.challenge`, `tick`, `health`, `skills.changed`.
      *
      * @param event Event name.
-     * @param payload Event body.
+     * @param payload Event body; [toString] never prints it.
      * @param seq Connection sequence number, when the server sends one.
      */
     data class Event(
         val event: String,
         val payload: JsonElement?,
         val seq: Long?,
-    ) : GatewayFrame
+    ) : GatewayFrame {
+        override fun toString(): String = "Event(event=$event, seq=$seq, payload=${redacted(payload)})"
+    }
 }
+
+/** Placeholder for a frame body in `toString`: bodies can carry tokens and device proofs. */
+private fun redacted(body: JsonElement?): String = if (body == null) "null" else "[REDACTED]"
 
 /** Encodes requests and decodes everything the gateway sends. Never throws on decode. */
 object GatewayFrameCodec {
@@ -125,17 +137,38 @@ object GatewayFrameCodec {
     @Suppress("ReturnCount")
     private fun decodeResponse(obj: JsonObject): GatewayFrame.Response? {
         val id = obj.stringOrNull("id") ?: return null
-        val ok = (obj["ok"] as? JsonPrimitive)?.booleanOrNull ?: return null
-        val error = (obj["error"] as? JsonObject)?.let { element ->
-            try {
-                gatewayJson.decodeFromJsonElement(ErrorShape.serializer(), element)
-            } catch (ignored: IllegalArgumentException) {
-                ErrorShape(code = "MALFORMED_ERROR", message = element.toString())
-            }
-        }
+        val ok = obj.strictBooleanOrNull("ok") ?: return null
+        val error = (obj["error"] as? JsonObject)?.let(::decodeError)
         return GatewayFrame.Response(id, ok, obj["payload"], error)
     }
+
+    /**
+     * `code` and `message` are required and must be strings; the optional fields are read leniently, so a
+     * malformed hint never hides the error's code or details.
+     */
+    private fun decodeError(obj: JsonObject): ErrorShape {
+        val code = obj.stringOrNull("code")
+        val message = obj.stringOrNull("message")
+        if (code == null || message == null) {
+            // Never echo the raw object: it is server-controlled and may be large or sensitive.
+            return ErrorShape(code = MALFORMED_ERROR_CODE, message = "error object without a string code and message")
+        }
+        return ErrorShape(
+            code = code,
+            message = message,
+            details = obj["details"]?.takeUnless { it is JsonNull },
+            retryable = obj.strictBooleanOrNull("retryable"),
+            retryAfterMs = (obj["retryAfterMs"] as? JsonPrimitive)?.takeUnless { it.isString }?.longOrNull,
+        )
+    }
+
+    /** [ErrorShape.code] of an `error` object this client could not read. */
+    const val MALFORMED_ERROR_CODE: String = "MALFORMED_ERROR"
 }
+
+/** The JSON boolean at [key]; `null` when absent or anything else (including the strings `"true"`/`"false"`). */
+private fun JsonObject.strictBooleanOrNull(key: String): Boolean? =
+    (this[key] as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull
 
 /** The string at [key], or `null` when absent or not a JSON string. Never throws. */
 internal fun JsonObject.stringOrNull(key: String): String? =

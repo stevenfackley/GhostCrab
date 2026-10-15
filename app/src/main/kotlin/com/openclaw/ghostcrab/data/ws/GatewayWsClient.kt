@@ -30,7 +30,24 @@ interface WsSession {
     suspend fun send(text: String)
     fun incoming(): Flow<String>
     suspend fun close()
+
+    /**
+     * Call once [incoming] has completed.
+     *
+     * @return The close frame the server ended the socket with, or `null` when it ended without one or the
+     *   implementation cannot tell.
+     * @throws Exception the transport failure, when the socket failed instead of closing.
+     */
+    suspend fun closeReason(): WsCloseReason? = null
 }
+
+/**
+ * The server's WebSocket close frame (RFC 6455 §7.4).
+ *
+ * @param code Close code, e.g. 1008 (policy violation).
+ * @param reason Close reason text; may be empty.
+ */
+data class WsCloseReason(val code: Int, val reason: String)
 
 /**
  * Multiplexed JSON-RPC 2.0 client over a single WS session. Request ids come from a monotonic
@@ -201,4 +218,7 @@ class KtorWsSession internal constructor(
     override suspend fun close() {
         delegate.close()
     }
+
+    override suspend fun closeReason(): WsCloseReason? =
+        delegate.closeReason.await()?.let { WsCloseReason(it.code.toInt(), it.message) }
 }
