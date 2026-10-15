@@ -175,7 +175,7 @@ private fun ReadyContent(
         Spacer(Modifier.height(Spacing.md))
         OnboardingSection(callbacks.onReplayWalkthrough)
         Spacer(Modifier.height(Spacing.md))
-        if (BuildConfig.SKILLS_INSTALL_ENABLED) {
+        if (BuildConfig.SKILLS_INSTALL_ENABLED && state.skillsAvailable) {
             SkillsSection(callbacks.onNavigateToInstalledSkills)
             Spacer(Modifier.height(Spacing.md))
         }

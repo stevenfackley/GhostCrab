@@ -1,5 +1,8 @@
 package com.openclaw.ghostcrab.ui
 
+import com.openclaw.ghostcrab.data.gateway.SCOPE_OPERATOR_ADMIN
+import com.openclaw.ghostcrab.data.gateway.SCOPE_OPERATOR_READ
+import com.openclaw.ghostcrab.data.gateway.gatewayCapabilities
 import com.openclaw.ghostcrab.domain.model.AuthRequirement
 import com.openclaw.ghostcrab.domain.model.GatewayConnection
 import com.openclaw.ghostcrab.domain.model.ModelInfo
@@ -105,6 +108,29 @@ class DashboardViewModelTest {
         assertTrue(state.models.first().isActive)
 
         // Cancel the poll loop so runTest does not advance through the infinite delay
+        connFlow.value = GatewayConnection.Disconnected
+    }
+
+    @Test
+    fun `a hello-ok without scopes offers no config, models or skills`() = runTest {
+        val (vm, connFlow) = makeVm()
+        connFlow.value = connectedState.copy(capabilities = gatewayCapabilities(ALL_METHODS, scopes = emptySet()))
+
+        val ready = vm.state.value as DashboardUiState.Ready
+        assertEquals(GatewayFeatures(config = false, models = false, skills = false), ready.features)
+
+        connFlow.value = GatewayConnection.Disconnected
+    }
+
+    @Test
+    fun `a hello-ok with the admin and read scopes offers config, models and skills`() = runTest {
+        val (vm, connFlow) = makeVm()
+        val scopes = setOf(SCOPE_OPERATOR_ADMIN, SCOPE_OPERATOR_READ)
+        connFlow.value = connectedState.copy(capabilities = gatewayCapabilities(ALL_METHODS, scopes))
+
+        val ready = vm.state.value as DashboardUiState.Ready
+        assertEquals(GatewayFeatures(config = true, models = true, skills = true), ready.features)
+
         connFlow.value = GatewayConnection.Disconnected
     }
 
@@ -237,6 +263,11 @@ class DashboardViewModelTest {
         assertTrue(readySeenBeforeHealth)
 
         connFlow.value = GatewayConnection.Disconnected
+    }
+
+    private companion object {
+        /** `hello-ok.features.methods` of a gateway that serves every screen. */
+        val ALL_METHODS = setOf("config.get", "config.patch", "models.list", "skills.status")
     }
 }
 

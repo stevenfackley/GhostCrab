@@ -46,6 +46,7 @@ import com.openclaw.ghostcrab.R
 import com.openclaw.ghostcrab.domain.model.AuthRequirement
 import com.openclaw.ghostcrab.domain.model.GatewayConnection
 import com.openclaw.ghostcrab.domain.model.ModelInfo
+import com.openclaw.ghostcrab.ui.GatewayFeatures
 import com.openclaw.ghostcrab.ui.components.GlassSurface
 import com.openclaw.ghostcrab.ui.components.HttpSecurityBanner
 import com.openclaw.ghostcrab.ui.components.NoAuthSecurityBanner
@@ -166,7 +167,7 @@ private fun ReadyContent(
             onNavigateToModels = onNavigateToModels,
             onNavigateToAiRecommend = onNavigateToAiRecommend,
             onDisconnect = onDisconnect,
-            supportsModels = "models" in conn.capabilities,
+            features = state.features,
         )
 
         Spacer(Modifier.height(Spacing.lg))
@@ -318,22 +319,27 @@ private fun QuickActionsRow(
     onNavigateToModels: () -> Unit,
     onNavigateToAiRecommend: () -> Unit,
     onDisconnect: () -> Unit,
-    supportsModels: Boolean,
+    features: GatewayFeatures,
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
-    ) {
-        OutlinedButton(
-            onClick = onNavigateToConfig,
-            modifier = Modifier.weight(1f),
-        ) { Text(stringResource(R.string.dashboard_action_configure)) }
+    // Screens the granted scopes do not allow are hidden (ADR-0007): opening them would only fail with a missing scope.
+    if (features.config || features.models) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+        ) {
+            if (features.config) {
+                OutlinedButton(
+                    onClick = onNavigateToConfig,
+                    modifier = Modifier.weight(1f),
+                ) { Text(stringResource(R.string.dashboard_action_configure)) }
+            }
 
-        if (supportsModels) {
-            OutlinedButton(
-                onClick = onNavigateToModels,
-                modifier = Modifier.weight(1f),
-            ) { Text(stringResource(R.string.dashboard_action_models)) }
+            if (features.models) {
+                OutlinedButton(
+                    onClick = onNavigateToModels,
+                    modifier = Modifier.weight(1f),
+                ) { Text(stringResource(R.string.dashboard_action_models)) }
+            }
         }
     }
     Row(
