@@ -1,9 +1,10 @@
 import SwiftUI
 
-/// Installed Skills screen — list/install/uninstall gateway-installed skills.
+/// Installed Skills screen — list/install/disable gateway-installed skills.
 ///
-/// Direct port of `InstalledSkillsScreen.kt`. Each row carries a trailing
-/// `Menu` with an Uninstall action (gated by confirmation). In-flight installs
+/// Direct port of `InstalledSkillsScreen.kt`. Each enabled row carries a trailing
+/// `Menu` with a Disable action (gated by confirmation; OpenClaw has no skill
+/// removal, ADR-0007); disabled rows are marked. In-flight installs
 /// render as inline progress rows; failed installs render as inline error rows
 /// with a Retry button when the underlying error is retryable.
 public struct InstalledSkillsScreen: View {
@@ -39,14 +40,14 @@ public struct InstalledSkillsScreen: View {
             }
         }
         .alert(
-            "Uninstall \(vm.pendingUninstallSlug ?? "")?",
+            "Disable \(vm.pendingUninstallSlug ?? "")?",
             isPresented: uninstallAlertBinding,
             presenting: vm.pendingUninstallSlug
         ) { _ in
-            Button("Uninstall", role: .destructive) { vm.confirmUninstall() }
+            Button("Disable", role: .destructive) { vm.confirmUninstall() }
             Button("Cancel", role: .cancel) { vm.cancelUninstall() }
         } message: { _ in
-            Text("The skill will be removed from the gateway. You can reinstall it later.")
+            Text("OpenClaw gateways cannot remove skills remotely. GhostCrab disables the skill instead (skills.update, enabled = false). It stays on the gateway host and can be enabled there again.")
         }
         .alert(
             "Couldn't complete operation",
@@ -87,10 +88,7 @@ public struct InstalledSkillsScreen: View {
             EmptyState(
                 icon: "puzzlepiece.extension",
                 title: "No skills installed",
-                message: "Skills extend the gateway with new features. Install the AI Recommendation skill to enable suggested config patches.",
-                action: ("Install AI Recommendation skill", {
-                    vm.install(slug: aiRecommendationSkillSlug, version: nil)
-                })
+                message: "Skills extend the gateway with new features. Install one from ClawHub with the + button."
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
@@ -139,15 +137,22 @@ public struct InstalledSkillsScreen: View {
                     .foregroundStyle(DesignTokens.Color.textPrimary)
 
                 HStack(spacing: DesignTokens.Spacing.xs) {
-                    Text("v\(skill.installedVersion)")
-                        .font(AppFont.mono(11))
-                        .foregroundStyle(DesignTokens.Color.cyanPulse)
-                    Text("·")
-                        .font(AppFont.body(11))
-                        .foregroundStyle(DesignTokens.Color.textSecondary)
+                    if let version = InstalledSkillsViewModel.versionLabel(skill.installedVersion) {
+                        Text(version)
+                            .font(AppFont.mono(11))
+                            .foregroundStyle(DesignTokens.Color.cyanPulse)
+                        Text("·")
+                            .font(AppFont.body(11))
+                            .foregroundStyle(DesignTokens.Color.textSecondary)
+                    }
                     Text(sourceLabel(skill.source))
                         .font(AppFont.body(11))
                         .foregroundStyle(DesignTokens.Color.textSecondary)
+                    if skill.disabled {
+                        Text("\u{00B7} disabled")
+                            .font(AppFont.body(11))
+                            .foregroundStyle(DesignTokens.Color.amberWarn)
+                    }
                 }
             }
 
@@ -157,12 +162,12 @@ public struct InstalledSkillsScreen: View {
                 ProgressView()
                     .tint(DesignTokens.Color.crimsonError)
                     .controlSize(.small)
-            } else {
+            } else if !skill.disabled {
                 Menu {
                     Button(role: .destructive) {
                         vm.uninstall(slug: skill.slug)
                     } label: {
-                        Label("Uninstall", systemImage: "trash")
+                        Label("Disable", systemImage: "pause.circle")
                     }
                 } label: {
                     Image(systemName: "ellipsis.circle")
@@ -329,7 +334,7 @@ private struct InstallSkillSheet: View {
 
                 Form {
                     Section {
-                        TextField("slug (e.g. openclaw/ai-recommendation)", text: $slug)
+                        TextField("slug (e.g. @steipete/weather)", text: $slug)
                             .font(AppFont.mono(13))
                             .foregroundStyle(DesignTokens.Color.textPrimary)
                             #if os(iOS)

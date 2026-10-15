@@ -1,17 +1,16 @@
 import Foundation
 import Observation
 
-/// Slug of the AI recommendation skill — used by the one-tap "install" CTA on
-/// the empty state. Mirrors the well-known Android constant.
-public let aiRecommendationSkillSlug = "openclaw/ai-recommendation"
-
 /// ViewModel for the Installed Skills screen.
 ///
 /// Subscribes to ``InstalledSkillRepository/observeInstalled()`` on ``start()``
 /// for live list updates, and spawns one `Task` per ongoing install to fan in
-/// each install's progress stream into a per-slug `progress` map. Uninstall
-/// pending/confirm/in-flight is tracked locally because the underlying REST
-/// uninstall is synchronous.
+/// each install's progress stream into a per-slug `progress` map. Removal
+/// (which disables the skill, `skills.update`) tracks its pending, confirm and
+/// in-flight state locally: the call reports no progress.
+///
+/// Every new gateway session (the silent reconnect's new session included) refreshes the list; the reconnecting state
+/// itself neither refreshes nor reports an error.
 @MainActor
 @Observable
 public final class InstalledSkillsViewModel {
@@ -47,6 +46,8 @@ public final class InstalledSkillsViewModel {
     // MARK: - Dependencies
 
     private let repo: any InstalledSkillRepository
+    /// Source of new sessions; `nil` refreshes only on ``start()`` and pull-to-refresh.
+    private let gateway: (any GatewayConnectionManager)?
 
     // MARK: - Background tasks
 
@@ -54,11 +55,17 @@ public final class InstalledSkillsViewModel {
     private var observeTask: Task<Void, Never>?
     @ObservationIgnored
     private var installTasks: [String: Task<Void, Never>] = [:]
+    /// Refreshes on every new session. Read-only outside the VM so tests can cancel and await it.
+    @ObservationIgnored private(set) var sessionTask: Task<Void, Never>?
 
     // MARK: - Init / lifecycle
 
-    public init(skills: any InstalledSkillRepository) {
+    /// - Parameters:
+    ///   - skills: The installed-skill repository.
+    ///   - gateway: Connection state source; a new session refreshes the list.
+    public init(skills: any InstalledSkillRepository, gateway: (any GatewayConnectionManager)? = nil) {
         self.repo = skills
+        self.gateway = gateway
     }
 
     /// Begin observing the live list and trigger an initial refresh. Call from
@@ -72,7 +79,20 @@ public final class InstalledSkillsViewModel {
                 self.skills = list
             }
         }
-        Task { await refresh() }
+        // During the silent reconnect no RPC works: the reconnected session's generation refreshes the list.
+        if gateway?.currentState.isReconnecting != true { Task { await refresh() } }
+        if let gateway {
+            let loadedFor = gateway.currentState
+            sessionTask = Task { [weak self] in
+                var sessions = SessionTracker()
+                sessions.markLoaded(loadedFor)
+                for await state in gateway.connectionStates() {
+                    if Task.isCancelled { break }
+                    guard let self else { break }
+                    if sessions.isNewSession(state) { await self.refresh() }
+                }
+            }
+        }
     }
 
     /// Cancel observation and all in-flight install tasks. Call from `.task`
@@ -80,18 +100,30 @@ public final class InstalledSkillsViewModel {
     public func stop() {
         observeTask?.cancel()
         observeTask = nil
+        sessionTask?.cancel()
+        sessionTask = nil
         for task in installTasks.values { task.cancel() }
         installTasks.removeAll()
     }
 
     deinit {
         observeTask?.cancel()
+        sessionTask?.cancel()
         for task in installTasks.values { task.cancel() }
+    }
+
+    // MARK: - Row formatting
+
+    /// The row's version label, `v<version>`; `nil` when the gateway reported no version (a `skills.status` entry
+    /// without `clawhub.installedVersion`), so the row shows only the source instead of a bare `v`.
+    nonisolated static func versionLabel(_ version: String) -> String? {
+        let trimmed = version.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : "v" + trimmed
     }
 
     // MARK: - Public API
 
-    /// Triggers a one-shot refresh from `skills.list`. Sets ``lastError`` on
+    /// Triggers a one-shot refresh from `skills.status`. Sets ``lastError`` on
     /// failure; leaves the previous list intact.
     public func refresh() async {
         isRefreshing = true
@@ -102,7 +134,7 @@ public final class InstalledSkillsViewModel {
         let result = await repo.refreshFromGateway()
         switch result {
         case .success:
-            break
+            lastError = nil
         case .failure(let error):
             lastError = (error as? GatewayError)?.errorDescription ?? error.localizedDescription
         }
@@ -161,15 +193,17 @@ public final class InstalledSkillsViewModel {
         pendingUninstallSlug = nil
     }
 
-    /// Confirm uninstall of the currently-pending slug. Fires the RPC and
-    /// surfaces errors via ``lastError``.
+    /// Confirm removal of the currently-pending slug, which on OpenClaw means
+    /// disabling it (`skills.update`, `enabled = false`; there is no removal
+    /// RPC). Surfaces errors via ``lastError``.
     public func confirmUninstall() {
         guard let slug = pendingUninstallSlug else { return }
         pendingUninstallSlug = nil
         uninstallingSlug = slug
 
         Task { [weak self, repo] in
-            let result = await repo.uninstall(slug: slug)
+            // OpenClaw has no skill removal: disable it (skills.update, enabled = false). ADR-0007.
+            let result = await repo.setSkillEnabled(skillKey: slug, enabled: false)
             guard let self else { return }
             self.uninstallingSlug = nil
             if case .failure(let error) = result {

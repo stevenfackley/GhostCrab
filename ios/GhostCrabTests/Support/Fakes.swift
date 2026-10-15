@@ -1,4 +1,5 @@
 import Foundation
+import Testing
 @testable import GhostCrab
 
 // Hand-written fakes for the frozen `Domain/Repository` protocols.
@@ -19,20 +20,33 @@ final class FakeGatewayConnectionManager: GatewayConnectionManager, @unchecked S
     private let lock = NSLock()
     private let connectError: GatewayError?
     private let probeResult: Result<AuthRequirement, GatewayError>
+    private let warnings: [ConnectionWarning]
+    private var queuedFailures: [any Error]
     private var state: GatewayConnection = .disconnected
     private var connectLog: [(url: String, token: String?)] = []
     private var probeLog: [String] = []
     private var disconnects = 0
+    private var sessions = 0
 
     /// - Parameters:
-    ///   - connectError: When set, every `connect(url:token:)` throws it.
+    ///   - connectError: When set, every `connect(url:token:)` throws it (after `failFirst` is used up).
     ///   - probeResult: What every `probeAuth(url:)` returns or throws.
+    ///   - failFirst: Thrown by the first connects, one per call, in order (e.g. `PAIRING_REQUIRED` twice, or a
+    ///     `CancellationError` for a connect a newer one superseded).
+    ///   - warnings: What every `connectionWarnings()` reports.
+    ///
+    /// Like the real manager, a connect that throws a ``GatewayError`` leaves the state `.error(url, cause)`; one
+    /// that throws anything else (a superseded connect) leaves the state alone.
     init(
         connectError: GatewayError? = nil,
-        probeResult: Result<AuthRequirement, GatewayError> = .success(AuthRequirement.none)
+        probeResult: Result<AuthRequirement, GatewayError> = .success(AuthRequirement.none),
+        failFirst: [any Error] = [],
+        warnings: [ConnectionWarning] = []
     ) {
         self.connectError = connectError
         self.probeResult = probeResult
+        self.queuedFailures = failFirst
+        self.warnings = warnings
     }
 
     var probedURLs: [String] { lock.withLock { probeLog } }
@@ -56,16 +70,27 @@ final class FakeGatewayConnectionManager: GatewayConnectionManager, @unchecked S
     }
 
     func connect(url: String, token: String?) async throws {
-        lock.withLock { connectLog.append((url: url, token: token)) }
-        if let connectError { throw connectError }
+        let failure = lock.withLock { () -> (any Error)? in
+            connectLog.append((url: url, token: token))
+            if queuedFailures.isEmpty { return connectError }
+            return queuedFailures.removeFirst()
+        }
+        if let failure {
+            if let gatewayError = failure as? GatewayError {
+                lock.withLock { state = .error(url: url, cause: gatewayError) }
+            }
+            throw failure
+        }
         lock.withLock {
+            sessions += 1
             state = .connected(
                 url: url,
                 displayName: "Fake Gateway",
                 version: "test",
                 authRequirement: token == nil ? AuthRequirement.none : AuthRequirement.token,
                 isHttps: url.lowercased().hasPrefix("https://"),
-                capabilities: []
+                capabilities: [],
+                sessionGeneration: sessions
             )
         }
     }
@@ -76,6 +101,133 @@ final class FakeGatewayConnectionManager: GatewayConnectionManager, @unchecked S
             state = .disconnected
         }
     }
+
+    func connectionWarnings() async -> [ConnectionWarning] {
+        warnings
+    }
+}
+
+// MARK: - ScriptedConnectionManager
+
+/// ``GatewayConnectionManager`` whose state the test publishes with ``emit(_:)``. Unlike
+/// ``FakeGatewayConnectionManager`` its streams stay open (each replays the current state first), so a ViewModel sees
+/// every transition, e.g. the silent reconnect's `reconnecting` state and the new session after it. A `connect`
+/// publishes the next session (or `.error` with `connectError`); `disconnect` publishes `.disconnected`.
+final class ScriptedConnectionManager: GatewayConnectionManager, @unchecked Sendable {
+    static let url = "http://192.168.1.20:18789"
+    static let allCapabilities = [SessionCapability.config, SessionCapability.models, SessionCapability.skills]
+
+    private let lock = NSLock()
+    private var state: GatewayConnection
+    private var continuations: [UUID: AsyncStream<GatewayConnection>.Continuation] = [:]
+    private var currentWarnings: [ConnectionWarning] = []
+    private var warningReads = 0
+    private var connectLog: [(url: String, token: String?)] = []
+    private var nextGeneration: Int
+    private let connectError: GatewayError?
+
+    /// - Parameters:
+    ///   - initial: The state replayed first.
+    ///   - connectError: When set, every `connect` publishes `.error(url, connectError)` and throws it.
+    init(_ initial: GatewayConnection = .disconnected, connectError: GatewayError? = nil) {
+        self.state = initial
+        self.connectError = connectError
+        self.nextGeneration = (initial.sessionGeneration ?? 0) + 1
+    }
+
+    /// A live session at ``url`` with token `shared-token`.
+    static func connected(
+        generation: Int,
+        reconnecting: Bool = false,
+        capabilities: [String] = allCapabilities
+    ) -> GatewayConnection {
+        .connected(
+            url: url,
+            displayName: "Basement",
+            version: "2026.10.3",
+            authRequirement: .token,
+            isHttps: false,
+            capabilities: capabilities,
+            tokenOrNull: "shared-token",
+            reconnecting: reconnecting,
+            sessionGeneration: generation
+        )
+    }
+
+    var currentState: GatewayConnection { lock.withLock { state } }
+    var subscriberCount: Int { lock.withLock { continuations.count } }
+    var warningReadCount: Int { lock.withLock { warningReads } }
+    var connectURLs: [String] { lock.withLock { connectLog.map { $0.url } } }
+    var connectTokens: [String?] { lock.withLock { connectLog.map { $0.token } } }
+
+    func setWarnings(_ warnings: [ConnectionWarning]) {
+        lock.withLock { currentWarnings = warnings }
+    }
+
+    /// Publishes `next` to every open stream.
+    func emit(_ next: GatewayConnection) {
+        let targets: [AsyncStream<GatewayConnection>.Continuation] = lock.withLock {
+            state = next
+            if let generation = next.sessionGeneration { nextGeneration = max(nextGeneration, generation + 1) }
+            return Array(continuations.values)
+        }
+        for continuation in targets { continuation.yield(next) }
+    }
+
+    func connectionStates() -> AsyncStream<GatewayConnection> {
+        AsyncStream { continuation in
+            let id = UUID()
+            let snapshot: GatewayConnection = lock.withLock {
+                continuations[id] = continuation
+                return state
+            }
+            continuation.onTermination = { [weak self] _ in self?.unregister(id) }
+            continuation.yield(snapshot)
+        }
+    }
+
+    private func unregister(_ id: UUID) {
+        _ = lock.withLock { continuations.removeValue(forKey: id) }
+    }
+
+    func probeAuth(url: String) async throws -> AuthRequirement { .token }
+
+    func connect(url: String, token: String?) async throws {
+        let generation: Int = lock.withLock {
+            connectLog.append((url: url, token: token))
+            return nextGeneration
+        }
+        if let connectError {
+            emit(.error(url: url, cause: connectError))
+            throw connectError
+        }
+        emit(Self.connected(generation: generation))
+    }
+
+    func disconnect() async {
+        emit(.disconnected)
+    }
+
+    func connectionWarnings() async -> [ConnectionWarning] {
+        lock.withLock {
+            warningReads += 1
+            return currentWarnings
+        }
+    }
+}
+
+/// Lets queued main-actor work run until `condition` holds: yields first, then sleeps 5 ms at a time, ~2 s at most.
+@MainActor
+func waitUntil(_ condition: @MainActor () -> Bool) async {
+    for attempt in 0..<500 {
+        if condition() { return }
+        if attempt < 100 {
+            await Task.yield()
+        } else {
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+    }
+    Issue.record("the condition never held")
 }
 
 // MARK: - ConnectionProfileRepository
@@ -89,6 +241,7 @@ final class FakeConnectionProfileRepository: ConnectionProfileRepository, @unche
     private var saveLog: [(profile: ConnectionProfile, token: String?)] = []
     private var deleteLog: [String] = []
     private var clearAllCalls = 0
+    private var tokenReads = 0
 
     /// - Parameters:
     ///   - deleteError: When set, every `deleteProfile(profileId:)` throws it and keeps the profile.
@@ -113,6 +266,7 @@ final class FakeConnectionProfileRepository: ConnectionProfileRepository, @unche
     var savedTokens: [String?] { lock.withLock { saveLog.map { $0.token } } }
     var deleteAttempts: [String] { lock.withLock { deleteLog } }
     var clearAllCount: Int { lock.withLock { clearAllCalls } }
+    var getTokenCount: Int { lock.withLock { tokenReads } }
     var storedProfileCount: Int { lock.withLock { profiles.count } }
     var storedTokenCount: Int { lock.withLock { tokens.count } }
 
@@ -134,7 +288,10 @@ final class FakeConnectionProfileRepository: ConnectionProfileRepository, @unche
     }
 
     func getToken(profileId: String) async throws -> String? {
-        lock.withLock { tokens[profileId] }
+        lock.withLock {
+            tokenReads += 1
+            return tokens[profileId]
+        }
     }
 
     func deleteProfile(profileId: String) async throws {
@@ -207,13 +364,29 @@ final class FakeOnboardingRepository: OnboardingRepository, @unchecked Sendable 
 final class FakeModelRepository: ModelRepository, @unchecked Sendable {
     private let lock = NSLock()
     private let setActiveError: GatewayError?
+    private let getModelsError: GatewayError?
     private var models: [ModelInfo]
     private var setActiveLog: [String] = []
     private var getModelsCalls = 0
+    private let unlistedPrimary: String?
 
-    init(models: [ModelInfo], setActiveError: GatewayError? = nil) {
+    /// - Parameters:
+    ///   - getModelsError: When set, every `getModels()` / `getModelCatalogue()` throws it.
+    ///   - unlistedPrimary: What `getModelCatalogue()` reports as the unlisted primary.
+    init(
+        models: [ModelInfo],
+        setActiveError: GatewayError? = nil,
+        getModelsError: GatewayError? = nil,
+        unlistedPrimary: String? = nil
+    ) {
         self.models = models
         self.setActiveError = setActiveError
+        self.getModelsError = getModelsError
+        self.unlistedPrimary = unlistedPrimary
+    }
+
+    func getModelCatalogue() async throws -> ModelCatalogue {
+        ModelCatalogue(models: try await getModels(), unlistedPrimary: unlistedPrimary)
     }
 
     static func model(_ id: String, active: Bool = false) -> ModelInfo {
@@ -224,10 +397,12 @@ final class FakeModelRepository: ModelRepository, @unchecked Sendable {
     var getModelsCount: Int { lock.withLock { getModelsCalls } }
 
     func getModels() async throws -> [ModelInfo] {
-        lock.withLock {
+        let snapshot: [ModelInfo] = lock.withLock {
             getModelsCalls += 1
             return models
         }
+        if let getModelsError { throw getModelsError }
+        return snapshot
     }
 
     func setActiveModel(modelId: String) async throws {
@@ -300,14 +475,21 @@ final class FakeConfigRepository: ConfigRepository, @unchecked Sendable {
     private let lock = NSLock()
     private var config: OpenClawConfig
     private var updates: [String] = []
+    private var reads = 0
 
     init(config: OpenClawConfig) {
         self.config = config
     }
 
     var updatedSections: [String] { lock.withLock { updates } }
+    var getConfigCount: Int { lock.withLock { reads } }
 
-    func getConfig() async throws -> OpenClawConfig { lock.withLock { config } }
+    func getConfig() async throws -> OpenClawConfig {
+        lock.withLock {
+            reads += 1
+            return config
+        }
+    }
 
     func updateConfig(section: String, value: AnyCodable) async throws {
         lock.withLock {
@@ -383,6 +565,13 @@ final class FakeInstalledSkillRepository: InstalledSkillRepository, @unchecked S
     private var installLog: [String] = []
     private var uninstallLog: [String] = []
     private var refreshCalls = 0
+    private var enabledLog: [String] = []
+    private var refreshError: (any Error)?
+
+    /// Makes every `refreshFromGateway()` fail with `error`, or succeed again for `nil`.
+    func setRefreshError(_ error: (any Error)?) {
+        lock.withLock { refreshError = error }
+    }
 
     /// - Parameters:
     ///   - skills: Installed list replayed by `observeInstalled()` and returned by `refreshFromGateway()`.
@@ -405,6 +594,8 @@ final class FakeInstalledSkillRepository: InstalledSkillRepository, @unchecked S
     var installedSlugs: [String] { lock.withLock { installLog } }
     var uninstalledSlugs: [String] { lock.withLock { uninstallLog } }
     var refreshCount: Int { lock.withLock { refreshCalls } }
+    /// `"<skillKey>=<enabled>"` for every `setSkillEnabled` call, in order.
+    var enabledChanges: [String] { lock.withLock { enabledLog } }
 
     func observeInstalled() -> AsyncStream<[InstalledSkill]> {
         let snapshot = lock.withLock { skills }
@@ -415,10 +606,11 @@ final class FakeInstalledSkillRepository: InstalledSkillRepository, @unchecked S
     }
 
     func refreshFromGateway() async -> Result<[InstalledSkill], any Error> {
-        let snapshot: [InstalledSkill] = lock.withLock {
+        let (snapshot, failure): ([InstalledSkill], (any Error)?) = lock.withLock {
             refreshCalls += 1
-            return skills
+            return (skills, refreshError)
         }
+        if let failure { return .failure(failure) }
         return .success(snapshot)
     }
 
@@ -437,6 +629,24 @@ final class FakeInstalledSkillRepository: InstalledSkillRepository, @unchecked S
         lock.withLock { uninstallLog.append(slug) }
         if let uninstallError { return .failure(uninstallError) }
         lock.withLock { skills.removeAll { $0.slug == slug } }
+        return .success(())
+    }
+
+    func setSkillEnabled(skillKey: String, enabled: Bool) async -> Result<Void, any Error> {
+        lock.withLock {
+            enabledLog.append("\(skillKey)=\(enabled)")
+            skills = skills.map {
+                $0.slug == skillKey
+                    ? InstalledSkill(
+                        slug: $0.slug,
+                        installedVersion: $0.installedVersion,
+                        source: $0.source,
+                        installedAt: $0.installedAt,
+                        disabled: !enabled
+                    )
+                    : $0
+            }
+        }
         return .success(())
     }
 }

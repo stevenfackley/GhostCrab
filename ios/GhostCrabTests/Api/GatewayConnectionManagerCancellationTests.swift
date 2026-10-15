@@ -19,15 +19,6 @@ private struct NeverRespondingClientFactory: OpenClawAPIClientFactory {
             protocolClasses: [NeverRespondingURLProtocol.self]
         )
     }
-
-    func authenticated(baseURL: URL, token: String, allowCleartextPublicIPs: Bool) -> OpenClawAPIClient {
-        OpenClawAPIClient.makeForTesting(
-            baseURL: baseURL,
-            token: token,
-            allowCleartextPublicIPs: allowCleartextPublicIPs,
-            protocolClasses: [NeverRespondingURLProtocol.self]
-        )
-    }
 }
 
 @Suite("GatewayConnectionManagerImpl cancellation")
@@ -39,7 +30,11 @@ struct GatewayConnectionManagerCancellationTests {
     /// "Error connecting to …" for a connect the user abandoned.
     @Test(.timeLimit(.minutes(1)))
     func cancelledConnectEndsDisconnectedWithoutAnError() async {
-        let manager = GatewayConnectionManagerImpl(clientFactory: NeverRespondingClientFactory())
+        let manager = GatewayConnectionManagerImpl(
+            identityProvider: FixedIdentityProvider(),
+            deviceTokens: InMemoryDeviceTokenStore(),
+            clientFactory: NeverRespondingClientFactory()
+        )
         let url = MockURLProtocol.uniqueBaseURL().absoluteString
 
         let connect = Task { try await manager.connect(url: url, token: nil) }

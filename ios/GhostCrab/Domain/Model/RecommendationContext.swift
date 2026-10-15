@@ -6,7 +6,7 @@ import Foundation
 ///
 /// - Parameters:
 ///   - activeConfig: The gateway's current config (used for grounding suggestions).
-///   - hardwareInfo: Optional hardware description from the gateway's `/status` (e.g. RAM, GPU).
+///   - hardwareInfo: Hardware description. Always `nil` since ADR-0007: the gateway reports none.
 ///   - activeModelId: ID of the currently active model, if known.
 public struct RecommendationContext: Sendable {
     public let activeConfig: OpenClawConfig

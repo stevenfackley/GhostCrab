@@ -24,7 +24,7 @@ public final class AppContainer {
     // MARK: - Concrete connection manager (also exposed via the protocol below)
     //
     // Several gateway-backed impls need the *concrete* `GatewayConnectionManagerImpl`
-    // because they reach into `requireClient()`, which isn't on the public
+    // because they reach into `requireSession()` / `grantedScopes()`, which aren't on the public
     // `GatewayConnectionManager` protocol. The protocol property below is the
     // same instance, just downcast for consumers that should depend on the
     // contract only.
@@ -65,8 +65,10 @@ public final class AppContainer {
         self.onboarding = OnboardingRepositoryImpl(store: settingsStore)
 
         // Gateway connection manager — concrete instance is shared with
-        // repositories that need `requireClient()` access.
+        // repositories that need `requireSession()` access.
         let gatewayImpl = GatewayConnectionManagerImpl(
+            identityProvider: DeviceIdentityStore(),
+            deviceTokens: DeviceTokenStore(),
             settingsRepository: self.settings
         )
         self.connectionManagerImpl = gatewayImpl
@@ -150,17 +152,19 @@ public final class AppContainer {
     }
 
     /// Config Editor ViewModel — depends on the config repository and the
-    /// gateway connection manager. Auto-loads when the gateway transitions to
-    /// `.connected` and resets to ``ConfigEditorUiState/disconnected`` on drop.
+    /// gateway connection manager. Loads once per gateway session (a silent
+    /// reconnect's new session included) and resets to
+    /// ``ConfigEditorUiState/disconnected`` on disconnect.
     public func makeConfigEditorVM() -> ConfigEditorViewModel {
         ConfigEditorViewModel(config: config, gateway: gateway)
     }
 
-    /// Installed Skills ViewModel — depends on the installed-skill repository.
+    /// Installed Skills ViewModel — depends on the installed-skill repository and
+    /// the gateway connection manager (a new session refreshes the list).
     /// Subscribes to ``InstalledSkillRepository/observeInstalled()`` on
     /// `start()` for live list updates.
     public func makeInstalledSkillsVM() -> InstalledSkillsViewModel {
-        InstalledSkillsViewModel(skills: skills)
+        InstalledSkillsViewModel(skills: skills, gateway: gateway)
     }
 
     /// Dashboard ViewModel — depends on the gateway connection manager (for
@@ -170,9 +174,10 @@ public final class AppContainer {
         DashboardViewModel(gateway: gateway, models: models, ai: ai)
     }
 
-    /// Model Manager ViewModel — depends on the model repository.
+    /// Model Manager ViewModel — depends on the model repository and the gateway
+    /// connection manager (a new session reloads the list).
     public func makeModelManagerVM() -> ModelManagerViewModel {
-        ModelManagerViewModel(models: models)
+        ModelManagerViewModel(models: models, gateway: gateway)
     }
 }
 

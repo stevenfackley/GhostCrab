@@ -35,10 +35,10 @@ public enum Route: Hashable, Sendable {
     /// Model picker — list all models known to the gateway, select an active one.
     case modelManager
 
-    /// AI recommendation flow — prompt the gateway-side AI skill, view suggested config patches.
+    /// AI recommendation flow — explains that the gateway offers no recommendations (ADR-0007).
     case aiRecommendation
 
-    /// Installed-skills management — list, install, uninstall.
+    /// Installed-skills management — list, install, enable or disable.
     case installedSkills
 
     /// App settings — security toggles, about, build info.

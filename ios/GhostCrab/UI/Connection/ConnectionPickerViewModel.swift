@@ -6,7 +6,9 @@ import Observation
 /// Mirrors `ConnectionPickerViewModel.kt`. Observes the saved-profile list via
 /// `ConnectionProfileRepository.observeProfiles()` and exposes a `connect(...)`
 /// action that loads the token from the keychain and attempts to bring up the
-/// gateway connection.
+/// gateway connection. A saved gateway that answers `PAIRING_REQUIRED` (it forgot
+/// the device, or a scope or metadata upgrade) waits for approval with the same
+/// ``PairingWait`` and card as Manual Entry (ADR-0007).
 @MainActor
 @Observable
 public final class ConnectionPickerViewModel {
@@ -15,6 +17,8 @@ public final class ConnectionPickerViewModel {
 
     private let profileRepository: any ConnectionProfileRepository
     private let connectionManager: any GatewayConnectionManager
+    /// The connect and the device-approval wait it may turn into; one at a time.
+    private let pairing: PairingWait
 
     // MARK: - State
 
@@ -34,13 +38,21 @@ public final class ConnectionPickerViewModel {
     /// observes this and pushes `.dashboard`.
     public private(set) var navigateToDashboard: Bool = false
 
+    /// Set while a connect waits for device approval on the gateway host (ADR-0007); the screen shows
+    /// ``PairingApprovalCard`` and hides its QR / LAN / Add actions. `nil` otherwise.
+    public private(set) var pairingPrompt: PairingPrompt?
+
+    /// `false` while a connect, or the approval wait it turned into, is running: the rows are then inert (dimmed, no
+    /// tap, no swipe-to-delete) rather than taking a tap that ``connect(_:)`` would ignore.
+    public var profilesSelectable: Bool { connectingId == nil }
+
     @ObservationIgnored
     private var observeTask: Task<Void, Never>?
     @ObservationIgnored
     private var stateTask: Task<Void, Never>?
 
-    /// In-flight connect, if any. Read-only outside the VM so tests can await it.
-    @ObservationIgnored private(set) var connectTask: Task<Void, Never>?
+    /// In-flight connect (and approval wait), if any. Tests await it.
+    var connectTask: Task<Void, Never>? { pairing.task }
 
     /// Most recent delete. Read-only outside the VM so tests can await it.
     @ObservationIgnored private(set) var deleteTask: Task<Void, Never>?
@@ -50,12 +62,22 @@ public final class ConnectionPickerViewModel {
 
     // MARK: - Init
 
+    /// - Parameters:
+    ///   - profileRepository: Saved profiles and their tokens.
+    ///   - connectionManager: Drives the connect flow.
+    ///   - pairingRetryInterval: Delay between connects while awaiting device approval.
+    ///   - pairingTimeout: How long to wait for approval (upstream expires the request after 5 minutes).
     public init(
         profileRepository: any ConnectionProfileRepository,
-        connectionManager: any GatewayConnectionManager
+        connectionManager: any GatewayConnectionManager,
+        pairingRetryInterval: Duration = PairingApproval.retryInterval,
+        pairingTimeout: Duration = PairingApproval.timeout
     ) {
         self.profileRepository = profileRepository
         self.connectionManager = connectionManager
+        self.pairing = PairingWait(
+            connectionManager: connectionManager, retryInterval: pairingRetryInterval, timeout: pairingTimeout
+        )
         self.connectionState = connectionManager.currentState
         self.startObserving()
     }
@@ -89,27 +111,61 @@ public final class ConnectionPickerViewModel {
 
     // MARK: - Actions
 
-    /// Attempts to connect to the given saved profile. On success, flips
-    /// `navigateToDashboard` so the view can push `.dashboard`. Ignored while a
-    /// connect is already in flight, so a double tap connects once.
+    /// Attempts to connect to the given saved profile with its stored token, read
+    /// once. On success, flips `navigateToDashboard` so the view can push
+    /// `.dashboard`. On `PAIRING_REQUIRED` sets ``pairingPrompt`` and retries until
+    /// the device is approved, the pending request expires
+    /// (``PairingApproval/timeoutMessage``) or ``cancelPairing()``. A connect that
+    /// another screen superseded ends without an error. Ignored while a connect is
+    /// already in flight, so a double tap connects once.
     public func connect(_ profile: ConnectionProfile) {
-        guard connectTask == nil else { return }
+        guard !pairing.isRunning else { return }
         self.connectingId = profile.id
         self.lastError = nil
-        connectTask = Task {
-            defer { self.connectTask = nil }
-            do {
-                let token = profile.hasToken
-                    ? try await self.profileRepository.getToken(profileId: profile.id.uuidString)
-                    : nil
-                try await self.connectionManager.connect(url: profile.url, token: token)
-                self.connectingId = nil
-                self.navigateToDashboard = true
-            } catch {
-                self.connectingId = nil
-                self.lastError = (error as? LocalizedError)?.errorDescription
-                    ?? "Connection failed: \(String(describing: error))"
-            }
+        self.pairingPrompt = nil
+        let repository = profileRepository
+        pairing.start(
+            url: profile.url,
+            token: {
+                guard profile.hasToken else { return nil }
+                return try await repository.getToken(profileId: profile.id.uuidString)
+            },
+            onPrompt: { [weak self] prompt in self?.pairingPrompt = prompt },
+            onFinished: { [weak self] result in self?.finishConnect(result) }
+        )
+    }
+
+    /// "Check now" on the approval card: re-attempts the connect at once.
+    public func checkPairingNow() {
+        pairing.checkNow()
+    }
+
+    /// "Cancel" on the approval card, or the screen being left: stops the connect
+    /// or the wait. No error is shown; a wait that still holds its
+    /// `PAIRING_REQUIRED` error is disconnected (see ``PairingWait/cancel()``).
+    /// No-op when nothing is in flight.
+    public func cancelPairing() {
+        guard pairing.isRunning else { return }
+        pairing.cancel()
+        connectingId = nil
+        pairingPrompt = nil
+    }
+
+    /// The connect (or its approval wait) ended: navigate, or say why not.
+    private func finishConnect(_ result: PairingWaitResult) {
+        pairingPrompt = nil
+        connectingId = nil
+        switch result {
+        case .connected:
+            navigateToDashboard = true
+        case .expired:
+            lastError = PairingApproval.timeoutMessage
+        case .superseded:
+            // Another screen acted on the connection meanwhile: nothing to report.
+            break
+        case .failed(let error):
+            lastError = (error as? LocalizedError)?.errorDescription
+                ?? "Connection failed: \(String(describing: error))"
         }
     }
 

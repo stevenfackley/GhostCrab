@@ -27,6 +27,16 @@ public struct ConfigEditorScreen: View {
             content
                 .frame(maxWidth: 600)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                // On the content, not next to the conflict alert: one view presents one alert.
+                .alert(
+                    "Save failed",
+                    isPresented: saveErrorBinding,
+                    presenting: vm.saveError
+                ) { _ in
+                    Button("OK", role: .cancel) { vm.clearSaveError() }
+                } message: { message in
+                    Text(verbatim: message + "\n\nYour unsaved edits are kept.")
+                }
         }
         .navigationTitle("Configure Gateway")
         #if os(iOS)
@@ -40,19 +50,17 @@ public struct ConfigEditorScreen: View {
             isPresented: concurrentEditBinding,
             presenting: concurrentEditSection
         ) { section in
-            Button("Reload") {
-                vm.acknowledgeConflict()
-                vm.loadConfig()
+            Button("Reload and discard") {
+                vm.discardConflictingEdit(section)
             }
             Button("Force overwrite", role: .destructive) {
-                vm.acknowledgeConflict()
-                vm.confirmSave(section)
+                vm.forceOverwrite(section)
             }
             Button("Dismiss", role: .cancel) {
                 vm.acknowledgeConflict()
             }
         } message: { section in
-            Text("Someone else updated this config since you loaded section \"\(section)\". The latest values have been loaded.")
+            Text("Someone else updated this config since you loaded section \"\(section)\". The latest values have been loaded; your edit to this section is still pending.")
         }
         .task {
             vm.start()
@@ -97,15 +105,19 @@ public struct ConfigEditorScreen: View {
             )
             .frame(maxHeight: .infinity)
 
-        case .ready(let config, let pending, _, _, _, _):
-            readyContent(config: config, pending: pending)
+        case .ready(let config, let pending, let fieldErrors, _, _, _):
+            readyContent(config: config, pending: pending, fieldErrors: fieldErrors)
         }
     }
 
     // MARK: - Ready content
 
     @ViewBuilder
-    private func readyContent(config: OpenClawConfig, pending: [String: AnyCodable]) -> some View {
+    private func readyContent(
+        config: OpenClawConfig,
+        pending: [String: AnyCodable],
+        fieldErrors: [String: String]
+    ) -> some View {
         let orderedKeys = orderedSectionKeys(config.sections.keys)
 
         ScrollView {
@@ -121,7 +133,8 @@ public struct ConfigEditorScreen: View {
                             sectionCard(
                                 key: key,
                                 editableCount: editableCount,
-                                hasPending: hasPending
+                                hasPending: hasPending,
+                                errors: errorLines(fieldErrors, section: key)
                             )
                         }
                         .buttonStyle(.plain)
@@ -136,6 +149,7 @@ public struct ConfigEditorScreen: View {
                 sectionKey: sectionEdit.key,
                 originalValue: sectionEdit.original,
                 pendingValue: pending[sectionEdit.key],
+                fieldErrors: errorLines(fieldErrors, section: sectionEdit.key),
                 onSave: { newValue in
                     vm.editSection(sectionEdit.key, value: newValue)
                     vm.requestSave(sectionEdit.key)
@@ -154,7 +168,8 @@ public struct ConfigEditorScreen: View {
         }
     }
 
-    private func sectionCard(key: String, editableCount: Int, hasPending: Bool) -> some View {
+    /// - Parameter errors: Server validation errors under this section (`path: message`), shown on the card.
+    private func sectionCard(key: String, editableCount: Int, hasPending: Bool, errors: [String]) -> some View {
         GlassSurface {
             HStack(alignment: .center, spacing: DesignTokens.Spacing.sm) {
                 VStack(alignment: .leading, spacing: DesignTokens.Spacing.xxs) {
@@ -178,6 +193,12 @@ public struct ConfigEditorScreen: View {
                     Text(editableCountLabel(editableCount))
                         .font(AppFont.body(12))
                         .foregroundStyle(DesignTokens.Color.textSecondary)
+                    ForEach(errors, id: \.self) { line in
+                        Text(line)
+                            .font(AppFont.mono(12))
+                            .foregroundStyle(DesignTokens.Color.crimsonError)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
                 Spacer(minLength: 0)
                 Image(systemName: "chevron.right")
@@ -224,6 +245,13 @@ public struct ConfigEditorScreen: View {
         return nil
     }
 
+    private var saveErrorBinding: Binding<Bool> {
+        Binding(
+            get: { vm.saveError != nil },
+            set: { isShown in if !isShown { vm.clearSaveError() } }
+        )
+    }
+
     private var concurrentEditBinding: Binding<Bool> {
         Binding(
             get: { concurrentEditSection != nil },
@@ -248,6 +276,14 @@ public struct ConfigEditorScreen: View {
 
     private func editableCountLabel(_ n: Int) -> String {
         n == 1 ? "1 editable key" : "\(n) editable keys"
+    }
+
+    /// - Returns: The field errors under `section` (paths `<section>.…`) as `path: message` lines, sorted by path.
+    private func errorLines(_ fieldErrors: [String: String], section: String) -> [String] {
+        fieldErrors
+            .filter { $0.key.hasPrefix("\(section).") }
+            .sorted { $0.key < $1.key }
+            .map { "\($0.key): \($0.value)" }
     }
 
     private func bindingForEditingSection(config: OpenClawConfig) -> Binding<SectionEdit?> {
@@ -293,6 +329,8 @@ private struct SectionEditorSheet: View {
     let sectionKey: String
     let originalValue: AnyCodable
     let pendingValue: AnyCodable?
+    /// The gateway's validation errors for this section (`path: message`), from the last save.
+    let fieldErrors: [String]
     let onSave: (AnyCodable) -> Void
     let onDiscard: () -> Void
     let onCancel: () -> Void
@@ -320,6 +358,13 @@ private struct SectionEditorSheet: View {
                             .frame(minHeight: 240)
                     }
                     .padding(.horizontal, DesignTokens.Spacing.md)
+
+                    ForEach(fieldErrors, id: \.self) { line in
+                        Text(line)
+                            .font(AppFont.mono(12))
+                            .foregroundStyle(DesignTokens.Color.crimsonError)
+                            .padding(.horizontal, DesignTokens.Spacing.md)
+                    }
 
                     if let parseError {
                         Text(parseError)

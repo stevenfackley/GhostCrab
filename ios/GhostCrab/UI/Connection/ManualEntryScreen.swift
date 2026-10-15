@@ -8,7 +8,9 @@ import SwiftUI
 /// visibility toggle). Shows
 /// `HttpSecurityBanner` above the form when HTTPS is off; renders the assembled
 /// URL preview in JetBrains Mono. Connect button is disabled while connecting
-/// or any field has a validation error.
+/// or any field has a validation error. While the gateway waits for this
+/// device to be approved (`PAIRING_REQUIRED`), ``PairingApprovalCard`` shows
+/// the approval command above the Connect section.
 public struct ManualEntryScreen: View {
 
     @Environment(\.navigate) private var navigate
@@ -61,8 +63,7 @@ public struct ManualEntryScreen: View {
                         .disabled(vm.isConnecting)
                     }
                     if let err = vm.pastedLinkError {
-                        Text(err)
-                            .font(AppFont.body(12))
+                        CommandMessageText(err, size: 12)
                             .foregroundStyle(DesignTokens.Color.crimsonError)
                     }
                 } header: {
@@ -155,6 +156,18 @@ public struct ManualEntryScreen: View {
                                 .foregroundStyle(DesignTokens.Color.textSecondary)
                         }
                         .buttonStyle(.plain)
+                    }
+                }
+
+                if let prompt = vm.pairingPrompt {
+                    Section {
+                        PairingApprovalCard(
+                            prompt: prompt,
+                            onCheckNow: { vm.checkPairingNow() },
+                            onCancel: { vm.cancelConnect() }
+                        )
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets())
                     }
                 }
 

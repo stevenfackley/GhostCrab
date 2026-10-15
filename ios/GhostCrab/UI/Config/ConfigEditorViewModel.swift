@@ -7,6 +7,11 @@ import Observation
 /// connected and transition to ``ConfigEditorUiState/disconnected`` when the
 /// connection drops.
 ///
+/// A silent reconnect after a dropped socket is not a new session: nothing reloads and nothing is reported. The
+/// reconnected session (a new `sessionGeneration`) reloads the config. Unsaved edits survive reloads and failed saves:
+/// while the editor is ready, a reload replaces only the config, and a failure is reported in ``saveError`` instead of
+/// replacing the screen (port of Android's `saveError`).
+///
 /// All mutations are server-confirmed — there is no optimistic local state.
 ///
 /// Direct port of `ConfigEditorViewModel.kt`.
@@ -18,6 +23,10 @@ public final class ConfigEditorViewModel {
 
     /// Current UI state. Drives the screen `switch`.
     public private(set) var state: ConfigEditorUiState = .loading
+
+    /// Why the last save (or a reload of the ready editor) failed, with the URL and the error; the pending edits are
+    /// kept. Shown as an alert; ``clearSaveError()`` dismisses it. `nil` when there is nothing to report.
+    public private(set) var saveError: String?
 
     // MARK: - Dependencies
 
@@ -50,16 +59,19 @@ public final class ConfigEditorViewModel {
     }
 
     /// Begin observing the connection stream. Call from a `.task` modifier on
-    /// the view so the subscription is bound to the view lifetime.
+    /// the view so the subscription is bound to the view lifetime. Loads for the
+    /// live session the stream replays, then once per new session; the silent
+    /// reconnect's reconnecting state changes nothing.
     public func start() {
         guard connectionTask == nil else { return }
         connectionTask = Task { [weak self] in
             guard let self else { return }
+            var sessions = SessionTracker()
             for await conn in self.connectionManager.connectionStates() {
                 if Task.isCancelled { break }
                 switch conn {
                 case .connected:
-                    self.loadConfig()
+                    if sessions.isNewSession(conn) { self.reloadForNewSession() }
                 case .disconnected:
                     self.state = .disconnected
                 case .connecting, .error:
@@ -67,6 +79,13 @@ public final class ConfigEditorViewModel {
                 }
             }
         }
+    }
+
+    /// Replaces a load still running against an earlier session with one against the new session.
+    private func reloadForNewSession() {
+        loadTask?.cancel()
+        loadTask = nil
+        loadConfig()
     }
 
     /// Cancel background subscriptions and an in-flight load. Call from `.task` cancellation.
@@ -86,34 +105,53 @@ public final class ConfigEditorViewModel {
 
     /// Fetches (or re-fetches) the config from the gateway.
     ///
-    /// Transitions through ``ConfigEditorUiState/loading`` then resolves to
-    /// either ``ConfigEditorUiState/ready(config:pendingChanges:fieldErrors:pendingSaveSection:saveSuccess:concurrentEditSection:)``,
+    /// From any state but ``ConfigEditorUiState/ready(config:pendingChanges:fieldErrors:pendingSaveSection:saveSuccess:concurrentEditSection:)``:
+    /// transitions through ``ConfigEditorUiState/loading`` then resolves to ready,
     /// ``ConfigEditorUiState/noConfigApi``, or ``ConfigEditorUiState/error(message:)``.
+    /// A reload of a ready editor (a new session after a reconnect, or Retry) keeps it on screen with its unsaved
+    /// edits, field errors and open dialogs: only the config is replaced, and a failed reload is reported in
+    /// ``saveError`` instead of dropping them.
     /// Ignored while a load is already in flight.
     public func loadConfig() {
         guard loadTask == nil else { return }
         loadTask = Task { [weak self] in
             guard let self else { return }
             defer { if !Task.isCancelled { self.loadTask = nil } }
-            self.state = .loading
+            if !self.isReady { self.state = .loading }
             do {
                 let config = try await self.configRepository.getConfig()
-                if config.sections.isEmpty {
-                    self.state = .noConfigApi
-                } else {
-                    self.state = .ready(config: config)
-                }
+                guard !Task.isCancelled else { return } // replaced by a newer load, or the screen went away
+                self.applyLoaded(config)
             } catch {
                 // Cancelled by stop() (the screen went away): whatever the
                 // repository threw is about the abandoned request, not the
                 // gateway, so publish no error.
                 guard !Task.isCancelled else { return }
-                if let e = error as? GatewayError {
-                    self.state = .error(message: e.errorDescription ?? "Unknown error")
+                let message = (error as? GatewayError)?.errorDescription ?? error.localizedDescription
+                if self.isReady {
+                    self.saveError = "Reload failed: \(message)"
                 } else {
-                    self.state = .error(message: error.localizedDescription)
+                    self.state = .error(message: message)
                 }
             }
+        }
+    }
+
+    /// Publishes a loaded `config`: a ready editor keeps its edits, field errors and dialogs.
+    private func applyLoaded(_ config: OpenClawConfig) {
+        if config.sections.isEmpty {
+            state = .noConfigApi
+        } else if case .ready(_, let pending, let fieldErrors, let saveSection, let saveSuccess, let concurrent) = state {
+            state = .ready(
+                config: config,
+                pendingChanges: pending,
+                fieldErrors: fieldErrors,
+                pendingSaveSection: saveSection,
+                saveSuccess: saveSuccess,
+                concurrentEditSection: concurrent
+            )
+        } else {
+            state = .ready(config: config)
         }
     }
 
@@ -199,10 +237,14 @@ public final class ConfigEditorViewModel {
     /// Writes the pending change for `section` to the gateway, then re-reads
     /// config.
     ///
-    /// - On success: transitions to a fresh ready state with `saveSuccess = true`.
-    /// - On HTTP 412: reloads config and surfaces a concurrent-edit warning.
+    /// - On success: shows the re-read config with `saveSuccess = true`; drops `section`'s pending edit unless it was
+    ///   re-edited during the save. Other sections' pending edits stay.
+    /// - On HTTP 412 (stale `baseHash`): reloads config, keeps every pending edit (the conflicting one included,
+    ///   so ``forceOverwrite(_:)`` can re-send it against the fresh hash) and surfaces a concurrent-edit warning.
     /// - On `configValidation`: sets the field error inline.
-    /// - On any other error: transitions to ``ConfigEditorUiState/error(message:)``.
+    /// - On any other error (the session dropped mid-save included) or a failed reload after a 412: keeps the editor
+    ///   ready with EVERY pending edit and reports the failure in ``saveError``. Only when the editor is no longer
+    ///   ready does it transition to ``ConfigEditorUiState/error(message:)``.
     ///
     /// Ignored while a save is already in flight.
     public func confirmSave(_ section: String) {
@@ -220,19 +262,31 @@ public final class ConfigEditorViewModel {
             do {
                 try await self.configRepository.updateConfig(section: section, value: newValue)
                 let updated = try await self.configRepository.getConfig()
-                self.state = .ready(config: updated, saveSuccess: true)
+                self.applySaved(section: section, savedValue: newValue, updated: updated)
             } catch GatewayError.api(_, let statusCode, let body) where statusCode == 412 {
-                // Concurrent edit. Reload + surface dialog.
+                // Concurrent edit. Reload (the repository now holds the fresh hash) + surface dialog. The latest
+                // state's edits survive, including any made while the save was in flight.
                 do {
                     let reloaded = try await self.configRepository.getConfig()
-                    self.state = .ready(
-                        config: reloaded,
-                        concurrentEditSection: section
-                    )
+                    if case .ready(_, let pending, let fieldErrors, let saveSection, let saveSuccess, _) = self.state {
+                        self.state = .ready(
+                            config: reloaded,
+                            pendingChanges: pending,
+                            fieldErrors: fieldErrors,
+                            pendingSaveSection: saveSection,
+                            saveSuccess: saveSuccess,
+                            concurrentEditSection: section
+                        )
+                    } else {
+                        self.state = .ready(
+                            config: reloaded,
+                            pendingChanges: [section: newValue],
+                            concurrentEditSection: section
+                        )
+                    }
                 } catch {
-                    self.state = .error(
-                        message: "Concurrent edit detected and reload failed: \(body ?? "HTTP 412")"
-                    )
+                    let reason = (error as? GatewayError)?.errorDescription ?? body ?? "HTTP 412"
+                    self.reportSaveFailure("Concurrent edit detected and reload failed: \(reason)")
                 }
             } catch GatewayError.configValidation(let field, let reason) {
                 // Inline field error if still ready, otherwise surface as full error.
@@ -250,11 +304,54 @@ public final class ConfigEditorViewModel {
                     self.state = .error(message: "Validation error: \(field): \(reason)")
                 }
             } catch let e as GatewayError {
-                self.state = .error(message: "Save failed: \(e.errorDescription ?? "unknown")")
+                self.reportSaveFailure("Save failed: \(e.errorDescription ?? "unknown")")
             } catch {
-                self.state = .error(message: "Save failed: \(error.localizedDescription)")
+                self.reportSaveFailure("Save failed: \(error.localizedDescription)")
             }
         }
+    }
+
+    /// A failed save keeps the ready editor and every pending edit (same shape as the conflict flow) and reports
+    /// `message` in ``saveError``; an editor that is no longer ready shows it as ``ConfigEditorUiState/error(message:)``.
+    private func reportSaveFailure(_ message: String) {
+        if isReady {
+            saveError = message
+        } else {
+            state = .error(message: message)
+        }
+    }
+
+    private var isReady: Bool {
+        if case .ready = state { return true }
+        return false
+    }
+
+    /// Dismisses ``saveError``; the pending edits stay.
+    public func clearSaveError() {
+        saveError = nil
+    }
+
+    /// Publishes a successful save of `savedValue` to `section`, re-read as `updated` (port of Android's `afterSave`).
+    /// The section's pending edit and field errors are dropped only while the edit still equals what was saved, so a
+    /// re-edit made during the save survives; other sections' edits, the diff sheet and the conflict dialog are kept.
+    /// No-op unless the editor is ``ConfigEditorUiState/ready(config:pendingChanges:fieldErrors:pendingSaveSection:saveSuccess:concurrentEditSection:)``
+    /// (e.g. it went ``ConfigEditorUiState/disconnected`` during the save).
+    private func applySaved(section: String, savedValue: AnyCodable, updated: OpenClawConfig) {
+        guard case .ready(_, var pending, var fieldErrors, let saveSection, _, let concurrent) = state else {
+            return
+        }
+        if pending[section] == savedValue {
+            pending.removeValue(forKey: section)
+            fieldErrors = fieldErrors.filter { !$0.key.hasPrefix("\(section).") }
+        }
+        state = .ready(
+            config: updated,
+            pendingChanges: pending,
+            fieldErrors: fieldErrors,
+            pendingSaveSection: saveSection,
+            saveSuccess: true,
+            concurrentEditSection: concurrent
+        )
     }
 
     /// Discards all pending edits for a section, including associated field
@@ -305,7 +402,22 @@ public final class ConfigEditorViewModel {
         )
     }
 
-    /// Dismisses the concurrent-edit warning dialog.
+    /// The concurrent-edit dialog's "Reload and discard": the failed save already loaded the latest config, so this
+    /// closes the dialog and drops `section`'s pending edit and field errors. Other sections' edits stay. Takes the
+    /// section explicitly, so it works whether or not the alert binding cleared the dialog first.
+    public func discardConflictingEdit(_ section: String) {
+        acknowledgeConflict()
+        discardSection(section)
+    }
+
+    /// The concurrent-edit dialog's "Force overwrite": closes the dialog and writes `section`'s pending edit again,
+    /// against the hash of the config the conflict reloaded. No-op when the section has no pending edit.
+    public func forceOverwrite(_ section: String) {
+        acknowledgeConflict()
+        confirmSave(section)
+    }
+
+    /// Dismisses the concurrent-edit warning dialog; pending edits stay.
     public func acknowledgeConflict() {
         guard case .ready(let config, let pending, let fieldErrors, let saveSection, let saveSuccess, _) = state else {
             return

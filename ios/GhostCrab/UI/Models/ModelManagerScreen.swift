@@ -23,7 +23,7 @@ public struct ModelManagerScreen: View {
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbarColorScheme(.dark, for: .navigationBar)
         #endif
-        .task { await vm.load() }
+        .task { await vm.run() }
         .confirmationDialog(
             "Activate model?",
             isPresented: Binding(
@@ -52,17 +52,24 @@ public struct ModelManagerScreen: View {
             EmptyState(
                 icon: "questionmark.app.dashed",
                 title: "Not supported",
-                message: "This gateway version doesn't expose a /models API. Models must be configured server-side."
+                message: "This gateway version doesn't support models.list. Configure models on the gateway host."
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if vm.models_.isEmpty {
-            EmptyState(
-                icon: "tray",
-                title: "No models configured",
-                message: "Use Config Editor to add a provider.",
-                action: ("Open Config Editor", { navigate(.configEditor) })
-            )
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            VStack(spacing: DesignTokens.Spacing.md) {
+                if let primary = vm.unlistedPrimary {
+                    unlistedPrimaryBanner(primary)
+                        .padding(.horizontal, DesignTokens.Spacing.md)
+                        .padding(.top, DesignTokens.Spacing.sm)
+                }
+                EmptyState(
+                    icon: "tray",
+                    title: "No models configured",
+                    message: "Use Config Editor to add a provider.",
+                    action: ("Open Config Editor", { navigate(.configEditor) })
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
         } else {
             modelsList
         }
@@ -71,6 +78,20 @@ public struct ModelManagerScreen: View {
     @ViewBuilder
     private var modelsList: some View {
         List {
+            if let primary = vm.unlistedPrimary {
+                Section {
+                    unlistedPrimaryBanner(primary)
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                        .listRowInsets(EdgeInsets(
+                            top: DesignTokens.Spacing.sm,
+                            leading: DesignTokens.Spacing.md,
+                            bottom: DesignTokens.Spacing.sm,
+                            trailing: DesignTokens.Spacing.md
+                        ))
+                }
+            }
+
             if let error = vm.lastError {
                 Section {
                     errorBanner(error)
@@ -149,6 +170,33 @@ public struct ModelManagerScreen: View {
         default:
             return DesignTokens.Color.textSecondary
         }
+    }
+
+    // MARK: - Unlisted primary banner
+
+    /// Amber: the gateway's primary model names no single listed model, so no row is active.
+    @ViewBuilder
+    private func unlistedPrimaryBanner(_ primary: String) -> some View {
+        HStack(alignment: .top, spacing: DesignTokens.Spacing.sm) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(DesignTokens.Color.amberWarn)
+                .font(.system(size: 16))
+            // Only the model ref is mono; the sentence is UI text (CLAUDE.md).
+            Text("Gateway primary model \(Text(verbatim: primary).font(AppFont.mono(12))) is not in its catalogue.")
+                .font(AppFont.body(12))
+                .foregroundStyle(DesignTokens.Color.textPrimary)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, DesignTokens.Spacing.md)
+        .padding(.vertical, DesignTokens.Spacing.sm)
+        .background(
+            DesignTokens.Shape.small
+                .fill(DesignTokens.Color.amberWarn.opacity(0.15))
+        )
+        .overlay(
+            DesignTokens.Shape.small
+                .strokeBorder(DesignTokens.Color.amberWarn, lineWidth: 1)
+        )
     }
 
     // MARK: - Error banner

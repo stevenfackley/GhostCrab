@@ -5,6 +5,8 @@ on:
     paths:
       - "ios/**"
       - ".github/workflows/ios-pr.yml"
+      # A fixture change must run the iOS lane too (the fixtures are a test resource).
+      - "fixtures/gateway-protocol/**"
 
 permissions:
   contents: read

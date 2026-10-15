@@ -26,7 +26,7 @@ public struct ConnectionStatusBar: View {
                 .foregroundStyle(DesignTokens.Color.textPrimary)
                 .lineLimit(1)
 
-            if case .connecting = connection {
+            if showsProgress {
                 ProgressView()
                     .progressViewStyle(.circular)
                     .tint(DesignTokens.Color.cyanPulse)
@@ -65,11 +65,17 @@ public struct ConnectionStatusBar: View {
             )
     }
 
+    /// Connecting, or the silent reconnect after a dropped socket.
+    private var showsProgress: Bool {
+        if case .connecting = connection { return true }
+        return connection.isReconnecting
+    }
+
     private var statusColor: Color {
         switch connection {
         case .disconnected: return DesignTokens.Color.textDisabled
         case .connecting:   return DesignTokens.Color.cyanPulse
-        case .connected:    return DesignTokens.Color.cyanPrimary
+        case .connected:    return connection.isReconnecting ? DesignTokens.Color.amberWarn : DesignTokens.Color.cyanPrimary
         case .error:        return DesignTokens.Color.crimsonError
         }
     }
@@ -78,8 +84,8 @@ public struct ConnectionStatusBar: View {
         switch connection {
         case .disconnected:               return "Disconnected"
         case .connecting(let url):        return "Connecting to \(url)…"
-        case .connected(let url, _, _, _, _, _, _, _):
-            return url
+        case .connected(let url, _, _, _, _, _, _, _, let reconnecting, _):
+            return reconnecting ? "Reconnecting to \(url)…" : url
         case .error(let url, _):          return "Error connecting to \(url)"
         }
     }

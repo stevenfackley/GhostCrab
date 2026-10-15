@@ -102,13 +102,36 @@ Inter (Regular, Medium, SemiBold, Bold) and JetBrains Mono (Regular, Medium) are
 
 ## Pairing links and deep links
 
-A pairing link is `ghostcrab://pair?p=<base64url JSON>`; the v1 payload carries the gateway URL, an optional token and an optional name. Three ways in:
+A pairing link is `ghostcrab://pair?p=<base64url JSON>`; the v1 payload carries the gateway URL, an optional token and an optional name. GhostCrab also takes plain `ws(s)://` URLs. A setup code from `openclaw qr` (bare or `oc-pair://<code>`) is recognised and explained, not used: its bootstrap token serves OpenClaw node apps only and cannot authorize an operator client (`PairingLink.setupCode`; the token is dropped while decoding). Three ways in:
 
 - **QR scan** (iPhone/iPad): the scanner decodes the code with `PairingLink`.
 - **Deep link**: the `ghostcrab` URL scheme is registered (`CFBundleURLTypes`), so the OS camera, Safari and other apps open the app; `RootView.onOpenURL` hands the link to `PairingDeepLink`.
 - **Paste**: Manual Entry's Pairing link field takes a link or a plain gateway URL. On Mac Catalyst, which has no QR scanner, this is the way to pair.
 
 All three only prefill Manual Entry; nothing connects until the user taps Connect. The token goes into `PairingHandoff`, an in-memory one-shot stash scoped to the gateway's origin that expires after two minutes. It never enters `Route` or the navigation path, and a prefill for a different host drops it. Links over 4096 characters, non-v1 payloads, non-`http(s)` URLs, userinfo and out-of-range ports are rejected, and error text never echoes the payload.
+
+## Gateway protocol
+
+The app speaks the real gateway's WebSocket protocol 4 (`docs/adr/0007-gateway-protocol-alignment.md`): `GET /health`, then `connect.challenge` -> an Ed25519-signed `connect` -> `hello-ok`, then `req`/`res`/`event` RPCs (`config.get`/`config.patch`, `models.list`, `skills.status`/`skills.install`/`skills.update`). No credential is ever sent over HTTP.
+
+`Data/Gateway/` holds the pieces:
+
+- `GatewayFrames` (codec), `GatewayErrorMapping` (error shape -> `GatewayError`), `GatewayWebSocketURL` (`http(s)` base -> `ws(s)://.../ws`).
+- `GatewayWebSocket` (seam) + `URLSessionGatewayWebSocket`, and the `GatewayRPCClient` actor (string-id correlation, events, challenge capture, timeouts; the connection manager closes it on every release path).
+- `DeviceIdentity` (CryptoKit `Curve25519.Signing`, zeroed seed storage) and `DeviceAuthPayload` (v3 signature payload).
+- `GatewayHandshake`: client `openclaw-ios`, mode `ui`, platform `ios` (also on Mac Catalyst; the gateway pins the platform at approval), credential selection (shared token, else the stored device token), `connect` params, `hello-ok` parsing.
+
+Storage: the identity seed is a Keychain generic password in its own service (`com.qavren.ghostcrab.device-identity`, `AfterFirstUnlockThisDeviceOnly`) and survives "Clear all saved gateways". Device tokens live in the token service (`DeviceTokenStore`, keyed by `GatewayKey`) and are wiped with the profile tokens. If the seed is unreadable it is replaced and every gateway asks for approval again; the approval card says why (`ConnectionWarning.deviceIdentityRegenerated` from `GatewayConnectionManager.connectionWarnings()`, reported until that gateway accepts the new identity, so the dashboard never shows it). The dashboard warns when a device token could not be stored.
+
+Pairing: a new device gets `PAIRING_REQUIRED`. `UI/Connection/PairingWait.swift` is shared by Manual Entry and the gateway picker: it shows the approval card (request id, `openclaw devices approve <id>`), retries the connect every 5 s for up to 5 minutes (stable request id, one loop at a time, the token read once), and offers Check now and Cancel. Approve the device on the gateway host once.
+
+Session loss: iOS suspends the app and kills the socket routinely. When the live socket ends, `GatewayConnectionManagerImpl` publishes `.connected(reconnecting: true)` and makes one silent reconnect to the same URL with the same identity and the stored device token (the shared token when none is stored); success publishes a new `.connected` with the next `sessionGeneration`. Screens ignore the reconnecting state and reload once per new generation (`UI/SessionChanges.swift`); the config editor keeps its unsaved edits across reloads and failed saves. A reconnected session earns another silent reconnect only after 5 minutes live (injected clock). A failed reconnect ends in `.error`: the gateway's refusal (`PAIRING_REQUIRED`, a rejected credential) or the socket's end cause, which the dashboard shows with Retry. There is no periodic health check. Unlike Android there is no `resumePendingApproval`: after a reconnect refused with `PAIRING_REQUIRED`, approve the device (the dashboard's error names the command) and tap Retry, or go back to the picker and connect again, which starts the approval card.
+
+Dashboard entries the session's `hello-ok` scopes do not allow (Config, Models, Skills) are disabled with the reason.
+
+Not supported: AI recommendations (OpenClaw has no recommendation API, so they are not offered on iOS: the dashboard tile is hidden and the screen is unreachable), skill removal (Disable replaces it), and connecting with setup codes.
+
+Tests replay frames captured from 2026.10.3 (`fixtures/gateway-protocol/`, bundled into the test target by `project.yml`). To try the app without a real gateway, run `scripts/mock-gateway` (protocol 4; `AUTO_APPROVE=1` skips the approval). `.github/workflows/ios-screenshots.yml` starts it that way for the store screenshots.
 
 ## App Transport Security limits
 
@@ -128,8 +151,9 @@ ios/
 ├── GhostCrab/
 │   ├── App/                    # @main, AppContainer, RootView
 │   ├── Domain/{Model,Error,Repository,Util}/
-│   ├── Data/{Api,Discovery,Storage,Impl}/
+│   ├── Data/{Api,Gateway,Discovery,Storage,Impl}/   # Api: GET /health only; Gateway: WS protocol 4
 │   ├── UI/{Components,Theme,Navigation,Onboarding,Connection,Dashboard,Config,Models,AI,Settings,InstalledSkills}/
+│   │   # Connection/PairingWait.swift: approval wait shared by Manual Entry and the picker
 │   ├── Crash/
 │   └── Resources/              # Info.plist, Assets.xcassets, Fonts/, PrivacyInfo.xcprivacy, entitlements
 ├── GhostCrabTests/             # Swift Testing; Support/ holds fakes and MockURLProtocol

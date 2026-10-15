@@ -1,6 +1,6 @@
 import Foundation
 
-/// A recommendation returned by the AI skill on the gateway.
+/// A recommendation returned by the gateway's AI recommendation service (none offers one today; ADR-0007).
 ///
 /// - Parameters:
 ///   - query: The original user query.

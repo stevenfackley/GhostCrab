@@ -10,6 +10,11 @@ import SwiftUI
 ///   `.connecting` or `.error`.
 /// - Tap a profile → auto-connect via VM; on success VM flips `navigateToDashboard`
 ///   and `navigate.toDashboard()` shows the dashboard directly on the picker.
+/// - `PAIRING_REQUIRED` → ``PairingApprovalCard`` above the list (instead of the
+///   status bar) while the VM retries; the QR / LAN / Add actions are hidden
+///   meanwhile, and leaving the screen cancels the wait.
+/// - While a connect or its approval wait runs, the other rows are dimmed and
+///   take no tap or swipe (``ConnectionPickerViewModel/profilesSelectable``).
 public struct ConnectionPickerScreen: View {
 
     @Environment(\.navigate) private var navigate
@@ -25,7 +30,15 @@ public struct ConnectionPickerScreen: View {
             DesignTokens.Color.abyss.ignoresSafeArea()
 
             VStack(spacing: 0) {
-                if shouldShowStatusBar {
+                if let prompt = vm.pairingPrompt {
+                    PairingApprovalCard(
+                        prompt: prompt,
+                        onCheckNow: { vm.checkPairingNow() },
+                        onCancel: { vm.cancelPairing() }
+                    )
+                    .padding(.horizontal, DesignTokens.Spacing.md)
+                    .padding(.top, DesignTokens.Spacing.sm)
+                } else if shouldShowStatusBar {
                     ConnectionStatusBar(connection: vm.connectionState)
                 }
 
@@ -44,26 +57,32 @@ public struct ConnectionPickerScreen: View {
         .toolbarColorScheme(.dark, for: .navigationBar)
         #endif
         .toolbar {
-            ToolbarItemGroup(placement: .primaryAction) {
-                Button {
-                    navigate(.qrScan)
-                } label: {
-                    Image(systemName: "qrcode.viewfinder")
-                        .foregroundStyle(DesignTokens.Color.cyanPrimary)
-                }
-                Button {
-                    navigate(.scan)
-                } label: {
-                    Image(systemName: "magnifyingglass")
-                        .foregroundStyle(DesignTokens.Color.textSecondary)
-                }
-                Button {
-                    navigate(.manualEntry(prefillURL: nil))
-                } label: {
-                    Image(systemName: "plus")
-                        .foregroundStyle(DesignTokens.Color.cyanPrimary)
+            // Hidden while the approval card shows: those screens would leave the wait running behind them.
+            if vm.pairingPrompt == nil {
+                ToolbarItemGroup(placement: .primaryAction) {
+                    Button {
+                        navigate(.qrScan)
+                    } label: {
+                        Image(systemName: "qrcode.viewfinder")
+                            .foregroundStyle(DesignTokens.Color.cyanPrimary)
+                    }
+                    Button {
+                        navigate(.scan)
+                    } label: {
+                        Image(systemName: "magnifyingglass")
+                            .foregroundStyle(DesignTokens.Color.textSecondary)
+                    }
+                    Button {
+                        navigate(.manualEntry(prefillURL: nil))
+                    } label: {
+                        Image(systemName: "plus")
+                            .foregroundStyle(DesignTokens.Color.cyanPrimary)
+                    }
                 }
             }
+        }
+        .onDisappear {
+            vm.cancelPairing()
         }
         .onChange(of: vm.navigateToDashboard) { _, ready in
             if ready {
@@ -145,10 +164,12 @@ public struct ConnectionPickerScreen: View {
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
                     .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                        Button(role: .destructive) {
-                            vm.delete(profile.id)
-                        } label: {
-                            Label("Delete", systemImage: "trash")
+                        if vm.profilesSelectable {
+                            Button(role: .destructive) {
+                                vm.delete(profile.id)
+                            } label: {
+                                Label("Delete", systemImage: "trash")
+                            }
                         }
                     }
             }
@@ -193,7 +214,9 @@ public struct ConnectionPickerScreen: View {
             }
         }
         .buttonStyle(.plain)
-        .disabled(vm.connectingId != nil)
+        .disabled(!vm.profilesSelectable)
+        // The plain style does not dim a disabled row; the one being connected stays bright beside its spinner.
+        .opacity(vm.profilesSelectable || vm.connectingId == profile.id ? 1.0 : 0.6)
         .padding(.vertical, DesignTokens.Spacing.xs)
     }
 }

@@ -77,7 +77,7 @@ public struct ScanScreen: View {
                     EmptyState(
                         icon: "wifi.exclamationmark",
                         title: "No gateways found",
-                        message: "Make sure the gateway is on this network and advertising `_openclaw-gw._tcp`. mDNS may be blocked by Wi-Fi isolation.",
+                        message: "Make sure the gateway is on this network and advertising _openclaw-gw._tcp. Gateways on Linux, Windows or Docker advertise only after running:\nopenclaw plugins enable bonjour\nDocker bridge networking does not carry mDNS, and Wi-Fi isolation can also block it.",
                         action: ("Enter URL manually", { navigate(.manualEntry(prefillURL: nil)) })
                     )
                 } else {

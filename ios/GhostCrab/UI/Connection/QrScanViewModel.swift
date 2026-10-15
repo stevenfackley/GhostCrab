@@ -24,11 +24,17 @@ public enum QrScannerFailure: Error, Sendable, Equatable {
 /// Accepts two payload shapes:
 ///
 /// 1. **Raw URL**: `http://…` / `https://…`, validated by ``PairingLink/gatewayURL(from:)``
-///    (host required, no userinfo, port in 1–65535) and used as the manual-entry prefill.
+///    (host required, no userinfo, port in 1–65535) and used as the manual-entry prefill;
+///    or `ws://…` / `wss://…` (as the gateway prints its WebSocket URL), mapped to the
+///    matching `http(s)` base URL by ``PairingLink/webSocketGatewayURL(from:)``.
 /// 2. **Pairing link**: `ghostcrab://pair?p=<base64url JSON>`, decoded by ``PairingLink``.
 ///    The gateway URL becomes the prefill. The bearer token and suggested name (if any) are stashed
 ///    in ``PairingHandoff`` and are never passed to navigation, because `Route`
 ///    is `Hashable` and lives in the navigation path / state restoration.
+///
+/// An `openclaw qr` setup code (bare or `oc-pair://`) is recognised only to explain it
+/// (``PairingLink/setupCodeExplanation(_:)``): its bootstrap token serves node clients
+/// only (ADR-0007), so nothing is stashed and nothing navigates.
 ///
 /// Input over ``PairingLink/maxLength`` is rejected before any parsing. A scan
 /// never connects: it only pre-fills the manual-entry form.
@@ -99,7 +105,13 @@ public final class QrScanViewModel {
             return
         }
 
-        guard let url = PairingLink.gatewayURL(from: trimmed) else {
+        if let setupCode = PairingLink.setupCode(trimmed) {
+            // Its bootstrap token serves node clients only (ADR-0007): explain, never pair with it.
+            error = PairingLink.setupCodeExplanation(setupCode)
+            return
+        }
+
+        guard let url = PairingLink.gatewayURL(from: trimmed) ?? PairingLink.webSocketGatewayURL(from: trimmed) else {
             error = "QR code doesn't contain a valid gateway URL"
             return
         }

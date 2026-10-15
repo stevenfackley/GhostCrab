@@ -6,6 +6,47 @@ import Foundation
 @Suite("ModelManagerViewModel activation")
 struct ModelManagerViewModelTests {
 
+    @Test func onlyANewSessionReloadsTheList() async {
+        let repo = FakeModelRepository(models: [FakeModelRepository.model("m1", active: true)])
+        let gateway = ScriptedConnectionManager(ScriptedConnectionManager.connected(generation: 1))
+        let vm = ModelManagerViewModel(models: repo, gateway: gateway)
+        let run = Task { await vm.run() }
+        await waitUntil { repo.getModelsCount == 1 && gateway.subscriberCount == 1 }
+
+        gateway.emit(ScriptedConnectionManager.connected(generation: 1, reconnecting: true))
+        gateway.emit(ScriptedConnectionManager.connected(generation: 2))
+        await waitUntil { repo.getModelsCount >= 2 }
+        try? await Task.sleep(for: .milliseconds(50)) // room for a reload the reconnecting state should not start
+
+        #expect(repo.getModelsCount == 2)
+        #expect(vm.lastError == nil)
+        #expect(vm.models_.map(\.id) == ["m1"])
+        run.cancel()
+        await run.value
+    }
+
+    @Test func aScreenOpenedDuringTheReconnectLoadsWhenTheNewSessionArrives() async {
+        let repo = FakeModelRepository(models: [FakeModelRepository.model("m1", active: true)])
+        let gateway = ScriptedConnectionManager(ScriptedConnectionManager.connected(generation: 1, reconnecting: true))
+        let vm = ModelManagerViewModel(models: repo, gateway: gateway)
+        let run = Task { await vm.run() }
+        await waitUntil { gateway.subscriberCount == 1 }
+        try? await Task.sleep(for: .milliseconds(50)) // room for a load the reconnecting state should not start
+
+        #expect(repo.getModelsCount == 0)
+        #expect(vm.lastError == nil)
+
+        gateway.emit(ScriptedConnectionManager.connected(generation: 2))
+        await waitUntil { repo.getModelsCount >= 1 }
+        try? await Task.sleep(for: .milliseconds(50))
+
+        #expect(repo.getModelsCount == 1)
+        #expect(vm.lastError == nil)
+        #expect(vm.models_.map(\.id) == ["m1"])
+        run.cancel()
+        await run.value
+    }
+
     private func makeVM(setActiveError: GatewayError? = nil) async -> (ModelManagerViewModel, FakeModelRepository) {
         let repo = FakeModelRepository(
             models: [FakeModelRepository.model("m1", active: true), FakeModelRepository.model("m2")],
@@ -49,6 +90,46 @@ struct ModelManagerViewModelTests {
         #expect(repo.setActiveCalls == ["m2"])
         #expect(vm.models_.first(where: { $0.isActive })?.id == "m2")
         #expect(vm.pendingActivation == nil)
+    }
+
+    @Test func aGatewayWithoutModelsListIsNotSupportedNotAnError() async {
+        let repo = FakeModelRepository(
+            models: [],
+            getModelsError: .methodUnsupported(url: "ws://192.168.1.20:18789/ws", method: "models.list")
+        )
+        let vm = ModelManagerViewModel(models: repo)
+        await vm.load()
+        #expect(vm.notSupported)
+        #expect(vm.lastError == nil)
+        #expect(vm.models_.isEmpty)
+    }
+
+    @Test func anUnlistedPrimaryIsExposedWithNothingActive() async {
+        let repo = FakeModelRepository(
+            models: [FakeModelRepository.model("m1"), FakeModelRepository.model("m2")],
+            unlistedPrimary: "anthropic/claude-opus-9"
+        )
+        let vm = ModelManagerViewModel(models: repo)
+        await vm.load()
+        #expect(vm.unlistedPrimary == "anthropic/claude-opus-9")
+        #expect(vm.models_.map(\.id) == ["m1", "m2"])
+        #expect(vm.models_.allSatisfy { !$0.isActive })
+    }
+
+    @Test func aMatchedPrimaryShowsNoBanner() async {
+        let (vm, _) = await makeVM()
+        #expect(vm.unlistedPrimary == nil)
+    }
+
+    @Test func otherLoadFailuresAreErrorsNotUnsupported() async {
+        let repo = FakeModelRepository(
+            models: [],
+            getModelsError: .missingScope(url: "ws://192.168.1.20:18789/ws", method: "models.list", scope: "operator.read")
+        )
+        let vm = ModelManagerViewModel(models: repo)
+        await vm.load()
+        #expect(!vm.notSupported)
+        #expect(vm.lastError != nil)
     }
 
     @Test func failedActivationKeepsTheErrorVisibleAfterReload() async throws {

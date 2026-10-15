@@ -17,11 +17,26 @@ final class MockURLProtocol: URLProtocol, @unchecked Sendable {
         let status: Int
         let headers: [String: String]
         let body: Data
+        /// When set, the load fails with this error instead of answering.
+        let failure: URLError?
 
         init(status: Int, body: Data = Data(), headers: [String: String] = ["Content-Type": "application/json"]) {
             self.status = status
             self.body = body
             self.headers = headers
+            self.failure = nil
+        }
+
+        private init(failure: URLError) {
+            self.status = 0
+            self.body = Data()
+            self.headers = [:]
+            self.failure = failure
+        }
+
+        /// No response: the load fails with `URLError(code)`, as a timeout, a TLS failure or a dropped connection does.
+        static func failing(_ code: URLError.Code) -> Stub {
+            Stub(failure: URLError(code))
         }
 
         init(status: Int, json: String, headers: [String: String] = ["Content-Type": "application/json"]) {
@@ -85,6 +100,10 @@ final class MockURLProtocol: URLProtocol, @unchecked Sendable {
             return
         }
         let stub = handler(current)
+        if let failure = stub.failure {
+            client?.urlProtocol(self, didFailWithError: failure)
+            return
+        }
         guard let response = HTTPURLResponse(url: url, statusCode: stub.status, httpVersion: "HTTP/1.1", headerFields: stub.headers) else {
             client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
             return

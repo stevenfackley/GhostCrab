@@ -9,6 +9,9 @@ import SwiftUI
 /// screen shows a confirmation dialog), and only ``confirmActivation(_:)``
 /// talks to the gateway. A single tracked ``activationTask`` guarantees one
 /// `setActiveModel` call per confirmation, however often the button is hit.
+///
+/// ``run()`` reloads the list for every new gateway session (the silent reconnect's new session included); the
+/// reconnecting state itself neither reloads nor reports an error.
 @MainActor
 @Observable
 public final class ModelManagerViewModel {
@@ -16,11 +19,17 @@ public final class ModelManagerViewModel {
     // MARK: - Dependencies
 
     private let models: any ModelRepository
+    /// Source of new sessions for ``run()``; `nil` loads once.
+    private let gateway: (any GatewayConnectionManager)?
 
     // MARK: - Observable state
 
     /// Full list of models reported by the gateway.
     public private(set) var models_: [ModelInfo] = []
+
+    /// The gateway's configured primary model, exactly as written, when no single listed model matches it (so none
+    /// is active). Drives an amber banner; `nil` otherwise.
+    public private(set) var unlistedPrimary: String?
 
     /// Identifier of the model currently being activated, or `nil` when idle.
     /// Drives an inline `ProgressView` next to the row.
@@ -29,8 +38,9 @@ public final class ModelManagerViewModel {
     /// True while the initial load is in flight (before any models have been shown).
     public private(set) var isLoading: Bool = false
 
-    /// True when the gateway returned 404 on `/models`, meaning this build of
-    /// the gateway does not support the feature.
+    /// True when the gateway does not implement `models.list` (or a legacy
+    /// REST gateway answered 404): this build of the gateway does not support
+    /// the feature. Not an error.
     public private(set) var notSupported: Bool = false
 
     /// Last error surfaced to the user. Includes URL + status code + exception
@@ -45,25 +55,53 @@ public final class ModelManagerViewModel {
 
     // MARK: - Init
 
-    public init(models: any ModelRepository) {
+    /// - Parameters:
+    ///   - models: The model repository.
+    ///   - gateway: Connection state source; a new session reloads the list (``run()``).
+    public init(models: any ModelRepository, gateway: (any GatewayConnectionManager)? = nil) {
         self.models = models
+        self.gateway = gateway
     }
 
     // MARK: - Lifecycle
 
-    /// Loads the model list. Call from the screen's `.task` modifier and from
-    /// `.refreshable`.
+    /// Loads the list, then reloads it for every new gateway session until the calling task is cancelled. Call from
+    /// the screen's `.task` modifier.
+    public func run() async {
+        guard let gateway else {
+            await load()
+            return
+        }
+        var sessions = SessionTracker()
+        sessions.markLoaded(gateway.currentState)
+        // During the silent reconnect no RPC works: the reconnected session's generation loads the list.
+        if !gateway.currentState.isReconnecting { await load() }
+        // The stream replays the current state first: a session that went live during the load reloads here.
+        for await state in gateway.connectionStates() {
+            if Task.isCancelled { return }
+            if sessions.isNewSession(state) { await load() }
+        }
+    }
+
+    /// Loads the model list. Call from `.refreshable` (``run()`` calls it on appear).
     public func load() async {
         isLoading = models_.isEmpty
         defer { isLoading = false }
         do {
-            let list = try await models.getModels()
-            self.models_ = list
+            let catalogue = try await models.getModelCatalogue()
+            self.models_ = catalogue.models
+            self.unlistedPrimary = catalogue.unlistedPrimary
             self.notSupported = false
+            self.lastError = nil
+        } catch GatewayError.methodUnsupported {
+            self.notSupported = true
+            self.models_ = []
+            self.unlistedPrimary = nil
             self.lastError = nil
         } catch GatewayError.api(_, let statusCode, _) where statusCode == 404 {
             self.notSupported = true
             self.models_ = []
+            self.unlistedPrimary = nil
             self.lastError = nil
         } catch let error as GatewayError {
             self.lastError = describe(error)

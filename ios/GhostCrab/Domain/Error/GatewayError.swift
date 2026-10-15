@@ -81,14 +81,103 @@ public enum GatewayError: Error, Sendable {
     ///   - host: The public IP literal that triggered the block.
     case cleartextBlocked(url: String, host: String)
 
+    /// A gateway RPC answered `ok:false` with a code GhostCrab has no more specific case for (ADR-0007).
+    ///
+    /// - Parameters:
+    ///   - url: The gateway WebSocket endpoint.
+    ///   - method: The RPC method.
+    ///   - code: Top-level error code (e.g. `UNAVAILABLE`).
+    ///   - detailCode: `error.details.code`, when present.
+    ///   - message: The server's message, verbatim.
+    ///   - retryable: The server's `retryable` hint; absent on the wire means `false`.
+    ///   - details: `error.details` when it is an object (e.g. `config.patch` validation `issues[]`), else `nil`.
+    ///   - retryAfterMs: The server's back-off hint, if any.
+    case rpc(
+        url: String,
+        method: String,
+        code: String,
+        detailCode: String?,
+        message: String,
+        retryable: Bool,
+        details: [String: AnyCodable]? = nil,
+        retryAfterMs: Int? = nil
+    )
+
+    /// The gateway does not implement `method` (`INVALID_REQUEST unknown method: …`). Retrying cannot help.
+    case methodUnsupported(url: String, method: String)
+
+    /// The session lacks the operator scope `method` needs (`FORBIDDEN` / `MISSING_SCOPE`). Approve this device
+    /// with that scope on the gateway host.
+    case missingScope(url: String, method: String, scope: String)
+
+    /// The device must be approved on the gateway host (`NOT_PAIRED` / `PAIRING_REQUIRED`). Retryable: the same
+    /// connect succeeds once `openclaw devices approve <requestId>` ran.
+    ///
+    /// - Parameters:
+    ///   - url: The gateway WebSocket endpoint.
+    ///   - requestId: The pending pairing request, when the gateway sent one. Stable across reconnects.
+    ///   - reason: `not-paired`, `scope-upgrade`, `role-upgrade` or `metadata-upgrade`.
+    ///   - requestedScopes: The scopes this device asked for.
+    case pairingRequired(url: String, requestId: String?, reason: String, requestedScopes: [String])
+
+    /// The `connect` handshake's credential or device proof was rejected (`AUTH_*` / `DEVICE_*` detail codes, e.g.
+    /// `AUTH_TOKEN_MISMATCH`, `AUTH_TOKEN_MISSING`, `DEVICE_IDENTITY_REQUIRED`).
+    ///
+    /// - Parameters:
+    ///   - url: The gateway WebSocket endpoint.
+    ///   - detailCode: The structured code.
+    ///   - message: The server's message, verbatim.
+    ///   - recommendedNextStep: Upstream recovery hint (`update_auth_credentials`, `wait_then_retry`, …), if any.
+    ///   - retryable: The server's `retryable` hint. The rejection is retryable when this is `true` or
+    ///     `recommendedNextStep` is `wait_then_retry`; otherwise the credential has to change first.
+    ///   - retryAfterMs: The server's back-off hint, if any.
+    case connectRejected(
+        url: String,
+        detailCode: String,
+        message: String,
+        recommendedNextStep: String?,
+        retryable: Bool = false,
+        retryAfterMs: Int? = nil
+    )
+
+    /// The gateway closed the control-plane socket with a policy-violation close (WebSocket 1008) and no response
+    /// explaining it, e.g. a socket that never sent `connect` or a frame the gateway refused. Not retryable as-is:
+    /// the same frames would be refused again.
+    ///
+    /// - Parameters:
+    ///   - url: The gateway WebSocket endpoint.
+    ///   - closeCode: The WebSocket close code.
+    ///   - reason: The close reason the gateway sent; may be empty.
+    case connectionClosed(url: String, closeCode: Int, reason: String)
+
+    /// The gateway answered, but not in a shape this client understands (malformed challenge or hello,
+    /// unexpected payload). Not a connectivity problem.
+    case protocolViolation(url: String, detail: String)
+
+    /// This device's Keychain refused to read or store the device identity (ADR-0007), e.g. while the device is
+    /// still locked after a restart. Nothing reached the gateway. Retryable, but only at the user's request: an
+    /// automatic retry loop must stop on it.
+    ///
+    /// - Parameters:
+    ///   - operation: What failed, e.g. `read the device identity`. Never contains a secret.
+    ///   - underlying: The Keychain error (an `OSStatus` wrapper; no secret).
+    case deviceCredentialStorage(operation: String, underlying: (any Error & Sendable)? = nil)
+
+    /// Upstream's `recommendedNextStep` for a rejection that clears by itself after a back-off.
+    private static let nextStepWaitThenRetry = "wait_then_retry"
+
     /// Whether the operation that produced this error is safe to retry.
     public var isRetryable: Bool {
         switch self {
-        case .unreachable, .timeout:
+        case .unreachable, .timeout, .pairingRequired, .deviceCredentialStorage:
             return true
+        case let .rpc(_, _, _, _, _, retryable, _, _):
+            return retryable
+        case let .connectRejected(_, _, _, recommendedNextStep, retryable, _):
+            return retryable || recommendedNextStep == GatewayError.nextStepWaitThenRetry
         case .auth, .api, .tls, .profileNeedsReauth,
              .aiServiceUnavailable, .aiQuotaExceeded, .configValidation,
-             .cleartextBlocked:
+             .cleartextBlocked, .methodUnsupported, .missingScope, .connectionClosed, .protocolViolation:
             return false
         }
     }
@@ -136,6 +225,27 @@ extension GatewayError: LocalizedError {
             return "Invalid value for '\(field)': \(reason)"
         case .cleartextBlocked(let url, let host):
             return "\(GatewayError.cleartextPolicyMessage(host: host)) URL: \(url)"
+        case let .rpc(url, method, code, detailCode, message, _, _, _):
+            let detail = detailCode.map { "/\($0)" } ?? ""
+            return "Gateway RPC \(method) failed at \(url): \(code)\(detail) \u{2014} \(message)"
+        case let .methodUnsupported(url, method):
+            return "Gateway at \(url) does not support '\(method)' (INVALID_REQUEST unknown method)"
+        case let .missingScope(url, method, scope):
+            return "Gateway at \(url) refused '\(method)': missing scope \(scope) (FORBIDDEN/MISSING_SCOPE)"
+        case let .pairingRequired(url, requestId, reason, _):
+            // Same shell-safe filter as the approval card: the gateway's id is pasted into a shell on its host.
+            let command = PairingCommand.approve(requestId: requestId)
+            return "Gateway at \(url) needs this device approved (\(reason)). On the gateway host run: \(command)"
+        case let .connectRejected(url, detailCode, message, _, _, _):
+            return "Gateway at \(url) rejected the connect handshake: \(detailCode) \u{2014} \(message)"
+        case let .connectionClosed(url, closeCode, reason):
+            let trimmed = reason.trimmingCharacters(in: .whitespacesAndNewlines)
+            let suffix = trimmed.isEmpty ? "" : " \u{2014} \(trimmed)"
+            return "Gateway at \(url) closed the connection: WebSocket \(closeCode)\(suffix)"
+        case let .protocolViolation(url, detail):
+            return "Unexpected gateway response at \(url): \(detail)"
+        case let .deviceCredentialStorage(operation, _):
+            return "Could not \(operation) in this device's Keychain. Unlock the device and try again."
         }
     }
 }
