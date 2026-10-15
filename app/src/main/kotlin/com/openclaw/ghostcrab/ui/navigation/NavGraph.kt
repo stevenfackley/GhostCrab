@@ -119,22 +119,15 @@ fun NavGraph(pairRequest: Int = 0) {
 
         composable("onboarding") {
             OnboardingScreen(
-                onSkip = {
-                    navController.navigate("connection_picker") {
-                        popUpTo("onboarding") { inclusive = true }
-                    }
-                },
+                // Onboarding opened over the start picker; popping only itself would stack a second picker on it.
+                onSkip = { navController.navigateAsOnlyEntry("connection_picker") },
                 onScan = {
                     navController.navigate("scan")
                 },
                 onManualEntry = {
                     navController.navigate("manual_entry")
                 },
-                onDone = {
-                    navController.navigate("connection_picker") {
-                        popUpTo("onboarding") { inclusive = true }
-                    }
-                },
+                onDone = { navController.navigateAsOnlyEntry("connection_picker") },
             )
         }
 
@@ -173,6 +166,7 @@ fun NavGraph(pairRequest: Int = 0) {
  * Opens [route] as the only back-stack entry. Every dashboard opening and the dashboard's way back to the picker use
  * it, so exactly one dashboard (one polling `DashboardViewModel`) lives in the back stack whichever screen opened it:
  * the picker, Manual Entry (also when a pairing link opened it over the dashboard), Scan, or a resumed pairing wait.
+ * Onboarding's Skip / Done use it too, so the picker it was opened over is not left under a second one.
  */
 private fun NavController.navigateAsOnlyEntry(route: String) {
     navigate(route) { popUpTo(graph.id) { inclusive = true } }
