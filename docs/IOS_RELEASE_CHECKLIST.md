@@ -67,7 +67,7 @@ brew install xcodegen
 - [x] ATS: `NSAllowsLocalNetworking` only, no `NSAllowsArbitraryLoads` (`docs/adr/0006-ios-ats-local-networking.md`)
 - [x] Version: `MARKETING_VERSION` 0.2.0 in `ios/project.yml`, matching Android
 - [x] CI lane: `.github/workflows/ios-pr.yml` runs the tests on the iOS simulator and compiles Mac Catalyst on every PR touching `ios/`
-- [ ] Release workflow: changed on PR #127 (`ExportOptions.plist` export only with `altool` as the single upload path, validated build number, `rm`-based key wipe, sandbox entitlements kept through xcodegen). Unverified until the first TestFlight run (roadmap 4.12): `ios-release.yml` has never run.
+- [ ] Release workflow: changed on PR #127 (`ExportOptions.plist` export only with `altool` as the single upload path, validated build number, `rm`-based key wipe, sandbox entitlements kept through xcodegen). First run (2026-10-14, run 38666179693) failed at archive codesign with `errSecInternalComponent` (locked login keychain); `fix/ios-release-pipeline` moved signing to a job keychain. Unverified until a TestFlight run succeeds (roadmap 4.12).
 
 ---
 
@@ -107,14 +107,16 @@ The Mac mini runner does:
 1. Checkout
 2. `xcodegen generate` → creates `GhostCrab.xcodeproj`
 3. Install ASC API key at `~/.appstoreconnect/private_keys/AuthKey_<KeyID>.p8` (mode 600)
-4. **Archive iOS** (`generic/platform=iOS`)
-5. **Export iOS IPA** (`ExportOptions.plist` `destination=export`: export only, no upload)
-6. **Upload iOS IPA** via `xcrun altool` → goes to App Store Connect → iOS TestFlight queue
-7. **Archive Mac Catalyst** (`generic/platform=macOS,variant=Mac Catalyst`)
-8. **Export Mac PKG**
-9. **Upload Mac PKG** via `xcrun altool -t macos` → goes to App Store Connect → macOS TestFlight queue
-10. Upload artifacts (IPA + PKG + dSYMs) to GitHub
-11. Delete the API key file (`rm -f`; macOS has no `shred`) and fail if it is still there
+4. Create a throwaway keychain (random password; becomes the default and the only user keychain in the search list) and import the team identity "Apple Distribution: Steven Ackley (QJW4S8BDFX)" from the runner's `.p12` (repo variable `IOS_DIST_P12_PATH`, default HaulCall's `~/.haulcall-ci/dist.p12`)
+5. **Archive iOS** unsigned (`generic/platform=iOS`, `CODE_SIGNING_ALLOWED=NO`), then ad-hoc sign the archived app with the `project.yml` entitlements (`.github/scripts/ios-entitle-archive.sh`) so export keeps them
+6. **Export iOS IPA** with automatic signing via the API key (`-allowProvisioningUpdates`; `destination=export`: export only, no upload)
+7. **Verify** the IPA: distribution identity, App Store profile, build number, `get-task-allow` false, keychain group (`.github/scripts/ios-verify-signed-app.sh`)
+8. **Upload iOS IPA** via `xcrun altool` → goes to App Store Connect → iOS TestFlight queue
+9. **Archive Mac Catalyst** the same way (`generic/platform=macOS,variant=Mac Catalyst`), **export PKG**, stash any Mac installer identity Xcode minted at `~/.ghostcrab-ci/identities.p12`, verify App Sandbox + `network.client` survived
+10. **Upload Mac PKG** via `xcrun altool -t macos` → goes to App Store Connect → macOS TestFlight queue
+11. Upload artifacts (IPA + PKG + dSYMs) to GitHub
+12. Restore the keychain search list and default keychain, delete the job keychain
+13. Delete the API key file (`rm -f`; macOS has no `shred`) and fail if it is still there
 
 Total wall-clock: ~12-18 min for both, ~6-8 min iOS-only.
 
@@ -133,6 +135,14 @@ Total wall-clock: ~12-18 min for both, ~6-8 min iOS-only.
 ---
 
 ## Troubleshooting
+
+### `errSecInternalComponent` at CodeSign
+
+codesign reached a private key it could not use: the runner's LaunchAgent gives every job a fresh security session in which the login keychain is locked. The workflow never signs from the login keychain any more; if this comes back, something put the login keychain back in the search list during the job (another signing job on the same Mac running at the same moment), or the identity in the job keychain has no partition list. Re-run once nothing else is signing.
+
+### "No team distribution identity on this runner"
+
+The membership is at Apple's cap of 3 distribution certificates, so CI reuses one instead of minting. Restore the `.p12` (and its `.pw` password file) at `~/.haulcall-ci/dist.p12` on the Mac Mini, or set the `IOS_DIST_P12_PATH` repository variable to another copy of the same identity. Keep it outside `~/Desktop`, `~/Documents` and `~/Downloads` (TCC-protected; a read from the runner blocks).
 
 ### "No provisioning profile found"
 
