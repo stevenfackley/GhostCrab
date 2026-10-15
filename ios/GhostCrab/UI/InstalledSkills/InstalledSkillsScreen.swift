@@ -1,9 +1,10 @@
 import SwiftUI
 
-/// Installed Skills screen — list/install/uninstall gateway-installed skills.
+/// Installed Skills screen — list/install/disable gateway-installed skills.
 ///
-/// Direct port of `InstalledSkillsScreen.kt`. Each row carries a trailing
-/// `Menu` with an Uninstall action (gated by confirmation). In-flight installs
+/// Direct port of `InstalledSkillsScreen.kt`. Each enabled row carries a trailing
+/// `Menu` with a Disable action (gated by confirmation; OpenClaw has no skill
+/// removal, ADR-0007); disabled rows are marked. In-flight installs
 /// render as inline progress rows; failed installs render as inline error rows
 /// with a Retry button when the underlying error is retryable.
 public struct InstalledSkillsScreen: View {
@@ -39,14 +40,14 @@ public struct InstalledSkillsScreen: View {
             }
         }
         .alert(
-            "Uninstall \(vm.pendingUninstallSlug ?? "")?",
+            "Disable \(vm.pendingUninstallSlug ?? "")?",
             isPresented: uninstallAlertBinding,
             presenting: vm.pendingUninstallSlug
         ) { _ in
-            Button("Uninstall", role: .destructive) { vm.confirmUninstall() }
+            Button("Disable", role: .destructive) { vm.confirmUninstall() }
             Button("Cancel", role: .cancel) { vm.cancelUninstall() }
         } message: { _ in
-            Text("The skill will be removed from the gateway. You can reinstall it later.")
+            Text("OpenClaw gateways cannot remove skills remotely. GhostCrab disables the skill instead (skills.update, enabled = false). It stays on the gateway host and can be enabled there again.")
         }
         .alert(
             "Couldn't complete operation",
@@ -148,6 +149,11 @@ public struct InstalledSkillsScreen: View {
                     Text(sourceLabel(skill.source))
                         .font(AppFont.body(11))
                         .foregroundStyle(DesignTokens.Color.textSecondary)
+                    if skill.disabled {
+                        Text("\u{00B7} disabled")
+                            .font(AppFont.body(11))
+                            .foregroundStyle(DesignTokens.Color.amberWarn)
+                    }
                 }
             }
 
@@ -157,12 +163,12 @@ public struct InstalledSkillsScreen: View {
                 ProgressView()
                     .tint(DesignTokens.Color.crimsonError)
                     .controlSize(.small)
-            } else {
+            } else if !skill.disabled {
                 Menu {
                     Button(role: .destructive) {
                         vm.uninstall(slug: skill.slug)
                     } label: {
-                        Label("Uninstall", systemImage: "trash")
+                        Label("Disable", systemImage: "pause.circle")
                     }
                 } label: {
                     Image(systemName: "ellipsis.circle")

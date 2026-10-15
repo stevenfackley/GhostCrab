@@ -29,4 +29,16 @@ public protocol InstalledSkillRepository: Sendable {
     /// - Parameter slug: The slug of the skill to uninstall.
     /// - Returns: A `Result` indicating success or failure.
     func uninstall(slug: String) async -> Result<Void, any Error>
+
+    /// Enables or disables a skill on the gateway (`skills.update {skillKey, enabled}`). OpenClaw has no skill
+    /// removal, so the UI's "remove" action disables instead (ADR-0007).
+    ///
+    /// Additive (v1.1, ADR-0005).
+    ///
+    /// - Parameters:
+    ///   - skillKey: The skill's key; an `owner/slug` is reduced to `slug`.
+    ///   - enabled: The new state.
+    /// - Returns: Success after the list was re-read, or the error (`GatewayError.api` 404 for a key `skills.status`
+    ///   does not list, `GatewayError.missingScope` without `operator.admin`).
+    func setSkillEnabled(skillKey: String, enabled: Bool) async -> Result<Void, any Error>
 }

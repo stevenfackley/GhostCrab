@@ -383,6 +383,7 @@ final class FakeInstalledSkillRepository: InstalledSkillRepository, @unchecked S
     private var installLog: [String] = []
     private var uninstallLog: [String] = []
     private var refreshCalls = 0
+    private var enabledLog: [String] = []
 
     /// - Parameters:
     ///   - skills: Installed list replayed by `observeInstalled()` and returned by `refreshFromGateway()`.
@@ -405,6 +406,8 @@ final class FakeInstalledSkillRepository: InstalledSkillRepository, @unchecked S
     var installedSlugs: [String] { lock.withLock { installLog } }
     var uninstalledSlugs: [String] { lock.withLock { uninstallLog } }
     var refreshCount: Int { lock.withLock { refreshCalls } }
+    /// `"<skillKey>=<enabled>"` for every `setSkillEnabled` call, in order.
+    var enabledChanges: [String] { lock.withLock { enabledLog } }
 
     func observeInstalled() -> AsyncStream<[InstalledSkill]> {
         let snapshot = lock.withLock { skills }
@@ -437,6 +440,24 @@ final class FakeInstalledSkillRepository: InstalledSkillRepository, @unchecked S
         lock.withLock { uninstallLog.append(slug) }
         if let uninstallError { return .failure(uninstallError) }
         lock.withLock { skills.removeAll { $0.slug == slug } }
+        return .success(())
+    }
+
+    func setSkillEnabled(skillKey: String, enabled: Bool) async -> Result<Void, any Error> {
+        lock.withLock {
+            enabledLog.append("\(skillKey)=\(enabled)")
+            skills = skills.map {
+                $0.slug == skillKey
+                    ? InstalledSkill(
+                        slug: $0.slug,
+                        installedVersion: $0.installedVersion,
+                        source: $0.source,
+                        installedAt: $0.installedAt,
+                        disabled: !enabled
+                    )
+                    : $0
+            }
+        }
         return .success(())
     }
 }

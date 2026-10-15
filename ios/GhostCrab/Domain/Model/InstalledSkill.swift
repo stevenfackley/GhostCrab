@@ -13,6 +13,9 @@ public struct InstalledSkill: Codable, Sendable, Identifiable, Hashable {
     public let installedVersion: String
     public let source: SkillSource
     public let installedAt: Date
+    /// `true` when the gateway reports the skill disabled (`skills.status` `disabled`). Additive (v1.1).
+    /// (`installedAt` comes from `clawhub.installedAt` for ClawHub installs; the epoch otherwise.)
+    public let disabled: Bool
 
     /// `Identifiable` uses `slug` as the stable identifier.
     public var id: String { slug }
@@ -21,11 +24,13 @@ public struct InstalledSkill: Codable, Sendable, Identifiable, Hashable {
         slug: String,
         installedVersion: String,
         source: SkillSource,
-        installedAt: Date
+        installedAt: Date,
+        disabled: Bool = false
     ) {
         self.slug = slug
         self.installedVersion = installedVersion
         self.source = source
         self.installedAt = installedAt
+        self.disabled = disabled
     }
 }

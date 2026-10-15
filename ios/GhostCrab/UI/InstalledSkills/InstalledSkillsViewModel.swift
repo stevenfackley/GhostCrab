@@ -161,15 +161,17 @@ public final class InstalledSkillsViewModel {
         pendingUninstallSlug = nil
     }
 
-    /// Confirm uninstall of the currently-pending slug. Fires the RPC and
-    /// surfaces errors via ``lastError``.
+    /// Confirm removal of the currently-pending slug, which on OpenClaw means
+    /// disabling it (`skills.update`, `enabled = false`; there is no removal
+    /// RPC). Surfaces errors via ``lastError``.
     public func confirmUninstall() {
         guard let slug = pendingUninstallSlug else { return }
         pendingUninstallSlug = nil
         uninstallingSlug = slug
 
         Task { [weak self, repo] in
-            let result = await repo.uninstall(slug: slug)
+            // OpenClaw has no skill removal: disable it (skills.update, enabled = false). ADR-0007.
+            let result = await repo.setSkillEnabled(skillKey: slug, enabled: false)
             guard let self else { return }
             self.uninstallingSlug = nil
             if case .failure(let error) = result {
