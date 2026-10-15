@@ -22,13 +22,26 @@ public protocol GatewayWebSocket: Sendable {
     /// - Throws: The transport error when the frame could not be sent.
     func send(_ text: String) async throws
     /// - Returns: The next text frame, or `nil` once the socket has closed in an orderly way.
-    /// - Throws: The transport error when the socket failed.
+    /// - Throws: The transport error when the socket failed; ``UndecodableGatewayFrame`` for a frame that cannot be
+    ///   read as text (never `nil`: that is not an orderly close).
     func receive() async throws -> String?
     /// - Returns: The close frame the gateway sent, once ``receive()`` has ended; `nil` when the socket ended
     ///   without one (a dropped connection). May wait briefly for a close frame the transport reports late.
     func closeFrame() async -> GatewaySocketClose?
     /// Closes the socket. Idempotent.
     func close() async
+}
+
+/// A frame a ``GatewayWebSocket`` could not read as text: a binary frame that is not UTF-8, or a message kind the
+/// SDK added later. Names the kind only, never the bytes. ``GatewayRPCClient`` ends the session with
+/// ``GatewayError/protocolViolation(url:detail:)`` for it.
+public struct UndecodableGatewayFrame: Error, Sendable, Equatable {
+    /// What arrived, e.g. `binary frame that is not UTF-8`.
+    public let kind: String
+
+    public init(kind: String) {
+        self.kind = kind
+    }
 }
 
 /// Builds sockets; injectable into ``GatewayConnectionManagerImpl``.
@@ -48,8 +61,8 @@ public struct URLSessionGatewaySocketFactory: GatewaySocketFactory {
 /// (ADR-0006); the app's own public-IP cleartext policy is enforced before the socket is built
 /// (``GatewayWebSocketURL``), because custom `URLProtocol`s never see WebSocket tasks.
 ///
-/// `@unchecked Sendable`: both stored properties are immutable and the URLSession types are thread-safe.
-public final class URLSessionGatewayWebSocket: GatewayWebSocket, @unchecked Sendable {
+/// `Sendable` without `@unchecked`: both stored properties are immutable and the URLSession types are `Sendable`.
+public final class URLSessionGatewayWebSocket: GatewayWebSocket {
 
     /// How long ``closeFrame()`` waits for a close frame that URLSession records after failing `receive()`.
     private static let closeFrameWait: Duration = .seconds(1)
@@ -78,18 +91,23 @@ public final class URLSessionGatewayWebSocket: GatewayWebSocket, @unchecked Send
     }
 
     public func receive() async throws -> String? {
+        let message: URLSessionWebSocketTask.Message
         do {
-            switch try await task.receive() {
-            case .string(let text):
-                return text
-            case .data(let data):
-                return String(data: data, encoding: .utf8)
-            @unknown default:
-                return nil
-            }
+            message = try await task.receive()
         } catch {
             if task.closeCode != .invalid { return nil } // orderly close (e.g. 1008 after a failed connect)
             throw error
+        }
+        switch message {
+        case .string(let text):
+            return text
+        case .data(let data):
+            guard let text = String(data: data, encoding: .utf8) else {
+                throw UndecodableGatewayFrame(kind: "binary frame that is not UTF-8")
+            }
+            return text
+        @unknown default:
+            throw UndecodableGatewayFrame(kind: "unknown message kind")
         }
     }
 

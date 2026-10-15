@@ -7,7 +7,9 @@ import Foundation
 /// caller's own timeout or cancellation propagates as `CancellationError`, and the request is forgotten either way.
 /// Once the socket ends, pending and later requests fail with the end cause instead of hanging:
 /// ``GatewayError/connectionClosed(url:closeCode:reason:)`` for a gateway policy close (1008) with no response
-/// explaining it, ``GatewayError/unreachable(url:underlying:)`` for a drop, a transport error or ``close()``.
+/// explaining it, ``GatewayError/protocolViolation(url:detail:)`` for a frame the socket could not read as text
+/// (``UndecodableGatewayFrame``), ``GatewayError/unreachable(url:underlying:)`` for a drop, a transport error or
+/// ``close()``.
 ///
 /// Call ``start()`` once, ``close()`` at the end.
 public actor GatewayRPCClient {
@@ -72,6 +74,12 @@ public actor GatewayRPCClient {
             failure = error
         }
         guard closedError == nil else { return } // close() already ended the session
+        if let undecodable = failure as? UndecodableGatewayFrame {
+            // Not an orderly close: the socket is still open, so there is no close frame to wait for. The detail
+            // names the type and the frame kind only, never its bytes.
+            finish(with: .protocolViolation(url: endpoint, detail: "\(UndecodableGatewayFrame.self): \(undecodable.kind)"))
+            return
+        }
         let peerClose = await socket.closeFrame()
         finish(with: endCause(peerClose: peerClose, failure: failure))
     }

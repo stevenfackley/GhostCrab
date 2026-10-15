@@ -320,6 +320,25 @@ struct GatewayRPCClientTests {
         #expect(await rpc.isClosed)
     }
 
+    @Test func anUndecodableFrameEndsTheSessionAsAProtocolViolationNotAnOrderlyClose() async throws {
+        let socket = try ScriptedGatewayWebSocket()
+        let rpc = await client(socket)
+        let pending = Task { await gatewayError { _ = try await rpc.request("health") } }
+        _ = try await sentId(socket, "health")
+        await socket.failTransport(UndecodableGatewayFrame(kind: "binary frame that is not UTF-8"))
+        guard case let .protocolViolation(url, detail)? = await pending.value else {
+            Issue.record("expected protocolViolation")
+            return
+        }
+        #expect(url == "ws://test/ws")
+        #expect(detail == "UndecodableGatewayFrame: binary frame that is not UTF-8")
+        guard case .protocolViolation? = await rpc.endCause else {
+            Issue.record("expected the end cause to be protocolViolation")
+            return
+        }
+        #expect(GatewayError.protocolViolation(url: url, detail: detail).isRetryable == false)
+    }
+
     @Test func aSendFailureSurfacesAsUnreachableWithTheCause() async throws {
         let rpc = await client(try ScriptedGatewayWebSocket(failSendsWith: SendBroke()))
         let error = await gatewayError { _ = try await rpc.request("health") }

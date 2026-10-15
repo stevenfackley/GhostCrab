@@ -227,7 +227,7 @@ struct DeviceStoresTests {
 }
 
 /// Reads find nothing; every write is refused.
-private final class RefusingWritesTokenStore: TokenStoring, @unchecked Sendable {
+private final class RefusingWritesTokenStore: TokenStoring {
     func setToken(_ token: String, for profileId: String) throws { throw KeychainError.unexpectedStatus(errSecNotAvailable) }
     func getToken(for profileId: String) throws -> String? { nil }
     func deleteToken(for profileId: String) throws {}
