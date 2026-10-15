@@ -128,7 +128,11 @@ private fun GatewayAuthFields(
     Spacer(modifier = Modifier.height(Spacing.xs))
     EnumDropdownRow(
         label = stringResource(
-            if (auth.mode == null) R.string.config_gateway_auth_mode_unset_label else R.string.config_gateway_auth_mode_label,
+            if (auth.mode == null) {
+                R.string.config_gateway_auth_mode_unset_label
+            } else {
+                R.string.config_gateway_auth_mode_label
+            },
         ),
         selected = auth.mode ?: AuthMode.Token,
         options = AuthMode.entries,
@@ -175,8 +179,8 @@ private fun GatewayAuthFields(
  *   typed editor cannot model.
  */
 fun inlineErrorFieldsOf(sectionKey: String, sectionValue: JsonElement): Set<String> {
-    if (sectionKey != GATEWAY_SECTION) return emptySet()
-    val section = sectionValue.toGatewaySectionOrNull() ?: return emptySet()
+    val section = sectionValue.takeIf { sectionKey == GATEWAY_SECTION }?.toGatewaySectionOrNull()
+        ?: return emptySet()
     return setOf(FIELD_MODE, FIELD_PORT, FIELD_BIND) + listOfNotNull(FIELD_TOKEN.takeIf { section.showsTokenField() })
 }
 

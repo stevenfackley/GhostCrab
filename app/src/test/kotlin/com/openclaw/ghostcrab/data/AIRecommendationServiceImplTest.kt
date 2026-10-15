@@ -46,7 +46,8 @@ class AIRecommendationServiceImplTest {
     // ── isAvailable ───────────────────────────────────────────────────────────
 
     @Test fun `never available, whatever the gateway advertises`() = runTest {
-        assertFalse(AIRecommendationServiceImpl(manager(connected("ai.recommend", "config", "models", "skills"))).isAvailable())
+        val everything = manager(connected("ai.recommend", "config", "models", "skills"))
+        assertFalse(AIRecommendationServiceImpl(everything).isAvailable())
     }
 
     @Test fun `isAvailable false when connected without ai_recommend capability`() = runTest {

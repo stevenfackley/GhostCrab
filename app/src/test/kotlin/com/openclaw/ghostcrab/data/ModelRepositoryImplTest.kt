@@ -42,12 +42,16 @@ class ModelRepositoryImplTest {
     ).jsonObject
 
     private fun configWithPrimary(primary: String): JsonObject = Json.parseToJsonElement(
-        """{"type":"res","ok":true,"payload":{"parsed":{"agents":{"defaults":{"model":{"primary":"$primary"}}}},"hash":"h-1"}}""",
+        """{"type":"res","ok":true,"payload":{"parsed":{"agents":{"defaults":{"model":{"primary":"$primary"}}}},""" +
+            """"hash":"h-1"}}""",
     ).jsonObject
 
-    private val okPatch: JsonObject = Json.parseToJsonElement("""{"type":"res","ok":true,"payload":{"ok":true}}""").jsonObject
+    private val okPatch: JsonObject =
+        Json.parseToJsonElement("""{"type":"res","ok":true,"payload":{"ok":true}}""").jsonObject
 
-    private fun TestScope.repo(respond: (String, JsonObject) -> JsonObject?): Pair<ModelRepositoryImpl, ScriptedWsSession> {
+    private fun TestScope.repo(
+        respond: (String, JsonObject) -> JsonObject?,
+    ): Pair<ModelRepositoryImpl, ScriptedWsSession> {
         val session = ScriptedWsSession(respond = respond)
         val rpc = GatewayRpcClient.create(session, "ws://gw/ws", UnconfinedTestDispatcher(testScheduler))
         return ModelRepositoryImpl { rpc } to session
@@ -141,7 +145,9 @@ class ModelRepositoryImplTest {
     }
 
     @Test fun `a refused models list passes through typed`() = runTest {
-        val (models, _) = repo { method, _ -> if (method == "models.list") GatewayFixtures.frame("err-missing-scope") else null }
+        val (models, _) = repo { method, _ ->
+            if (method == "models.list") GatewayFixtures.frame("err-missing-scope") else null
+        }
         assertThrows<GatewayMissingScopeException> { models.getModels() }
     }
 
@@ -162,14 +168,18 @@ class ModelRepositoryImplTest {
         }
         models.setActiveModel("openai/gpt-6-astra")
         val params = session.paramsOf("config.patch")
-        assertEquals("""{"agents":{"defaults":{"model":{"primary":"openai/gpt-6-astra"}}}}""", params.stringOrNull("raw"))
+        assertEquals(
+            """{"agents":{"defaults":{"model":{"primary":"openai/gpt-6-astra"}}}}""",
+            params.stringOrNull("raw"),
+        )
         assertEquals("h-1", params.stringOrNull("baseHash"))
         assertFalse(session.sent.any { it.stringOrNull("method") == "models.set" })
     }
 
     @Test fun `a rejected model is HTTP-422 style`() = runTest {
         val rejection = Json.parseToJsonElement(
-            """{"type":"res","ok":false,"error":{"code":"INVALID_REQUEST","message":"invalid config: unknown model x/y"}}""",
+            """{"type":"res","ok":false,""" +
+                """"error":{"code":"INVALID_REQUEST","message":"invalid config: unknown model x/y"}}""",
         ).jsonObject
         val (models, _) = repo { method, _ ->
             when (method) {

@@ -354,7 +354,7 @@ class ConfigEditorViewModelTest {
         assertTrue("gateway.port" in inlineErrorFieldsOf("gateway", edit))
     }
 
-    /** A view model over the real repository, replaying the captured config frames; `config.patch` answers [patchReply]. */
+    /** The real repository over the captured config frames; `config.patch` answers the [patchReply] fixture. */
     private fun TestScope.vmOverFixtures(patchReply: String): ConfigEditorViewModel {
         val session = ScriptedWsSession(
             respond = { method, _ ->
