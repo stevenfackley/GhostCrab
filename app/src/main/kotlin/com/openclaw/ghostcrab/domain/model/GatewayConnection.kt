@@ -33,6 +33,12 @@ sealed interface GatewayConnection {
      * @param tokenOrNull Bearer token for the active session, or null if auth is not required. Sensitive — never log.
      * @param warnings Additive (v1.1, ADR-0007): problems that did not fail the connect, e.g. a device token that
      *   could not be stored or a regenerated device identity. Empty when there are none.
+     * @param reconnecting Additive (v1.1, ADR-0007): `true` while the socket dropped and the manager makes its one
+     *   silent reconnect. No session is live meanwhile: RPCs fail with a retryable
+     *   [com.openclaw.ghostcrab.domain.exception.GatewayNotConnectedException] ("Reconnecting to <url>…"). The
+     *   state then becomes a new [Connected] (higher [sessionGeneration]) or [Error].
+     * @param sessionGeneration Additive (v1.1, ADR-0007): increases with every session the manager makes live, so a
+     *   reconnected session is a new value even when nothing else changed; screens reload on it.
      */
     data class Connected(
         val url: String,
@@ -44,12 +50,15 @@ sealed interface GatewayConnection {
         val hardwareInfo: String? = null,
         val tokenOrNull: String? = null,
         val warnings: List<ConnectionWarning> = emptyList(),
+        val reconnecting: Boolean = false,
+        val sessionGeneration: Long = 0L,
     ) : GatewayConnection {
         /** Redacts [tokenOrNull] so logging or dumping the connection state cannot leak a bearer. */
         override fun toString(): String =
             "Connected(url=$url, displayName=$displayName, version=$version, " +
                 "authRequirement=$authRequirement, isHttps=$isHttps, capabilities=$capabilities, " +
-                "hardwareInfo=$hardwareInfo, tokenOrNull=${tokenOrNull?.let { "[REDACTED]" }}, warnings=$warnings)"
+                "hardwareInfo=$hardwareInfo, tokenOrNull=${tokenOrNull?.let { "[REDACTED]" }}, warnings=$warnings, " +
+                "reconnecting=$reconnecting, sessionGeneration=$sessionGeneration)"
     }
 
     /**

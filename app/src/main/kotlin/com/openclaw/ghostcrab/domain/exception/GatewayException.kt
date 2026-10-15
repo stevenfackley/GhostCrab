@@ -196,11 +196,17 @@ class GatewayProtocolException(
 
 /**
  * An operation needed the active gateway session but none exists (never connected, or the
- * connection dropped mid-flight). Not retryable as-is: the user must reconnect first.
+ * connection dropped mid-flight). Not retryable as-is: the user must reconnect first. The exception is the
+ * silent reconnect after a dropped socket ([reconnectingTo] set): the session is expected back within seconds,
+ * so that failure is retryable.
+ *
+ * @param reconnectingTo Additive (v1.1, ADR-0007): the gateway URL the connection manager is silently reconnecting
+ *   to, or `null` when no reconnect is running.
  */
-class GatewayNotConnectedException :
-    GatewayException("No active gateway connection. Reconnect and try again.") {
-    override val isRetryable: Boolean = false
+class GatewayNotConnectedException(val reconnectingTo: String? = null) : GatewayException(
+    reconnectingTo?.let { "Reconnecting to $it…" } ?: "No active gateway connection. Reconnect and try again.",
+) {
+    override val isRetryable: Boolean = reconnectingTo != null
 }
 
 /**

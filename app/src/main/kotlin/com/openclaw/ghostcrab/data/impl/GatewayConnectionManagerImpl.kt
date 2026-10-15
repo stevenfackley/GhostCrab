@@ -41,6 +41,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -57,9 +58,12 @@ private val CREDENTIAL_MISSING_CODES = setOf("AUTH_TOKEN_MISSING", "AUTH_PASSWOR
  * opened with a signed `connect`. Repositories call RPCs on [requireSession]. Thread-safe via [mutex].
  *
  * The live socket is watched: when it ends (gateway restart, Wi-Fi change, Doze, a 1008 close) the manager makes
- * one silent reconnect with this gateway's stored device token (the shared token when none is stored); if that
- * fails, or the reconnected socket ends too, the state becomes [GatewayConnection.Error]: with the gateway's refusal
- * (pairing required, rejected credential) when the reconnect got one, else with the typed end cause.
+ * one silent reconnect with this gateway's stored device token (the shared token when none is stored). Meanwhile
+ * the state is [GatewayConnection.Connected] with `reconnecting = true` and [requireSession] fails with a retryable
+ * [GatewayNotConnectedException] naming the URL; a successful reconnect publishes a new Connected (next
+ * `sessionGeneration`). If the reconnect fails, or the reconnected socket ends too, the state becomes
+ * [GatewayConnection.Error]: with the gateway's refusal (pairing required, rejected credential) when the reconnect
+ * got one, else with the typed end cause. A reconnect stopped by [connect] or [disconnect] ends Disconnected.
  *
  * A caller's timeout or cancellation always propagates as cancellation (the state returns to
  * [GatewayConnection.Disconnected]); it is never turned into a gateway error.
@@ -100,6 +104,12 @@ class GatewayConnectionManagerImpl(
 
     /** Watches [active]'s socket; [connect] and [disconnect] cancel it before they take [mutex]. */
     @Volatile private var watcher: Job? = null
+
+    /** The URL of the silent reconnect in progress, else `null`; read lock-free by [requireSession]. */
+    @Volatile private var reconnectingUrl: String? = null
+
+    /** [GatewayConnection.Connected.sessionGeneration] of the latest session made live; guarded by [mutex]. */
+    private var generation = 0L
 
     /** Gateways that accepted this run's regenerated identity (a `hello-ok`); guarded by [mutex]. */
     private val reapprovedGateways = mutableSetOf<String>()
@@ -212,10 +222,13 @@ class GatewayConnectionManagerImpl(
         return ActiveSession(url, token, rest, socket, hello, !reconnecting, warnings(key, tokenWarning))
     }
 
-    /** Makes [session] the live one, publishes Connected and starts watching its socket. Under [mutex]. */
+    /**
+     * Makes [session] the live one, publishes Connected (a new [GatewayConnection.Connected.sessionGeneration], so
+     * a reconnected session is a new value) and starts watching its socket. Under [mutex].
+     */
     private fun activate(session: ActiveSession) {
         active = session
-        _connectionState.value = connectedState(session)
+        _connectionState.value = connectedState(session, ++generation)
         watcher = scope.launch { watch(session) }
     }
 
@@ -225,12 +238,31 @@ class GatewayConnectionManagerImpl(
         mutex.withLock { if (active === session) onSocketLost(session, cause) }
     }
 
-    /** Under [mutex]: the live socket ended with [cause]. One silent reconnect, else Error. */
+    /**
+     * Under [mutex]: the live socket ended with [cause]. One silent reconnect (published as Connected with
+     * `reconnecting = true`), else Error. When [connect] or [disconnect] stops the reconnect, the state is set to
+     * Disconnected here, before the cancellation propagates: their caller may be cancelled before its own lock body
+     * runs, and the state must never stay Connected without a session.
+     */
     private suspend fun onSocketLost(lost: ActiveSession, cause: GatewayException) {
+        // Set before [active] is cleared, so [requireSession] never reports a plain disconnect mid-reconnect.
+        if (lost.mayReconnect) reconnectingUrl = lost.url
         active = null
-        release(lost.client, lost.rpc)?.let(cause::addSuppressed)
-        val reported = if (lost.mayReconnect) reconnectQuietly(lost, cause) ?: return else cause
-        _connectionState.value = GatewayConnection.Error(lost.url, reported, warnings(gatewayKeyOf(lost.url)))
+        try {
+            release(lost.client, lost.rpc)?.let(cause::addSuppressed)
+            val reported = if (lost.mayReconnect) {
+                _connectionState.update { (it as? GatewayConnection.Connected)?.copy(reconnecting = true) ?: it }
+                reconnectQuietly(lost, cause) ?: return
+            } else {
+                cause
+            }
+            _connectionState.value = GatewayConnection.Error(lost.url, reported, warnings(gatewayKeyOf(lost.url)))
+        } catch (e: CancellationException) {
+            _connectionState.value = GatewayConnection.Disconnected
+            throw e
+        } finally {
+            reconnectingUrl = null
+        }
     }
 
     /**
@@ -372,9 +404,10 @@ class GatewayConnectionManagerImpl(
 
     /**
      * @return The live session's socket, for repository implementations.
-     * @throws GatewayNotConnectedException if no session is active.
+     * @throws GatewayNotConnectedException if no session is active: retryable, with the URL, while the silent
+     *   reconnect runs; not retryable otherwise.
      */
-    fun requireSession(): GatewayRpcClient = active?.rpc ?: throw GatewayNotConnectedException()
+    fun requireSession(): GatewayRpcClient = active?.rpc ?: throw GatewayNotConnectedException(reconnectingUrl)
 
     /** @return `hello-ok.auth.scopes` of the live session, or `null` while disconnected. */
     fun grantedScopes(): Set<String>? = active?.hello?.scopes
@@ -383,7 +416,7 @@ class GatewayConnectionManagerImpl(
      * @return The live session's REST client (only `/health` is real; removed in Task 24).
      * @throws GatewayNotConnectedException if no session is active.
      */
-    fun requireClient(): OpenClawApiClient = active?.client ?: throw GatewayNotConnectedException()
+    fun requireClient(): OpenClawApiClient = active?.client ?: throw GatewayNotConnectedException(reconnectingUrl)
 }
 
 /**
@@ -406,7 +439,7 @@ private class ActiveSession(
 )
 
 /** Capabilities come from the methods the gateway offers AND the scopes this socket holds (ADR-0007). */
-private fun connectedState(session: ActiveSession) = GatewayConnection.Connected(
+private fun connectedState(session: ActiveSession, generation: Long) = GatewayConnection.Connected(
     url = session.url,
     displayName = session.hello.gatewayHost ?: DEFAULT_DISPLAY_NAME,
     version = session.hello.serverVersion,
@@ -416,6 +449,7 @@ private fun connectedState(session: ActiveSession) = GatewayConnection.Connected
     hardwareInfo = null,
     tokenOrNull = session.token,
     warnings = session.warnings,
+    sessionGeneration = generation,
 )
 
 // ── Fail-safe default settings (no cleartext to public IPs) ──────────────────

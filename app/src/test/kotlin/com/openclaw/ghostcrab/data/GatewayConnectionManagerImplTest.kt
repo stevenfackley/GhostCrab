@@ -35,6 +35,7 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
 import io.mockk.verify
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.TimeoutCancellationException
@@ -579,6 +580,85 @@ class GatewayConnectionManagerImplTest {
         coVerify(exactly = 1) { rest.openWsSession() }
     }
 
+    @Test fun `the silent reconnect is a distinct state whose interim failure is retryable`() = runTest {
+        val first = ScriptedWsSession(respond = fixtures("connect" to "hello-ok-paired"))
+        val stalled = ScriptedWsSession(respond = { _, _ -> null }) // the reconnect's connect is never answered
+        val m = manager(first)
+        coEvery { rest.openWsSession() } returnsMany listOf(first, stalled)
+        m.connect(url, "shared-token")
+
+        first.drop()
+        runCurrent()
+
+        assertTrue((m.connectionState.value as GatewayConnection.Connected).reconnecting)
+        val interim = assertThrows<GatewayNotConnectedException> { m.requireSession() }
+        assertTrue(interim.isRetryable)
+        assertEquals("Reconnecting to $url…", interim.message)
+    }
+
+    @Test fun `a successful reconnect publishes a new Connected value`() = runTest {
+        val first = ScriptedWsSession(respond = fixtures("connect" to "hello-ok-paired"))
+        val second = ScriptedWsSession(respond = fixtures("connect" to "hello-ok-paired"))
+        val m = manager(first)
+        coEvery { rest.openWsSession() } returnsMany listOf(first, second)
+        m.connect(url, "shared-token")
+        val before = m.connectionState.value as GatewayConnection.Connected
+        val seen = mutableListOf<GatewayConnection>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { m.connectionState.toList(seen) }
+
+        first.drop()
+        runCurrent()
+
+        val after = m.connectionState.value as GatewayConnection.Connected
+        assertEquals(listOf(before, before.copy(reconnecting = true), after), seen)
+        assertTrue(after.sessionGeneration > before.sessionGeneration)
+        assertEquals(before.copy(sessionGeneration = after.sessionGeneration), after)
+        assertNotNull(m.requireSession())
+    }
+
+    @Test fun `a connect issued during the silent reconnect wins and the reconnect never becomes active`() = runTest {
+        val first = ScriptedWsSession(respond = fixtures("connect" to "hello-ok-paired"))
+        val stalled = ScriptedWsSession(respond = { _, _ -> null })
+        val third = ScriptedWsSession(respond = fixtures("connect" to "hello-ok-paired", "health" to "res-health"))
+        val m = manager(first)
+        coEvery { rest.openWsSession() } returnsMany listOf(first, stalled, third)
+        m.connect(url, "shared-token")
+        first.drop()
+        runCurrent()
+
+        m.connect(url, "shared-token")
+        // The gateway answers the abandoned reconnect late: it must not replace the user's session.
+        val lateId = stalled.sent.single().getValue("id").jsonPrimitive.content
+        stalled.reply(lateId, GatewayFixtures.frame("hello-ok-paired"))
+        runCurrent()
+
+        assertFalse((m.connectionState.value as GatewayConnection.Connected).reconnecting)
+        assertTrue(stalled.closedByClient)
+        m.check()
+        assertEquals(listOf("connect", "health"), third.sent.map { it.getValue("method").jsonPrimitive.content })
+        assertEquals(listOf("connect"), stalled.sent.map { it.getValue("method").jsonPrimitive.content })
+    }
+
+    @Test fun `a reconnect stopped by a caller cancelled before its lock body never leaves Connected`() = runTest {
+        val first = ScriptedWsSession(respond = fixtures("connect" to "hello-ok-paired"))
+        val closeGate = CompletableDeferred<Unit>()
+        val stalled = GatedCloseSession(ScriptedWsSession(respond = { _, _ -> null }), closeGate)
+        val m = manager(first)
+        coEvery { rest.openWsSession() } returnsMany listOf(first, stalled)
+        m.connect(url, "shared-token")
+        first.drop()
+        runCurrent()
+
+        // disconnect() stops the reconnect (whose socket close is still running) and is cancelled while it waits.
+        val caller = launch(UnconfinedTestDispatcher(testScheduler)) { m.disconnect() }
+        caller.cancel()
+        closeGate.complete(Unit)
+        runCurrent()
+
+        assertEquals(GatewayConnection.Disconnected, m.connectionState.value)
+        assertFalse(assertThrows<GatewayNotConnectedException> { m.requireSession() }.isRetryable)
+    }
+
     // ── Kept from main, adapted to the WebSocket flow ────────────────────────
 
     @Test fun `two concurrent connect calls result in exactly one Connected state`() = runTest {
@@ -689,6 +769,17 @@ private class FailingCloseSession(private val inner: ScriptedWsSession) : WsSess
     override suspend fun close() {
         inner.close()
         throw IOException("close frame not sent")
+    }
+}
+
+/** A socket whose close does not finish until [gate] completes, like a close frame still being flushed. */
+private class GatedCloseSession(
+    private val inner: ScriptedWsSession,
+    private val gate: CompletableDeferred<Unit>,
+) : WsSession by inner {
+    override suspend fun close() {
+        gate.await()
+        inner.close()
     }
 }
 
