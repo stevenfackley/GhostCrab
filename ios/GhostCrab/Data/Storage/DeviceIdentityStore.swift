@@ -29,7 +29,10 @@ extension DeviceIdentityProviding {
 /// Keychain cannot decode, `errSecDecode`; bad base64; wrong length) is overwritten by a new identity; once the new seed
 /// is stored ``regenerated`` turns `true` and a type-name-only warning is logged. The unusable item is never deleted
 /// first, so when the store fails and the app dies the next launch finds it again and still reports the replacement.
-/// That is the only recovery a lost seed allows: every gateway then shows a new pairing request for this device. A
+/// That is the only recovery a lost seed allows: every gateway then shows a new pairing request for this device. When
+/// the store itself fails, the item is deleted and the store retried once: an item the Keychain cannot decode may
+/// refuse `SecItemUpdate` too, and left in place it would fail every launch's store for good. (If that delete succeeds
+/// and the retry fails as well, a relaunch finds no item and reads as a first install.) A
 /// read that still fails for any other reason (locked device `errSecInteractionNotAllowed`, `errSecNotAvailable`,
 /// `errSecAuthFailed`, a missing entitlement) throws: the seed may well be intact, so replacing it would orphan every
 /// pairing for a temporary condition.
@@ -100,13 +103,41 @@ public actor DeviceIdentityStore: DeviceIdentityProviding {
             replaceUnusableSeed(reason: reason)
         }
         let fresh = DeviceIdentity.generate()
-        do {
-            try secrets.setToken(fresh.seedBase64ForStorage(), for: Self.account)
-        } catch {
-            throw GatewayError.deviceCredentialStorage(operation: "store the device identity", underlying: Self.sendable(error))
-        }
+        try storeSeed(fresh.seedBase64ForStorage())
         if replacingUnusableSeed { regenerated = true }
         return fresh
+    }
+
+    /// Stores the new seed. While an unusable seed is being replaced, a failed store deletes the item and stores
+    /// once more: an item the Keychain cannot decode may refuse `SecItemUpdate` as well.
+    ///
+    /// - Throws: ``GatewayError/deviceCredentialStorage(operation:underlying:)`` when the seed is not stored; the
+    ///   item stays when the Keychain refuses the delete too.
+    private func storeSeed(_ seedText: String) throws {
+        let failure: any Error
+        do {
+            try secrets.setToken(seedText, for: Self.account)
+            return
+        } catch {
+            failure = error
+        }
+        guard replacingUnusableSeed else { throw Self.storeFailure(failure) }
+        do {
+            try secrets.deleteToken(for: Self.account)
+        } catch {
+            // The Keychain refuses writes altogether (e.g. locked): report the store, keep the item for the next try.
+            throw Self.storeFailure(failure)
+        }
+        Self.log.warning("Storing the new device identity failed (\(type(of: failure))); deleted the unusable item, retrying.")
+        do {
+            try secrets.setToken(seedText, for: Self.account)
+        } catch {
+            throw Self.storeFailure(error)
+        }
+    }
+
+    private static func storeFailure(_ error: any Error) -> GatewayError {
+        .deviceCredentialStorage(operation: "store the device identity", underlying: sendable(error))
     }
 
     /// One read, plus one retry after ``readRetryDelay`` when it throws.

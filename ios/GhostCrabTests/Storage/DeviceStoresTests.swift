@@ -3,23 +3,27 @@ import Security
 import Testing
 @testable import GhostCrab
 
-/// ``TokenStoring`` whose first `failingReads` reads throw `status`, then behave; writes are refused while
-/// ``refusingWrites`` is `true`.
+/// ``TokenStoring`` whose first `failingReads` reads throw `status`, then behave; its first `failingWrites` stores
+/// throw; every store and delete is refused while ``refusingWrites`` is `true`.
 private final class FlakyTokenStore: TokenStoring, @unchecked Sendable {
     private let lock = NSLock()
     private var tokens: [String: String]
     private var failingReads: Int
+    private var failingWrites: Int
     private let status: OSStatus
     private var refusesWrites: Bool
+    private var deletes = 0
 
-    init(tokens: [String: String], failingReads: Int, status: OSStatus, refusingWrites: Bool = false) {
+    init(tokens: [String: String], failingReads: Int, status: OSStatus, refusingWrites: Bool = false, failingWrites: Int = 0) {
         self.tokens = tokens
         self.failingReads = failingReads
         self.status = status
         self.refusesWrites = refusingWrites
+        self.failingWrites = failingWrites
     }
 
     var stored: [String: String] { lock.withLock { tokens } }
+    var deleteCount: Int { lock.withLock { deletes } }
 
     var refusingWrites: Bool {
         get { lock.withLock { refusesWrites } }
@@ -29,6 +33,10 @@ private final class FlakyTokenStore: TokenStoring, @unchecked Sendable {
     func setToken(_ token: String, for profileId: String) throws {
         let refused: Bool = lock.withLock {
             guard !refusesWrites else { return true }
+            if failingWrites > 0 {
+                failingWrites -= 1
+                return true
+            }
             tokens[profileId] = token
             return false
         }
@@ -45,7 +53,15 @@ private final class FlakyTokenStore: TokenStoring, @unchecked Sendable {
         return lock.withLock { tokens[profileId] }
     }
 
-    func deleteToken(for profileId: String) throws { lock.withLock { tokens[profileId] = nil } }
+    func deleteToken(for profileId: String) throws {
+        let refused: Bool = lock.withLock {
+            guard !refusesWrites else { return true }
+            deletes += 1
+            tokens[profileId] = nil
+            return false
+        }
+        if refused { throw KeychainError.unexpectedStatus(errSecNotAvailable) }
+    }
     func deleteAllTokens() throws { lock.withLock { tokens.removeAll() } }
 }
 
@@ -168,6 +184,30 @@ struct DeviceStoresTests {
         let identity = try await relaunched.identity()
         #expect(secrets.stored[DeviceIdentityStore.account] == identity.seedBase64ForStorage())
         #expect(await relaunched.regenerated) // a missing item would read as a first install: no warning
+    }
+
+    /// An item the Keychain cannot decode may refuse `SecItemUpdate` as well; left in place it would fail every store,
+    /// a lockout no relaunch fixes.
+    @Test func anUnusableItemThatRefusesTheStoreIsDeletedAndTheStoreRetriedOnce() async throws {
+        let secrets = FlakyTokenStore(tokens: [DeviceIdentityStore.account: Data(count: 5).base64EncodedString()],
+                                      failingReads: 0, status: errSecSuccess, failingWrites: 1)
+        let store = DeviceIdentityStore(secrets: secrets, retryDelay: .zero)
+        let identity = try await store.identity()
+        #expect(secrets.deleteCount == 1)
+        #expect(secrets.stored[DeviceIdentityStore.account] == identity.seedBase64ForStorage())
+        #expect(await store.regenerated)
+    }
+
+    @Test func aFirstIdentityThatCannotBeStoredDeletesNothing() async throws {
+        let secrets = FlakyTokenStore(tokens: [:], failingReads: 0, status: errSecSuccess, failingWrites: 1)
+        let store = DeviceIdentityStore(secrets: secrets, retryDelay: .zero)
+        guard case .deviceCredentialStorage(let operation, _)? = await gatewayError({ _ = try await store.identity() }) else {
+            Issue.record("expected deviceCredentialStorage")
+            return
+        }
+        #expect(operation == "store the device identity")
+        #expect(secrets.deleteCount == 0)
+        #expect(await store.regenerated == false)
     }
 
     @Test func aNewIdentityThatCannotBeStoredIsAStorageError() async throws {
