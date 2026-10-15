@@ -6,6 +6,10 @@ name: iOS store screenshots
 # `ios-screenshots` artifact.
 on:
   workflow_dispatch:
+  # TEMPORARY: workflow_dispatch needs the file on main; this registers the
+  # workflow from the branch. Removed before merge.
+  push:
+    branches: [feat/store-screenshots]
 
 permissions:
   contents: read
