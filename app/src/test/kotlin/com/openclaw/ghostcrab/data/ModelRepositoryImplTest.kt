@@ -92,6 +92,32 @@ class ModelRepositoryImplTest {
         assertEquals(listOf(false, true), models.getModels().map { it.isActive })
     }
 
+    @Test fun `a bare model id marks an entry active only when no other provider has that id`() = runTest {
+        val catalogue = Json.parseToJsonElement(
+            """
+            {"type":"res","ok":true,"payload":{"models":[
+              {"id":"shared","provider":"anthropic"},
+              {"id":"shared","provider":"openrouter"},
+              {"id":"solo","provider":"openai"}
+            ]}}
+            """.trimIndent(),
+        ).jsonObject
+        listOf(
+            "shared" to listOf(false, false, false),
+            "solo" to listOf(false, false, true),
+            "openrouter/shared" to listOf(false, true, false),
+        ).forEach { (primary, expected) ->
+            val (models, _) = repo { method, _ ->
+                when (method) {
+                    "models.list" -> catalogue
+                    "config.get" -> configWithPrimary(primary)
+                    else -> null
+                }
+            }
+            assertEquals(expected, models.getModels().map { it.isActive }, primary)
+        }
+    }
+
     @Test fun `a model without a name uses its id as the display name`() = runTest {
         val unnamed = Json.parseToJsonElement(
             """{"type":"res","ok":true,"payload":{"models":[{"id":"llama3","provider":"ollama"}]}}""",

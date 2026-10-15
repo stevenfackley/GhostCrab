@@ -1,6 +1,7 @@
 package com.openclaw.ghostcrab.ui
 
 import com.openclaw.ghostcrab.domain.exception.GatewayApiException
+import com.openclaw.ghostcrab.domain.exception.GatewayMethodUnsupportedException
 import com.openclaw.ghostcrab.domain.exception.GatewayNotConnectedException
 import com.openclaw.ghostcrab.domain.model.AuthRequirement
 import com.openclaw.ghostcrab.domain.model.GatewayConnection
@@ -106,6 +107,16 @@ class ModelManagerViewModelTest {
 
         val state = assertInstanceOf(ModelManagerUiState.Error::class.java, vm.state.value)
         assertTrue(state.message.contains("500"))
+    }
+
+    @Test
+    fun `a gateway without models list is NotSupported`() = runTest {
+        val repo = FakeMMRepository().apply {
+            getError = GatewayMethodUnsupportedException("ws://192.168.1.50:18789/ws", "models.list")
+        }
+        val (vm, _) = makeVm(initialConnection = connectedState, repo = repo)
+
+        assertInstanceOf(ModelManagerUiState.NotSupported::class.java, vm.state.value)
     }
 
     @Test

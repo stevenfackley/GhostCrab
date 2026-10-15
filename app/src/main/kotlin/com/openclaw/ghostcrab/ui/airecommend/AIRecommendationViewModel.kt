@@ -14,7 +14,6 @@ import com.openclaw.ghostcrab.domain.model.SuggestedChange
 import com.openclaw.ghostcrab.domain.repository.AIRecommendationService
 import com.openclaw.ghostcrab.domain.repository.ConfigRepository
 import com.openclaw.ghostcrab.domain.repository.GatewayConnectionManager
-import com.openclaw.ghostcrab.domain.repository.InstalledSkillRepository
 import com.openclaw.ghostcrab.domain.repository.ModelRepository
 import com.openclaw.ghostcrab.domain.repository.ScopeProbe
 import com.openclaw.ghostcrab.domain.repository.ScopeProbeResult
@@ -30,8 +29,9 @@ import kotlinx.coroutines.launch
 /**
  * ViewModel for the AI Recommendations screen.
  *
- * On initialization, checks whether the connected gateway advertises the `ai.recommend`
- * capability. Exposes [state] as an immutable [StateFlow] of [AIRecommendationUiState].
+ * On initialization, asks [aiService] whether recommendations are available. OpenClaw gateways have no
+ * recommendation API (ADR-0007), so today they never are and the screen explains that; the whole screen is hidden
+ * behind `BuildConfig.AI_PRO_ENABLED`. Exposes [state] as an immutable [StateFlow] of [AIRecommendationUiState].
  *
  * Context for each query is auto-collected from [configRepository] and [modelRepository] —
  * the user is never asked to supply it manually.
@@ -42,8 +42,10 @@ import kotlinx.coroutines.launch
  * @param modelRepository Used to identify the active model when building query context.
  * @param scopeProbe Optional — probes token scopes to surface scope-specific install copy.
  *   Null in release builds (not registered in Koin).
- * @param installRepo Optional — in-app skill installer. Null when SKILLS_INSTALL_ENABLED is off.
- *   Presence drives the `canInstall` flag on [AIRecommendationUiState.SkillUnavailable].
+ * @param recommendSkill A gateway skill that serves recommendations plus the installer for it, or `null`. No skill
+ *   does today (ADR-0007: a `chat.send`-based design needs its own ADR), so the app passes none. Install is offered,
+ *   and a missing `operator.admin` reported, only when it is set; it drives the `canInstall` flag on
+ *   [AIRecommendationUiState.SkillUnavailable].
  */
 class AIRecommendationViewModel(
     private val aiService: AIRecommendationService,
@@ -51,7 +53,7 @@ class AIRecommendationViewModel(
     private val configRepository: ConfigRepository,
     private val modelRepository: ModelRepository,
     private val scopeProbe: ScopeProbe? = null,
-    private val installRepo: InstalledSkillRepository? = null,
+    private val recommendSkill: RecommendSkillInstall? = null,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow<AIRecommendationUiState>(AIRecommendationUiState.Idle)
@@ -107,7 +109,9 @@ class AIRecommendationViewModel(
                     droppedSuggestionCount = recommendation.suggestedChanges.size - applicable.size,
                 )
             } catch (e: AIServiceUnavailableException) {
-                val missingScope = if (scopeProbe != null) {
+                // A scope gap only matters when there is a skill to install; otherwise it would send the user on
+                // an errand that cannot make recommendations appear.
+                val missingScope = if (scopeProbe != null && recommendSkill != null) {
                     when (val r = scopeProbe.probe()) {
                         is ScopeProbeResult.Known -> if (r.has("operator.admin")) null else "operator.admin"
                         ScopeProbeResult.UnknownOldGateway -> null
@@ -116,7 +120,7 @@ class AIRecommendationViewModel(
                 } else null
                 _state.value = AIRecommendationUiState.SkillUnavailable(
                     missingScope = missingScope,
-                    canInstall = installRepo != null && missingScope == null,
+                    canInstall = recommendSkill != null && missingScope == null,
                 )
             } catch (e: AIQuotaExceededException) {
                 _state.value = AIRecommendationUiState.Error(
@@ -201,24 +205,25 @@ class AIRecommendationViewModel(
     }
 
     /**
-     * Installs the AI-recommend skill from ClawHub and — on success — auto-resubmits the
+     * Installs the recommendation skill ([recommendSkill]) from ClawHub and — on success — auto-resubmits the
      * last query (or transitions to [AIRecommendationUiState.Idle] if none was made yet).
      *
      * No-op unless current state is [AIRecommendationUiState.SkillUnavailable] with
      * [AIRecommendationUiState.SkillUnavailable.canInstall] true and no install already
-     * in flight. If [installRepo] is null the call is silently ignored.
+     * in flight. Without [recommendSkill] (today: no such skill exists) the call does nothing.
      *
      * On terminal failure, stores the error on the state; call [dismissInstallError] to clear.
      * If the error is [SkillInstallError.Unauthorized] the `missingScope` is populated and
      * `canInstall` flipped false so the Install button disappears.
      */
     fun installSkill() {
-        val repo = installRepo ?: return
-        val current = (_state.value as? AIRecommendationUiState.SkillUnavailable)
-            ?.takeIf { it.canInstall && it.installProgress == null } ?: return
+        val skill = recommendSkill
+        val idle = (_state.value as? AIRecommendationUiState.SkillUnavailable)
+            ?.takeIf { it.canInstall && it.installProgress == null }
+        if (skill == null || idle == null) return
 
         viewModelScope.launch {
-            repo.install(AI_RECOMMEND_SLUG).collect { progress ->
+            skill.installer.install(skill.slug).collect { progress ->
                 when (progress) {
                     is SkillInstallProgress.Succeeded -> {
                         if (lastQuery.isNotEmpty()) {
@@ -265,9 +270,7 @@ class AIRecommendationViewModel(
             if (_state.value is AIRecommendationUiState.Idle ||
                 _state.value is AIRecommendationUiState.SkillUnavailable
             ) {
-                _state.value = AIRecommendationUiState.SkillUnavailable(
-                    canInstall = installRepo != null,
-                )
+                _state.value = AIRecommendationUiState.SkillUnavailable(canInstall = recommendSkill != null)
             }
         } else if (_state.value is AIRecommendationUiState.SkillUnavailable) {
             _state.value = AIRecommendationUiState.Idle
@@ -287,11 +290,6 @@ class AIRecommendationViewModel(
                     ?.copy(isApplying = false, applySuccess = outcome.allWritten, applyError = outcome.message) ?: it
             }
         }
-    }
-
-    private companion object {
-        /** ClawHub slug for the AI recommendation skill. Must match strings.xml copy. */
-        const val AI_RECOMMEND_SLUG = "wanng-ide/auto-skill-hunter"
     }
 }
 

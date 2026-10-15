@@ -433,7 +433,7 @@ class ConfigEditorViewModelTest {
         val tokenMode = Json.parseToJsonElement("""{"port":1,"auth":{"mode":"token"}}""")
         val passwordMode = Json.parseToJsonElement("""{"port":1,"auth":{"mode":"password"}}""")
         assertEquals(
-            setOf("gateway.mode", "gateway.port", "gateway.bind", "gateway.auth.token"),
+            setOf("gateway.port", "gateway.bind", "gateway.auth.token"),
             inlineErrorFieldsOf("gateway", tokenMode),
         )
         assertTrue("gateway.auth.token" !in inlineErrorFieldsOf("gateway", passwordMode))

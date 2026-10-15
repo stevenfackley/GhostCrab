@@ -36,8 +36,9 @@ class ModelRepositoryImpl(
 ) : ModelRepository {
 
     /**
-     * @return The catalogue in server order; the entry matching `agents.defaults.model.primary` is active. Without
-     *   `operator.admin` (`config.get` refused) the list still loads with no entry active.
+     * @return The catalogue in server order; the entry `agents.defaults.model.primary` names is active (see
+     *   [activeRefOf] for a bare model id). Without `operator.admin` (`config.get` refused) the list still loads with
+     *   no entry active.
      * @throws GatewayProtocolException if `models.list` answers a non-object payload.
      * @throws com.openclaw.ghostcrab.domain.exception.GatewayNotConnectedException if no session is active.
      * @throws com.openclaw.ghostcrab.domain.exception.GatewayException on any other gateway failure.
@@ -46,8 +47,9 @@ class ModelRepositoryImpl(
         val rpc = session()
         val payload = rpc.request(METHOD_MODELS_LIST) as? JsonObject
             ?: throw GatewayProtocolException(rpc.endpoint, "models.list returned a non-object payload")
-        val primary = primaryModel(rpc)
-        return (payload["models"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonObject)?.toModelInfo(primary) }
+        val entries = (payload["models"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
+        val activeRef = activeRefOf(primaryModel(rpc), entries)
+        return entries.mapNotNull { it.toModelInfo(activeRef) }
     }
 
     /**
@@ -89,9 +91,25 @@ class ModelRepositoryImpl(
     }
 }
 
-/** One `models.list` entry as a [ModelInfo]; `null` without `id` or `provider`. */
+/**
+ * The `provider/model` ref [primary] names. A `provider/model` value is taken as is. A bare model id names an entry
+ * only when exactly one provider lists that id; when several do, nothing is marked active rather than two entries.
+ *
+ * @param primary `agents.defaults.model.primary`, or `null`.
+ * @param entries `models.list` entries.
+ * @return The active ref, or `null`.
+ */
+private fun activeRefOf(primary: String?, entries: List<JsonObject>): String? {
+    if (primary == null || '/' in primary) return primary
+    return entries.mapNotNull { entry ->
+        val provider = entry.stringOrNull("provider")
+        if (entry.stringOrNull("id") == primary && provider != null) modelRef(provider, primary) else null
+    }.distinct().singleOrNull()
+}
+
+/** One `models.list` entry as a [ModelInfo]; `null` without `id` or `provider`. Active when its ref is [activeRef]. */
 @Suppress("ReturnCount")
-private fun JsonObject.toModelInfo(primary: String?): ModelInfo? {
+private fun JsonObject.toModelInfo(activeRef: String?): ModelInfo? {
     val id = stringOrNull("id") ?: return null
     val provider = stringOrNull("provider") ?: return null
     val ref = modelRef(provider, id)
@@ -101,7 +119,7 @@ private fun JsonObject.toModelInfo(primary: String?): ModelInfo? {
         id = ref,
         provider = provider,
         displayName = stringOrNull("name") ?: id,
-        isActive = primary != null && (primary == ref || primary == id),
+        isActive = ref == activeRef,
         status = if (available == false) stringOrNull("unavailableReason") ?: STATUS_UNAVAILABLE else STATUS_READY,
         capabilities = stringListOrEmpty("input") + listOfNotNull(CAPABILITY_REASONING.takeIf { reasoning }),
     )

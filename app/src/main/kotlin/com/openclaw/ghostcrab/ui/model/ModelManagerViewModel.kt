@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.openclaw.ghostcrab.domain.exception.GatewayApiException
 import com.openclaw.ghostcrab.domain.exception.GatewayException
+import com.openclaw.ghostcrab.domain.exception.GatewayMethodUnsupportedException
 import com.openclaw.ghostcrab.domain.model.GatewayConnection
 import com.openclaw.ghostcrab.domain.repository.GatewayConnectionManager
 import com.openclaw.ghostcrab.domain.repository.ModelRepository
@@ -64,6 +65,9 @@ public class ModelManagerViewModel(
                 } else {
                     ModelManagerUiState.Error(e.toUserMessage())
                 }
+            } catch (_: GatewayMethodUnsupportedException) {
+                // The session socket's "unknown method: models.list" (ADR-0007): the gateway has no model API.
+                _state.value = ModelManagerUiState.NotSupported
             } catch (e: GatewayException) {
                 _state.value = ModelManagerUiState.Error(e.toUserMessage())
             }
