@@ -19,6 +19,12 @@
   - First client frame must be `{"type":"req","id":"<string>","method":"connect","params":{…}}`; anything else closes `1008`.
   - Responses: `{"type":"res","id":"<string>","ok":true,"payload":…}` or `{"type":"res","id":"…","ok":false,"error":{"code":"…","message":"…","details":{…}}}`.
   - Device signature payload v3: `v3|deviceId|clientId|clientMode|role|scopes(comma)|signedAt|token|nonce|platform|deviceFamily`, `platform`/`deviceFamily` trimmed and ASCII-lowercased, `deviceId = hex(sha256(raw 32-byte public key))`, key and signature base64url without padding, `signedAt` = challenge `ts`.
+- Pinned by the verification run of 2026-10-15 against the same 2026.10.3 image (frames in Task 1; ADR-0007 "Verification"):
+  - `client.id` and `client.mode` are closed allow-lists checked before auth: `ghostcrab-android` → `INVALID_REQUEST invalid connect params: at /client/id: must be equal to one of the allowed values`, close 1008; `mode: "operator"` the same for `/client/mode`; `ui` and `cli` both get full scopes. On a paired device a different `platform` (case-insensitive) re-triggers pairing (`reason: "metadata-upgrade"`); a different `client.id` does not. GhostCrab therefore sends one constant identity: `openclaw-android`, `ui`, `android`, no `deviceFamily`.
+  - Pairing: the `requestId` is stable across reconnects; the server closes an unpaired socket with 1008 right after `PAIRING_REQUIRED`; a socket that never sends `connect` is closed after ~15 s; `device.pair.resolved {requestId, deviceId, decision}` reaches only an already-paired admin socket. Re-attempting the connect is the only way to notice an approval.
+  - Setup-code bootstrap tokens authenticate only `role: "node"` connects; over `ws://` they yield a node token with `scopes: []` and no operator handoff, and a node token is refused for operator (`AUTH_DEVICE_TOKEN_MISMATCH`). Failed attempts do not consume a code; the first valid use binds it to that device. GhostCrab (an operator client) never connects with one.
+  - `config.patch`: stale or unknown `baseHash` → `INVALID_REQUEST "config changed since last load; re-run config.get and retry"` (no `details`); missing → `"config base hash required for <path>; …"`; validation → `"invalid config: <path>: …"` with `details.issues[{path, message, allowedValues?}]`; success → `{ok, path, hash, config, changedPaths, sentinel}`.
+  - `skills.update {skillKey, enabled}` → `{ok:true, skillKey, config:{enabled}}`, also for keys the gateway does not know. `skills.status` stays stale until the `config.changed` event (~80 ms later, sometimes before the response); no `skills.changed` event is sent. A ClawHub install answers `{ok, message, slug, version, targetDir, …}` and is listed with `source: "openclaw-workspace"` plus `clawhub {status, slug, installedVersion, installedAt, …}` and `skillCard`.
 - Conventions:
   - Run every command from the repo root in Git Bash (`./gradlew`). Unit tests: `./gradlew testDebugUnitTest --tests "<FQCN>"`. Full gate before each commit that touches `main` sources: `./gradlew testDebugUnitTest detekt lintDebug`.
   - Work on `git switch -c feat/protocol-alignment-android` (never on `main`). One commit per task; Conventional Commits; subject + body only; no co-author trailer and no AI attribution of any kind. Open one PR at the end and squash-merge it.
@@ -30,15 +36,15 @@
 
 1. Tasks 1–9 build the protocol layer bottom-up. Nothing in the app uses it until Task 10, so the app compiles and behaves as today after each of them.
 2. Task 10 switches the connection manager to the WS handshake (repositories still compile through `requireClient()`).
-3. Tasks 11–18 move one feature at a time onto the session socket.
-4. Tasks 19–23 are the UI (pairing panel, setup-code QR, discovery copy).
+3. Task 11 pins the allow-listed client identity; Tasks 12–18 move one feature at a time onto the session socket.
+4. Tasks 19–23 are the UI (pairing panel, setup-code explanation, discovery copy).
 5. Task 24 deletes the dead REST/JSON-RPC code (needs 10–18). Task 25 (mock gateway) is independent after Task 1. Task 26 is the ⚠ manual real-gateway pass. Task 27 is docs.
 
 ## File structure
 
 | File | Status | Responsibility |
 |---|---|---|
-| `fixtures/gateway-protocol/2026.10.3/*.json` | create | 14 frames captured from the real gateway (trimmed, secrets replaced); shared with iOS tests and the mock gateway |
+| `fixtures/gateway-protocol/2026.10.3/*.json` | create | 23 frames captured from the real gateway (trimmed, secrets replaced); shared with iOS tests and the mock gateway |
 | `app/build.gradle.kts` | modify | fixtures as test resources; Tink dependency; `AI_PRO_ENABLED = false` |
 | `gradle/libs.versions.toml` | modify | `tink-android` 1.8.0 |
 | `app/src/main/kotlin/com/openclaw/ghostcrab/data/gateway/GatewayFrames.kt` | create | frame types, codec, JSON helpers |
@@ -48,12 +54,11 @@
 | `app/src/main/kotlin/com/openclaw/ghostcrab/data/gateway/DeviceAuthPayload.kt` | create | v3 signature payload |
 | `app/src/main/kotlin/com/openclaw/ghostcrab/data/gateway/DeviceTokenStore.kt` | create | `StoredDeviceToken`, `DeviceTokenStore`, `gatewayKeyOf` |
 | `app/src/main/kotlin/com/openclaw/ghostcrab/data/gateway/GatewayHello.kt` | create | `HelloOk`, `ConnectChallenge`, auth-mode and capability mapping |
-| `app/src/main/kotlin/com/openclaw/ghostcrab/data/gateway/GatewayHandshake.kt` | create | `ClientInfo`, `ConnectAuth`, `selectConnectAuth`, connect params, `perform` |
+| `app/src/main/kotlin/com/openclaw/ghostcrab/data/gateway/GatewayHandshake.kt` | create | `ClientInfo` (+ the pinned `ClientInfo.android`), `ConnectAuth`, `selectConnectAuth`, connect params, `perform` |
 | `app/src/main/kotlin/com/openclaw/ghostcrab/data/storage/DeviceIdentityStore.kt` | create | encrypted seed storage |
 | `app/src/main/kotlin/com/openclaw/ghostcrab/data/storage/ConnectionProfileStore.kt` | modify | implements `DeviceTokenStore` in the token file |
 | `app/src/main/kotlin/com/openclaw/ghostcrab/data/api/OpenClawApiClient.kt` | modify | `openWsSession()`, `webSocketUrl()`; later loses the dead REST calls |
 | `app/src/main/kotlin/com/openclaw/ghostcrab/data/impl/GatewayConnectionManagerImpl.kt` | rewrite | WS handshake session lifecycle |
-| `app/src/main/kotlin/com/openclaw/ghostcrab/domain/repository/GatewayBootstrapConnector.kt` | create | additive: setup-code connect |
 | `app/src/main/kotlin/com/openclaw/ghostcrab/data/impl/ScopeProbeImpl.kt` | rewrite | scopes from `hello-ok` |
 | `app/src/main/kotlin/com/openclaw/ghostcrab/data/impl/InstalledSkillRepositoryImpl.kt` | rewrite | `skills.status` / `skills.install` / `skills.update` |
 | `app/src/main/kotlin/com/openclaw/ghostcrab/data/impl/ConfigWrites.kt` | create | `config.patch` params and error mapping |
@@ -64,8 +69,9 @@
 | `app/src/main/kotlin/com/openclaw/ghostcrab/ui/config/sections/GatewaySectionEditor.kt` | rewrite | editor for the real schema |
 | `app/src/main/kotlin/com/openclaw/ghostcrab/ui/connection/PairingApproval.kt` | create | `PairingPrompt`, `awaitPairingApproval`, `connectAwaitingApproval` |
 | `app/src/main/kotlin/com/openclaw/ghostcrab/ui/connection/PairingApprovalCard.kt` | create | approval panel composable |
-| `app/src/main/kotlin/com/openclaw/ghostcrab/ui/connection/ManualEntry*.kt`, `ConnectionPicker*.kt` | modify | pairing state, bootstrap connect |
-| `app/src/main/kotlin/com/openclaw/ghostcrab/domain/util/PairCode.kt`, `GatewayUrl.kt` | modify | setup code + `ws(s)://` |
+| `app/src/main/kotlin/com/openclaw/ghostcrab/ui/connection/ManualEntry*.kt`, `ConnectionPicker*.kt` | modify | pairing state |
+| `app/src/main/kotlin/com/openclaw/ghostcrab/domain/util/PairCode.kt`, `GatewayUrl.kt` | modify | setup codes recognised and explained (never used), `ws(s)://` URLs |
+| `app/src/main/kotlin/com/openclaw/ghostcrab/ui/connection/QrScanViewModel.kt`, `MainActivity.kt` | modify | setup-code explanation |
 | `app/src/main/kotlin/com/openclaw/ghostcrab/di/DataModule.kt`, `UiModule.kt` | modify | wiring |
 | `app/src/test/kotlin/com/openclaw/ghostcrab/testutil/*.kt` | create | fixtures loader, scripted socket, in-memory stores, test keys |
 | `scripts/mock-gateway/*` | rewrite | protocol-4 mock + conformance tests + real-gateway probe |
@@ -76,12 +82,12 @@
 ### Task 1: Real-gateway protocol fixtures
 
 **Files:**
-- Create: `fixtures/gateway-protocol/2026.10.3/` (14 files below)
+- Create: `fixtures/gateway-protocol/2026.10.3/` (23 files below)
 - Modify: `app/build.gradle.kts` (inside `android { }`, after the `testOptions { … }` block)
 - Create: `app/src/test/kotlin/com/openclaw/ghostcrab/testutil/GatewayFixtures.kt`
 - Test: `app/src/test/kotlin/com/openclaw/ghostcrab/testutil/GatewayFixturesTest.kt`
 
-These are frames from the M5 captures against 2026.10.3 (`docs/QA_REAL_GATEWAY_2026-10.md` §3, §9). Trimmed: `hello-ok.features` keeps the methods/events GhostCrab uses, `snapshot` keeps only the self presence entry, `skills.status` keeps two of 51 skills, `config.get` keeps the fields GhostCrab reads. Replaced: the issued device token (`dt-test-0001`); `recoveryScope` removed. Everything else is byte-for-byte what the gateway sent. If the iOS plan already created this directory, compare with `git diff --no-index` against the contents below and skip Step 1.
+These are frames from the M5 captures against 2026.10.3 (`docs/QA_REAL_GATEWAY_2026-10.md` §3, §9) plus nine from the verification run of 2026-10-15 against the same image (client-id allow-list, metadata-upgrade pairing, `config.patch` errors and success, `skills.update`, `config.changed`, `skills.install`; `res-skills-status` gained the ClawHub-installed `weather` entry). Trimmed: `hello-ok.features` keeps the methods/events GhostCrab uses, `snapshot` keeps only the self presence entry, `skills.status` keeps two of 51 skills, `config.get` keeps the fields GhostCrab reads. Replaced: the issued device token (`dt-test-0001`); `recoveryScope` removed. Everything else is byte-for-byte what the gateway sent. If the iOS plan already created this directory, compare with `git diff --no-index` against the contents below and skip Step 1.
 
 - [ ] **Step 1: Create the fixture files**
 
@@ -142,7 +148,7 @@ These are frames from the M5 captures against 2026.10.3 (`docs/QA_REAL_GATEWAY_2
 
 `fixtures/gateway-protocol/2026.10.3/res-skills-status.json`:
 ```json
-{"type":"res","id":"qa-3","ok":true,"payload":{"workspaceDir":"/home/node/.openclaw/workspace","managedSkillsDir":"/home/node/.openclaw/skills","agentId":"main","skills":[{"name":"1password","description":"Set up and use 1Password CLI for sign-in, desktop integration, and reading or injecting secrets.","source":"openclaw-bundled","bundled":true,"filePath":"/app/skills/1password/SKILL.md","baseDir":"/app/skills/1password","skillKey":"1password","always":false,"disabled":true,"blockedByAllowlist":false,"eligible":false,"emoji":"🔐","homepage":"https://developer.1password.com/docs/cli/get-started/","missing":{"bins":["op"],"anyBins":[],"env":[],"config":[],"os":[]},"configChecks":[],"blockedByAgentFilter":false,"platformIncompatible":false,"modelVisible":false,"userInvocable":true,"commandVisible":false,"requirements":{"bins":["op"],"anyBins":[],"env":[],"config":[],"os":[]},"install":[{"id":"brew","kind":"brew","label":"Install 1Password CLI (brew)","bins":["op"]}]},{"name":"browser-automation","description":"Use when controlling web pages with the OpenClaw browser tool, especially multi-step flows, login checks, tab management, or recovery from stale refs/timeouts.","source":"openclaw-extra","bundled":false,"filePath":"/home/node/.openclaw/plugin-skills/browser-automation/SKILL.md","baseDir":"/home/node/.openclaw/plugin-skills/browser-automation","skillKey":"browser-automation","always":false,"disabled":false,"blockedByAllowlist":false,"eligible":true,"missing":{"bins":[],"anyBins":[],"env":[],"config":[],"os":[]},"configChecks":[],"blockedByAgentFilter":false,"platformIncompatible":false,"modelVisible":true,"userInvocable":false,"commandVisible":false,"requirements":{"bins":[],"anyBins":[],"env":[],"config":[],"os":[]},"install":[]}]}}
+{"type":"res","id":"qa-3","ok":true,"payload":{"workspaceDir":"/home/node/.openclaw/workspace","managedSkillsDir":"/home/node/.openclaw/skills","agentId":"main","skills":[{"name":"1password","description":"Set up and use 1Password CLI for sign-in, desktop integration, and reading or injecting secrets.","source":"openclaw-bundled","bundled":true,"filePath":"/app/skills/1password/SKILL.md","baseDir":"/app/skills/1password","skillKey":"1password","always":false,"disabled":true,"blockedByAllowlist":false,"eligible":false,"emoji":"🔐","homepage":"https://developer.1password.com/docs/cli/get-started/","missing":{"bins":["op"],"anyBins":[],"env":[],"config":[],"os":[]},"configChecks":[],"blockedByAgentFilter":false,"platformIncompatible":false,"modelVisible":false,"userInvocable":true,"commandVisible":false,"requirements":{"bins":["op"],"anyBins":[],"env":[],"config":[],"os":[]},"install":[{"id":"brew","kind":"brew","label":"Install 1Password CLI (brew)","bins":["op"]}]},{"name":"browser-automation","description":"Use when controlling web pages with the OpenClaw browser tool, especially multi-step flows, login checks, tab management, or recovery from stale refs/timeouts.","source":"openclaw-extra","bundled":false,"filePath":"/home/node/.openclaw/plugin-skills/browser-automation/SKILL.md","baseDir":"/home/node/.openclaw/plugin-skills/browser-automation","skillKey":"browser-automation","always":false,"disabled":false,"blockedByAllowlist":false,"eligible":true,"missing":{"bins":[],"anyBins":[],"env":[],"config":[],"os":[]},"configChecks":[],"blockedByAgentFilter":false,"platformIncompatible":false,"modelVisible":true,"userInvocable":false,"commandVisible":false,"requirements":{"bins":[],"anyBins":[],"env":[],"config":[],"os":[]},"install":[]},{"name":"weather","description":"Get current weather and forecasts (no API key required).","source":"openclaw-workspace","bundled":false,"filePath":"/home/node/.openclaw/workspace/skills/weather/SKILL.md","baseDir":"/home/node/.openclaw/workspace/skills/weather","skillKey":"weather","always":false,"disabled":false,"blockedByAllowlist":false,"eligible":true,"homepage":"https://wttr.in/:help","install":[],"clawhub":{"status":"linked","valid":true,"registry":"https://clawhub.ai","slug":"weather","ownerHandle":"steipete","installedVersion":"1.0.0","installedAt":1792035309473},"skillCard":{"present":true,"path":"/home/node/.openclaw/workspace/skills/weather/skill-card.md","sizeBytes":1748}}]}}
 ```
 
 `fixtures/gateway-protocol/2026.10.3/res-models-list.json` (no provider configured on the QA gateway, hence empty):
@@ -153,6 +159,51 @@ These are frames from the M5 captures against 2026.10.3 (`docs/QA_REAL_GATEWAY_2
 `fixtures/gateway-protocol/2026.10.3/res-config-get.json`:
 ```json
 {"type":"res","id":"qa-5","ok":true,"payload":{"path":"/home/node/.openclaw/openclaw.json","exists":true,"raw":"{\n  \"gateway\": {\n    \"mode\": \"local\",\n    \"port\": 18789,\n    \"bind\": \"lan\",\n    \"auth\": {\n      \"mode\": \"token\",\n      \"token\": \"__OPENCLAW_REDACTED__\"\n    }\n  },\n  \"agents\": {\n    \"entries\": {\n      \"main\": {}\n    }\n  }\n}","parsed":{"gateway":{"mode":"local","port":18789,"bind":"lan","auth":{"mode":"token","token":"__OPENCLAW_REDACTED__"}},"agents":{"entries":{"main":{}}}},"config":{"gateway":{"mode":"local","port":18789,"bind":"lan","auth":{"mode":"token","token":"__OPENCLAW_REDACTED__"}},"agents":{"entries":{"main":{}}}},"valid":true,"issues":[],"warnings":[],"hash":"hmac-sha256:v1:u_qU7JLKF7G9u0jc_GfUp-dKovJYwiLpy0gNxuKjka0","configRevisionHash":"hmac-sha256:v1:8TC1wWOnH2Dg0m3BtlCjnweykbH02riydC06wWjOVMg","appliedConfigHash":"hmac-sha256:v1:8TC1wWOnH2Dg0m3BtlCjnweykbH02riydC06wWjOVMg"}}
+```
+
+`fixtures/gateway-protocol/2026.10.3/err-client-id-invalid.json` (a `client.id` outside upstream's allow-list is rejected before auth, then close 1008):
+```json
+{"type":"res","id":"qa-1","ok":false,"error":{"code":"INVALID_REQUEST","message":"invalid connect params: at /client/id: must be equal to one of the allowed values"}}
+```
+
+`fixtures/gateway-protocol/2026.10.3/err-pairing-metadata-upgrade.json` (a paired device whose `platform` changed must be re-approved):
+```json
+{"type":"res","id":"qa-1","ok":false,"error":{"code":"NOT_PAIRED","message":"pairing required: device identity changed and must be re-approved","details":{"code":"PAIRING_REQUIRED","reason":"metadata-upgrade","requestId":"6837c6b0-f559-445b-bc0c-a50fbe5b5998","remediationHint":"Review the refreshed device details, then approve the pending request.","deviceId":"3f219088c9d60e28387657a427ae904a1061b0f74df3722362be8f14f4b2e3d4","requestedRole":"operator","requestedScopes":["operator.read","operator.write","operator.admin"],"approvedRoles":["operator"],"approvedScopes":["operator.admin","operator.read","operator.write"]}}}
+```
+
+`fixtures/gateway-protocol/2026.10.3/err-config-stale-hash.json` (stale or unknown `baseHash`; no `details`):
+```json
+{"type":"res","id":"qa-6","ok":false,"error":{"code":"INVALID_REQUEST","message":"config changed since last load; re-run config.get and retry"}}
+```
+
+`fixtures/gateway-protocol/2026.10.3/err-config-base-hash-required.json` (`config.patch` without `baseHash`):
+```json
+{"type":"res","id":"qa-6","ok":false,"error":{"code":"INVALID_REQUEST","message":"config base hash required for skills.entries.gifgrep.env.QA_MARK; re-run config.get and retry with baseHash"}}
+```
+
+`fixtures/gateway-protocol/2026.10.3/err-config-invalid.json` (schema validation; `details.issues[]` carries `path`, `message` and sometimes `allowedValues`):
+```json
+{"type":"res","id":"qa-6","ok":false,"error":{"code":"INVALID_REQUEST","message":"invalid config: gateway.port: Too big: expected number to be <=65535 (maximum: 65535)","details":{"issues":[{"path":"gateway.port","message":"Too big: expected number to be <=65535 (maximum: 65535)"}]}}}
+```
+
+`fixtures/gateway-protocol/2026.10.3/res-config-patch.json` (success; `config` trimmed, `sentinel.payload` trimmed to `kind`/`status`):
+```json
+{"type":"res","id":"qa-6","ok":true,"payload":{"ok":true,"path":"/home/node/.openclaw/openclaw.json","hash":"hmac-sha256:v1:9zRz_TNpxroYBBCZhMFq3HGpv1dFAcFxPnmwn7VTXYE","config":{"gateway":{"mode":"local","port":18789,"bind":"lan","auth":{"mode":"token","token":"__OPENCLAW_REDACTED__"}},"agents":{"entries":{"main":{}}},"skills":{"entries":{"gifgrep":{"enabled":false,"env":{"QA_MARK":"1"}}}}},"changedPaths":["skills.entries.gifgrep.env"],"sentinel":{"persisted":true,"payload":{"kind":"config-patch","status":"ok"}}}}
+```
+
+`fixtures/gateway-protocol/2026.10.3/res-skills-update.json` (also `ok:true` for a key `skills.status` does not list):
+```json
+{"type":"res","id":"qa-7","ok":true,"payload":{"ok":true,"skillKey":"browser-automation","config":{"enabled":false}}}
+```
+
+`fixtures/gateway-protocol/2026.10.3/evt-config-changed.json` (~80 ms after a `skills.update` / `config.patch`, sometimes before its `res`; `skills.status` is stale until then):
+```json
+{"type":"event","event":"config.changed","payload":{"path":"/home/node/.openclaw/openclaw.json","hash":"hmac-sha256:v1:2sFWUUtsC-UI1KuZe97ow05xC0utmh6-UkQUs2Itm1Q","ts":1792035286950},"seq":2}
+```
+
+`fixtures/gateway-protocol/2026.10.3/res-skills-install.json` (`skills.install {source:"clawhub", slug:"@steipete/weather"}`; the answer names the bare key):
+```json
+{"type":"res","id":"qa-8","ok":true,"payload":{"ok":true,"message":"Installed weather@1.0.0","stdout":"","stderr":"","code":0,"slug":"weather","version":"1.0.0","targetDir":"/home/node/.openclaw/workspace/skills/weather"}}
 ```
 
 - [ ] **Step 2: Expose the fixtures as unit-test resources**
@@ -231,6 +282,9 @@ object GatewayFixtures {
         "err-pairing-required", "err-token-mismatch", "err-token-missing", "err-device-identity-required",
         "err-missing-scope", "err-unknown-method", "err-skill-not-found",
         "res-health", "res-skills-status", "res-models-list", "res-config-get",
+        "err-client-id-invalid", "err-pairing-metadata-upgrade",
+        "err-config-stale-hash", "err-config-base-hash-required", "err-config-invalid", "res-config-patch",
+        "res-skills-update", "evt-config-changed", "res-skills-install",
     )
 
     private val json = Json { ignoreUnknownKeys = true }
@@ -1511,7 +1565,7 @@ package com.openclaw.ghostcrab.data.gateway
  * @param role `connect.params.role`.
  * @param scopes `connect.params.scopes`, in request order.
  * @param signedAtMs The challenge `ts` (also sent as `device.signedAt`).
- * @param token The credential sent in `auth` (shared, device or bootstrap token), or `null`. Sensitive.
+ * @param token The credential sent in `auth` (shared or device token), or `null`. Sensitive.
  * @param nonce The challenge nonce (also sent as `device.nonce`).
  * @param platform `connect.params.client.platform`.
  * @param deviceFamily `connect.params.client.deviceFamily`, or `null`.
@@ -2140,12 +2194,7 @@ class GatewayHandshakeTest {
         assertEquals(listOf("operator.read"), params.getValue("scopes").jsonArray.map { it.jsonPrimitive.content })
     }
 
-    @Test fun `bootstrap and no-credential auth`() = runTest {
-        val boot = ScriptedWsSession(respond = fixtures("connect" to "hello-ok-paired"))
-        GatewayHandshake.perform(rpc(boot), client, ConnectAuth.Bootstrap("bt-test-0001"), identity)
-        val bootAuth = boot.paramsOf("connect").getValue("auth").jsonObject
-        assertEquals("bt-test-0001", bootAuth.getValue("bootstrapToken").jsonPrimitive.content)
-
+    @Test fun `no credential sends no auth block`() = runTest {
         val none = ScriptedWsSession(respond = fixtures("connect" to "hello-ok-paired"))
         GatewayHandshake.perform(rpc(none), client, ConnectAuth.None, identity)
         assertNull(none.paramsOf("connect")["auth"])
@@ -2209,12 +2258,11 @@ class GatewayHandshakeTest {
         )
     }
 
-    @Test fun `credential selection follows upstream order`() {
+    @Test fun `credential selection follows upstream order without setup-code tokens`() {
         val stored = StoredDeviceToken("dt", listOf("operator.read"), "operator", RFC8032_DEVICE_ID)
-        assertTrue(selectConnectAuth("t", stored, "b") is ConnectAuth.SharedToken)
-        assertTrue(selectConnectAuth(null, stored, "b") is ConnectAuth.DeviceToken)
-        assertTrue(selectConnectAuth(null, null, "b") is ConnectAuth.Bootstrap)
-        assertEquals(ConnectAuth.None, selectConnectAuth(null, null, null))
+        assertTrue(selectConnectAuth("t", stored) is ConnectAuth.SharedToken)
+        assertTrue(selectConnectAuth(null, stored) is ConnectAuth.DeviceToken)
+        assertEquals(ConnectAuth.None, selectConnectAuth(null, null))
     }
 }
 ```
@@ -2375,8 +2423,10 @@ import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
 
 /**
- * `connect.params.client` (ADR-0007). [id] must be one of upstream's closed client ids (`openclaw-android` for
- * this app); [version] and [displayName] stay honest.
+ * `connect.params.client` (ADR-0007). [id] and [mode] must be values upstream's allow-lists accept (checked before
+ * auth: anything else is `INVALID_REQUEST invalid connect params`, close 1008); [version] and [displayName] stay
+ * honest. [platform] is bound into the device signature and pinned when the device is approved: changing it
+ * re-triggers pairing (`metadata-upgrade`), so it is a constant per app, never derived from the device.
  *
  * @param id Upstream client id.
  * @param version GhostCrab's version name.
@@ -2416,12 +2466,6 @@ sealed interface ConnectAuth {
         override fun toString(): String = "DeviceToken([REDACTED], scopes=$scopes)"
     }
 
-    /** Single-use `openclaw qr` setup-code token (`auth.bootstrapToken`). */
-    class Bootstrap(val token: String) : ConnectAuth {
-        override val signatureToken: String get() = token
-        override fun toString(): String = "Bootstrap([REDACTED])"
-    }
-
     /** No credential: `auth.mode: none` gateways and the auth probe. */
     data object None : ConnectAuth {
         override val signatureToken: String? get() = null
@@ -2429,18 +2473,17 @@ sealed interface ConnectAuth {
 }
 
 /**
- * Upstream `selectGatewayConnectAuth` order: explicit shared token, then the stored device token, then a
- * bootstrap token, else nothing.
+ * Upstream `selectGatewayConnectAuth` order for an operator client: explicit shared token, then the stored device
+ * token, else nothing. Setup-code bootstrap tokens are not a credential here: the gateway accepts them only for
+ * `role: "node"` (verified 2026-10-15, ADR-0007).
  *
  * @param sharedToken Token the user or profile supplied.
  * @param stored This gateway's stored device token (already filtered to the current identity).
- * @param bootstrapToken Setup-code token, if connecting from a scanned `openclaw qr` code.
  * @return The credential to send.
  */
-fun selectConnectAuth(sharedToken: String?, stored: StoredDeviceToken?, bootstrapToken: String?): ConnectAuth = when {
+fun selectConnectAuth(sharedToken: String?, stored: StoredDeviceToken?): ConnectAuth = when {
     sharedToken != null -> ConnectAuth.SharedToken(sharedToken)
     stored != null -> ConnectAuth.DeviceToken(stored.token, stored.scopes)
-    bootstrapToken != null -> ConnectAuth.Bootstrap(bootstrapToken)
     else -> ConnectAuth.None
 }
 
@@ -2547,7 +2590,6 @@ object GatewayHandshake {
     private fun authJson(auth: ConnectAuth): JsonObject? = when (auth) {
         is ConnectAuth.SharedToken -> buildJsonObject { put("token", auth.token) }
         is ConnectAuth.DeviceToken -> buildJsonObject { put("deviceToken", auth.token) }
-        is ConnectAuth.Bootstrap -> buildJsonObject { put("bootstrapToken", auth.token) }
         ConnectAuth.None -> null
     }
 }
@@ -2562,7 +2604,7 @@ Expected: PASS (8 tests).
 
 ```bash
 git add app/src/main/kotlin/com/openclaw/ghostcrab/data/gateway/GatewayHello.kt app/src/main/kotlin/com/openclaw/ghostcrab/data/gateway/GatewayHandshake.kt app/src/test/kotlin/com/openclaw/ghostcrab/data/gateway/GatewayHandshakeTest.kt
-git commit -m "feat(gateway): connect handshake with signed device identity" -m "challenge -> v3-signed connect -> hello-ok; upstream credential order (shared, device, bootstrap, none); auth mode, scopes, device token, host and capabilities read from hello-ok (ADR-0007)."
+git commit -m "feat(gateway): connect handshake with signed device identity" -m "challenge -> v3-signed connect -> hello-ok; upstream credential order for operators (shared, device, none); auth mode, scopes, device token, host and capabilities read from hello-ok (ADR-0007)."
 ```
 
 ---
@@ -2982,10 +3024,10 @@ class GatewayConnectionManagerImpl(
         }
     }
 
-    override suspend fun connect(url: String, token: String?) = connectWith(url, token, bootstrapToken = null)
+    override suspend fun connect(url: String, token: String?) = connectWith(url, token)
 
     /** Emits Connecting, then Connected or Error (and rethrows). Cancellation ends in Disconnected. */
-    private suspend fun connectWith(url: String, token: String?, bootstrapToken: String?): Unit =
+    private suspend fun connectWith(url: String, token: String?): Unit =
         withContext(ioDispatcher) {
             mutex.withLock {
                 closeActive()
@@ -3001,7 +3043,7 @@ class GatewayConnectionManagerImpl(
                     val identity = identityProvider.identity()
                     val stored = deviceTokens.loadDeviceToken(key)?.takeIf { it.deviceId == identity.deviceId }
                     val socket = openRpc(rest).also { rpc = it }
-                    val auth = selectConnectAuth(token, stored, bootstrapToken)
+                    val auth = selectConnectAuth(token, stored)
                     val hello = GatewayHandshake.perform(socket, clientInfo, auth, identity)
                     rememberDeviceToken(key, identity, hello, stored)
                     active = ActiveSession(rest, socket, hello)
@@ -3197,100 +3239,144 @@ git commit -m "feat(connection): connect over the protocol-4 WS handshake" -m "R
 
 ---
 
-### Task 11: Setup-code (bootstrap token) connect
+### Task 11: Pin the client identity the gateway allow-lists
 
 **Files:**
-- Create: `app/src/main/kotlin/com/openclaw/ghostcrab/domain/repository/GatewayBootstrapConnector.kt`
-- Modify: `app/src/main/kotlin/com/openclaw/ghostcrab/data/impl/GatewayConnectionManagerImpl.kt`
+- Modify: `app/src/main/kotlin/com/openclaw/ghostcrab/data/gateway/GatewayHandshake.kt` (`ClientInfo` companion)
 - Modify: `app/src/main/kotlin/com/openclaw/ghostcrab/di/DataModule.kt`
-- Modify: `docs/adr/0005-additive-repository-methods.md` (instances list)
-- Test: `app/src/test/kotlin/com/openclaw/ghostcrab/data/GatewayConnectionManagerImplTest.kt`
+- Test: `app/src/test/kotlin/com/openclaw/ghostcrab/data/gateway/ClientIdentityTest.kt`
+
+Verified 2026-10-15 against 2026.10.3: `client.id` and `client.mode` are allow-lists checked before any credential (`ghostcrab-android` and `mode: "operator"` are rejected with `INVALID_REQUEST invalid connect params …` and close 1008), so `openclaw-android` / `ui` is forced by the server, not chosen. On a paired device a different `platform` re-triggers pairing (`metadata-upgrade`), while a different `client.id` does not. The identity is therefore one constant; only `version`, `displayName` and `locale` vary. A setup-code connect is not built: bootstrap tokens authenticate only `role: "node"` (ADR-0007).
 
 - [ ] **Step 1: Write the failing test**
 
-Add to `GatewayConnectionManagerImplTest`:
+`app/src/test/kotlin/com/openclaw/ghostcrab/data/gateway/ClientIdentityTest.kt`:
 ```kotlin
-    @Test fun `bootstrap connect sends the setup-code token and keeps the issued device token`() = runTest {
-        val session = ScriptedWsSession(respond = fixtures("connect" to "hello-ok-paired"))
-        val m = manager(session)
-        m.connectWithBootstrapToken(url, "bt-test-0001")
-        val auth = session.paramsOf("connect").getValue("auth").jsonObject
-        assertEquals("bt-test-0001", auth.getValue("bootstrapToken").jsonPrimitive.content)
-        assertNull(auth["token"])
-        assertEquals("dt-test-0001", tokens.tokens[url]?.token)
-        assertNull((m.connectionState.value as GatewayConnection.Connected).tokenOrNull)
+package com.openclaw.ghostcrab.data.gateway
+
+import com.openclaw.ghostcrab.domain.exception.GatewayPairingRequiredException
+import com.openclaw.ghostcrab.domain.exception.GatewayRpcException
+import com.openclaw.ghostcrab.testutil.RFC8032_SEED
+import com.openclaw.ghostcrab.testutil.ScriptedWsSession
+import com.openclaw.ghostcrab.testutil.ScriptedWsSession.Companion.fixtures
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.test.runTest
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertThrows
+
+class ClientIdentityTest {
+
+    private val identity = DeviceIdentity.fromSeed(RFC8032_SEED)
+
+    private fun rpc(session: ScriptedWsSession) = GatewayRpcClient.create(session, "ws://gw/ws", Dispatchers.Unconfined)
+
+    @Test fun `the android identity is the allow-listed constant`() {
+        val info = ClientInfo.android(version = "9.9.9", locale = "de-DE")
+        assertEquals("openclaw-android", info.id)
+        assertEquals("ui", info.mode)
+        assertEquals("android", info.platform)
+        assertNull(info.deviceFamily)
+        assertEquals("GhostCrab (Android)", info.displayName)
+        assertEquals("9.9.9", info.version)
+        assertEquals("de-DE", info.locale)
     }
+
+    @Test fun `an id outside the allow-list is an RPC rejection shown verbatim`() = runTest {
+        val session = ScriptedWsSession(
+            closeAfterReplyTo = setOf("connect"),
+            respond = fixtures("connect" to "err-client-id-invalid"),
+        )
+        val client = ClientInfo.android(version = "0.3.0").copy(id = "ghostcrab-android")
+        val e = assertThrows<GatewayRpcException> {
+            GatewayHandshake.perform(rpc(session), client, ConnectAuth.SharedToken("shared-token"), identity)
+        }
+        assertEquals("INVALID_REQUEST", e.code)
+        assertTrue(e.rpcMessage.contains("/client/id"))
+    }
+
+    @Test fun `a platform change on a paired device asks for re-approval`() = runTest {
+        val session = ScriptedWsSession(
+            closeAfterReplyTo = setOf("connect"),
+            respond = fixtures("connect" to "err-pairing-metadata-upgrade"),
+        )
+        val client = ClientInfo.android(version = "0.3.0")
+        val e = assertThrows<GatewayPairingRequiredException> {
+            GatewayHandshake.perform(rpc(session), client, ConnectAuth.SharedToken("shared-token"), identity)
+        }
+        assertEquals("metadata-upgrade", e.reason)
+        assertEquals("6837c6b0-f559-445b-bc0c-a50fbe5b5998", e.requestId)
+    }
+}
 ```
 
 - [ ] **Step 2: Run it to make sure it fails**
 
-Run: `./gradlew testDebugUnitTest --tests "com.openclaw.ghostcrab.data.GatewayConnectionManagerImplTest"`
-Expected: FAIL, `Unresolved reference 'connectWithBootstrapToken'`.
+Run: `./gradlew testDebugUnitTest --tests "com.openclaw.ghostcrab.data.gateway.ClientIdentityTest"`
+Expected: FAIL, `Unresolved reference 'android'`.
 
-- [ ] **Step 3: Add the additive interface**
+- [ ] **Step 3: Add the pinned identity**
 
-`app/src/main/kotlin/com/openclaw/ghostcrab/domain/repository/GatewayBootstrapConnector.kt`:
+In `GatewayHandshake.kt` add the import `import java.util.Locale` and replace the body of `ClientInfo`
 ```kotlin
-package com.openclaw.ghostcrab.domain.repository
+) {
+    /** `connect.params.userAgent`. */
+    val userAgent: String get() = "ghostcrab-$platform/$version"
+}
+```
+with
+```kotlin
+) {
+    /** `connect.params.userAgent`. */
+    val userAgent: String get() = "ghostcrab-$platform/$version"
 
-/**
- * Connects with the single-use bootstrap token of an `openclaw qr` setup code instead of a shared gateway
- * token (ADR-0007). Same state transitions and errors as [GatewayConnectionManager.connect]; on success the
- * gateway-issued device token is stored, so later connects need no token at all.
- *
- * Additive (v1.1): new interface, no frozen v1.0 contract changes (ADR-0005).
- */
-interface GatewayBootstrapConnector {
+    companion object {
+        /** Upstream allow-listed id for the Android app; any other id is rejected before auth. */
+        const val ANDROID_CLIENT_ID = "openclaw-android"
 
-    /**
-     * @param url Gateway base URL (`http(s)://host:port`), derived from the setup code's `ws(s)://` URL.
-     * @param bootstrapToken The setup code's `bootstrapToken`. Sensitive — never log, never persist.
-     * @throws com.openclaw.ghostcrab.domain.exception.GatewayPairingRequiredException until the device is
-     *   approved on the gateway host (non-official clients are never auto-approved).
-     * @throws com.openclaw.ghostcrab.domain.exception.GatewayConnectAuthException with
-     *   `AUTH_BOOTSTRAP_TOKEN_INVALID` once the token expired (10 min) or was used.
-     * @throws com.openclaw.ghostcrab.domain.exception.GatewayUnreachableException if the host is unreachable.
-     */
-    suspend fun connectWithBootstrapToken(url: String, bootstrapToken: String)
+        /** Pinned at approval (case-insensitive): a different value re-triggers pairing. Never derive it. */
+        const val ANDROID_PLATFORM = "android"
+
+        /**
+         * GhostCrab's Android identity (ADR-0007 decision 4, verified 2026-10-15).
+         *
+         * @param version GhostCrab's version name (honest; not checked by the gateway).
+         * @param locale BCP-47 tag for `connect.params.locale`.
+         * @return The constant id / mode / platform with this build's version.
+         */
+        fun android(version: String, locale: String = Locale.getDefault().toLanguageTag()) = ClientInfo(
+            id = ANDROID_CLIENT_ID,
+            version = version,
+            platform = ANDROID_PLATFORM,
+            displayName = "GhostCrab (Android)",
+            locale = locale,
+        )
+    }
 }
 ```
 
-- [ ] **Step 4: Implement it**
-
-In `GatewayConnectionManagerImpl.kt` add the import `import com.openclaw.ghostcrab.domain.repository.GatewayBootstrapConnector`, change the class header's supertypes to
+In `DataModule.kt` replace
 ```kotlin
-) : GatewayConnectionManager, GatewayHealthChecker, GatewayBootstrapConnector {
+    single { androidClientInfo() }
 ```
-and add after `connect(...)`:
+with
 ```kotlin
-    override suspend fun connectWithBootstrapToken(url: String, bootstrapToken: String) =
-        connectWith(url, token = null, bootstrapToken = bootstrapToken)
+    single { ClientInfo.android(BuildConfig.VERSION_NAME) }
 ```
+and delete the `androidClientInfo()` function Task 10 appended (with its KDoc) and the then-unused `import java.util.Locale`.
 
-In `DataModule.kt` add `import com.openclaw.ghostcrab.domain.repository.GatewayBootstrapConnector` and after `single<GatewayHealthChecker> { get<GatewayConnectionManagerImpl>() }`:
-```kotlin
-    single<GatewayBootstrapConnector> { get<GatewayConnectionManagerImpl>() }
-```
+- [ ] **Step 4: Run the tests**
 
-In `docs/adr/0005-additive-repository-methods.md`, append to the instances:
-```markdown
+Run: `./gradlew testDebugUnitTest --tests "com.openclaw.ghostcrab.data.gateway.ClientIdentityTest" --tests "com.openclaw.ghostcrab.di.KoinModulesTest"`
+Expected: PASS (3 new tests).
 
-Instances on `feat/protocol-alignment-android` (ADR-0007, Android):
-
-- `GatewayBootstrapConnector` (new interface, implemented by `GatewayConnectionManagerImpl`)
-- `InstalledSkillRepository.setSkillEnabled()`
-```
-
-- [ ] **Step 5: Run the tests**
-
-Run: `./gradlew testDebugUnitTest --tests "com.openclaw.ghostcrab.data.GatewayConnectionManagerImplTest" --tests "com.openclaw.ghostcrab.di.KoinModulesTest"`
-Expected: PASS.
-
-- [ ] **Step 6: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add app/src/main/kotlin/com/openclaw/ghostcrab/domain/repository/GatewayBootstrapConnector.kt app/src/main/kotlin/com/openclaw/ghostcrab/data/impl/GatewayConnectionManagerImpl.kt app/src/main/kotlin/com/openclaw/ghostcrab/di/DataModule.kt docs/adr/0005-additive-repository-methods.md app/src/test/kotlin/com/openclaw/ghostcrab/data/GatewayConnectionManagerImplTest.kt
-git commit -m "feat(connection): connect with an openclaw qr bootstrap token" -m "Additive GatewayBootstrapConnector (ADR-0005); sends auth.bootstrapToken and keeps the issued device token so the profile needs no shared token."
+git add app/src/main/kotlin/com/openclaw/ghostcrab/data/gateway/GatewayHandshake.kt app/src/main/kotlin/com/openclaw/ghostcrab/di/DataModule.kt app/src/test/kotlin/com/openclaw/ghostcrab/data/gateway/ClientIdentityTest.kt
+git commit -m "feat(gateway): pin the allow-listed client identity" -m "client.id and client.mode are server allow-lists checked before auth, and a changed platform re-triggers pairing (metadata-upgrade), so the Android identity is one constant: openclaw-android, ui, android (ADR-0007, verified against 2026.10.3)."
 ```
 
 ---
@@ -3408,7 +3494,7 @@ git commit -m "feat(scopes): read granted scopes from hello-ok" -m "auth.whoami 
 - Modify: `app/src/main/kotlin/com/openclaw/ghostcrab/di/DataModule.kt`
 - Rewrite: `app/src/test/kotlin/com/openclaw/ghostcrab/data/impl/InstalledSkillRepositoryImplTest.kt`
 
-The real gateway answers `skills.install` with one `res` frame and sends no progress events; `skills.uninstall` does not exist (QA §3). The success payloads of `skills.install` were not captured (only the not-found failure), so the repository relies only on `ok:true` and re-reads `skills.status`.
+The real gateway answers `skills.install` with one `res` frame and sends no progress events; `skills.uninstall` does not exist (QA §3). Verified 2026-10-15: a successful install answers `{ok, message, slug, version, targetDir, …}` with the bare key in `slug` (`@steipete/weather` → `weather`) and is listed by `skills.status` with `source: "openclaw-workspace"` plus a `clawhub {status, slug, installedVersion, installedAt, …}` object (fixtures `res-skills-install`, `res-skills-status`).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -3448,21 +3534,17 @@ class InstalledSkillRepositoryImplTest {
         return InstalledSkillRepositoryImpl { rpc }
     }
 
-    /** `{"type":"res","ok":true,"payload":{"ok":true}}`: success shape assumed for skills.install / skills.update. */
-    private val okReply: JsonObject = buildJsonObject {
-        put("type", "res")
-        put("ok", true)
-        putJsonObject("payload") { put("ok", true) }
-    }
-
     @Test fun `refresh maps skills status`() = runTest {
         val repo = skillsRepo(ScriptedWsSession(respond = fixtures("skills.status" to "res-skills-status")))
         val skills = repo.refreshFromGateway().getOrThrow()
-        assertEquals(listOf("1password", "browser-automation"), skills.map { it.slug })
+        assertEquals(listOf("1password", "browser-automation", "weather"), skills.map { it.slug })
         assertTrue(skills[0].disabled)
         assertEquals(SkillSource.Local, skills[0].source)
         assertFalse(skills[1].disabled)
         assertEquals("", skills[1].installedVersion)
+        assertEquals(SkillSource.ClawHub, skills[2].source)
+        assertEquals("1.0.0", skills[2].installedVersion)
+        assertEquals(1_792_035_309L, skills[2].installedAt)
         assertEquals(skills, repo.observeInstalled().first())
     }
 
@@ -3480,22 +3562,25 @@ class InstalledSkillRepositoryImplTest {
         val session = ScriptedWsSession(
             respond = { method, _ ->
                 when (method) {
-                    "skills.install" -> okReply
+                    "skills.install" -> GatewayFixtures.frame("res-skills-install")
                     "skills.status" -> GatewayFixtures.frame("res-skills-status")
                     else -> null
                 }
             },
         )
-        skillsRepo(session).install("someone/browser-automation", "1.2.0").test {
-            assertEquals(SkillInstallProgress.Connecting("someone/browser-automation"), awaitItem())
+        skillsRepo(session).install("@steipete/weather", "1.0.0").test {
+            assertEquals(SkillInstallProgress.Connecting("@steipete/weather"), awaitItem())
             assertEquals(SkillInstallProgress.Applying("skills.install"), awaitItem())
-            assertEquals("browser-automation", (awaitItem() as SkillInstallProgress.Succeeded).installed.slug)
+            val installed = (awaitItem() as SkillInstallProgress.Succeeded).installed
+            assertEquals("weather", installed.slug)
+            assertEquals("1.0.0", installed.installedVersion)
+            assertEquals(SkillSource.ClawHub, installed.source)
             awaitComplete()
         }
         val params = session.paramsOf("skills.install")
         assertEquals("clawhub", params.stringOrNull("source"))
-        assertEquals("someone/browser-automation", params.stringOrNull("slug"))
-        assertEquals("1.2.0", params.stringOrNull("version"))
+        assertEquals("@steipete/weather", params.stringOrNull("slug"))
+        assertEquals("1.0.0", params.stringOrNull("version"))
         assertEquals("false", params["force"].toString())
         assertEquals("120000", params["timeoutMs"].toString())
     }
@@ -3536,13 +3621,13 @@ class InstalledSkillRepositoryImplTest {
         assertTrue(session.sent.isEmpty())
     }
 
-    @Test fun `skills status sources map to SkillSource`() {
-        assertEquals(SkillSource.ClawHub, skillSourceOf("openclaw-managed", bundled = false))
-        assertEquals(SkillSource.ClawHub, skillSourceOf("clawhub", bundled = false))
-        assertEquals(SkillSource.Local, skillSourceOf("openclaw-bundled", bundled = true))
-        assertEquals(SkillSource.Local, skillSourceOf("openclaw-extra", bundled = false))
-        assertEquals(SkillSource.Unknown, skillSourceOf("workspace", bundled = false))
-        assertEquals(SkillSource.Unknown, skillSourceOf(null, bundled = false))
+    @Test fun `skills status entries map to SkillSource`() {
+        assertEquals(SkillSource.ClawHub, skillSourceOf("openclaw-workspace", bundled = false, clawhub = true))
+        assertEquals(SkillSource.Local, skillSourceOf("openclaw-workspace", bundled = false, clawhub = false))
+        assertEquals(SkillSource.Local, skillSourceOf("openclaw-bundled", bundled = true, clawhub = false))
+        assertEquals(SkillSource.Local, skillSourceOf("openclaw-extra", bundled = false, clawhub = false))
+        assertEquals(SkillSource.Unknown, skillSourceOf("workspace", bundled = false, clawhub = false))
+        assertEquals(SkillSource.Unknown, skillSourceOf(null, bundled = false, clawhub = false))
     }
 }
 ```
@@ -3566,9 +3651,10 @@ enum class SkillSource { ClawHub, Local, Unknown }
  * A skill the gateway reports in `skills.status` (ADR-0007).
  *
  * @param slug `skillKey` (falls back to `name`).
- * @param installedVersion Version, when the gateway reports one; empty otherwise (bundled skills have none).
+ * @param installedVersion `clawhub.installedVersion` for ClawHub installs, else `version` when reported; empty
+ *   otherwise (bundled skills have none).
  * @param source Where it came from.
- * @param installedAt Epoch seconds, 0 when unknown (`skills.status` does not report install times).
+ * @param installedAt Epoch seconds from `clawhub.installedAt` for ClawHub installs; 0 when unknown.
  * @param disabled `true` when `skills.entries.<key>.enabled` is false on the gateway.
  */
 @Serializable
@@ -3639,12 +3725,14 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 
 private const val METHOD_STATUS = "skills.status"
 private const val METHOD_INSTALL = "skills.install"
 private const val METHOD_UNINSTALL = "skills.uninstall"
 private const val NOT_CONNECTED_URL = "<no active connection>"
+private const val MILLIS_PER_SECOND = 1_000L
 
 /** Sent as `skills.install.timeoutMs`: the gateway downloads and verifies before it answers. */
 private const val INSTALL_TIMEOUT_MS = 120_000L
@@ -3684,8 +3772,9 @@ class InstalledSkillRepositoryImpl(
         }
         emit(SkillInstallProgress.Applying(step = METHOD_INSTALL))
         val outcome = try {
-            rpc.request(METHOD_INSTALL, installParams(slug, version), INSTALL_TIMEOUT_MS + INSTALL_TIMEOUT_MARGIN_MS)
-            SkillInstallProgress.Succeeded(installedSkillAfter(rpc, slug, version))
+            val timeoutMs = INSTALL_TIMEOUT_MS + INSTALL_TIMEOUT_MARGIN_MS
+            val result = rpc.request(METHOD_INSTALL, installParams(slug, version), timeoutMs) as? JsonObject
+            SkillInstallProgress.Succeeded(installedSkillAfter(rpc, slug, result))
         } catch (e: CancellationException) {
             throw e
         } catch (e: GatewayException) {
@@ -3705,13 +3794,19 @@ class InstalledSkillRepositoryImpl(
     }
 
     /**
-     * The install already succeeded; this only finds its entry. A failed or incomplete refresh falls back to
-     * a synthetic entry rather than reporting a successful install as failed.
+     * The install already succeeded; this only finds its entry. `skills.install` answers with the bare key and the
+     * installed version (`{ok, message, slug, version, targetDir, …}`). A failed or incomplete refresh falls back
+     * to a synthetic entry rather than reporting a successful install as failed.
      */
-    private suspend fun installedSkillAfter(rpc: GatewayRpcClient, slug: String, version: String?): InstalledSkill {
+    private suspend fun installedSkillAfter(
+        rpc: GatewayRpcClient,
+        requested: String,
+        result: JsonObject?,
+    ): InstalledSkill {
+        val key = result?.stringOrNull("slug") ?: requested.substringAfterLast('/')
         val refreshed = suspendRunCatching { fetchStatus(rpc) }.getOrNull().orEmpty()
-        return refreshed.firstOrNull { it.matches(slug) }
-            ?: InstalledSkill(slug, version.orEmpty(), SkillSource.ClawHub, installedAt = 0L)
+        return refreshed.firstOrNull { it.slug == key }
+            ?: InstalledSkill(key, result?.stringOrNull("version").orEmpty(), SkillSource.ClawHub, installedAt = 0L)
     }
 
     private fun endpointOrPlaceholder(): String = try {
@@ -3731,11 +3826,13 @@ private fun installParams(slug: String, version: String?) = buildJsonObject {
 
 private fun JsonObject.toInstalledSkill(): InstalledSkill? {
     val key = stringOrNull("skillKey") ?: stringOrNull("name") ?: return null
+    val clawhub = this["clawhub"] as? JsonObject
+    val installedAtMs = (clawhub?.get("installedAt") as? JsonPrimitive)?.longOrNull ?: 0L
     return InstalledSkill(
         slug = key,
-        installedVersion = stringOrNull("version").orEmpty(),
-        source = skillSourceOf(stringOrNull("source"), flag("bundled")),
-        installedAt = 0L,
+        installedVersion = clawhub?.stringOrNull("installedVersion") ?: stringOrNull("version").orEmpty(),
+        source = skillSourceOf(stringOrNull("source"), flag("bundled"), clawhub = clawhub != null),
+        installedAt = installedAtMs / MILLIS_PER_SECOND,
         disabled = flag("disabled"),
     )
 }
@@ -3743,24 +3840,21 @@ private fun JsonObject.toInstalledSkill(): InstalledSkill? {
 private fun JsonObject.flag(key: String): Boolean = (this[key] as? JsonPrimitive)?.booleanOrNull == true
 
 /**
- * `skills.status` `source` → [SkillSource]. Bundled and plugin skills (`openclaw-bundled`, `openclaw-extra`)
- * are local. ⚠ The `source` of a ClawHub-installed skill was not captured in M5; `openclaw-managed` (the
- * managed skills dir) is assumed and verified in Task 26.
+ * `skills.status` entry → [SkillSource]. Verified against 2026.10.3: a ClawHub install reports
+ * `source: "openclaw-workspace"` plus a `clawhub {…}` object; bundled and plugin skills (`openclaw-bundled`,
+ * `openclaw-extra`) and hand-made workspace skills have no `clawhub` object and are local.
  *
  * @param source The reported source.
  * @param bundled The reported `bundled` flag.
+ * @param clawhub Whether the entry carries a `clawhub` object.
  * @return The mapped source.
  */
-internal fun skillSourceOf(source: String?, bundled: Boolean): SkillSource = when {
+internal fun skillSourceOf(source: String?, bundled: Boolean, clawhub: Boolean): SkillSource = when {
+    clawhub -> SkillSource.ClawHub
     source == null -> SkillSource.Unknown
-    "clawhub" in source || source == "openclaw-managed" -> SkillSource.ClawHub
     bundled || source.startsWith("openclaw-") -> SkillSource.Local
     else -> SkillSource.Unknown
 }
-
-/** `owner/slug` installs appear in `skills.status` under their bare `skillKey`. */
-private fun InstalledSkill.matches(slug: String): Boolean =
-    this.slug == slug || this.slug == slug.substringAfterLast('/')
 
 private fun GatewayException.toInstallError(slug: String): SkillInstallError = when (this) {
     is GatewayMissingScopeException -> SkillInstallError.Unauthorized(missingScope)
@@ -3812,7 +3906,7 @@ Expected: BUILD SUCCESSFUL.
 
 ```bash
 git add app/src/main/kotlin/com/openclaw/ghostcrab/domain/model/InstalledSkill.kt app/src/main/kotlin/com/openclaw/ghostcrab/domain/model/SkillInstallError.kt app/src/main/kotlin/com/openclaw/ghostcrab/ui/airecommend/SkillUnavailableContent.kt app/src/main/res/values/strings.xml app/src/main/kotlin/com/openclaw/ghostcrab/data/impl/InstalledSkillRepositoryImpl.kt app/src/main/kotlin/com/openclaw/ghostcrab/di/DataModule.kt app/src/test/kotlin/com/openclaw/ghostcrab/data/impl/InstalledSkillRepositoryImplTest.kt
-git commit -m "feat(skills): list and install over skills.status / skills.install" -m "Real method names and DTO (skillKey, source, bundled, disabled); one install response, no progress stream; string error codes; skills.uninstall reported as unsupported (ADR-0007)."
+git commit -m "feat(skills): list and install over skills.status / skills.install" -m "Real method names and DTO (skillKey, source, bundled, disabled, clawhub); one install response naming the bare key and version, no progress stream; string error codes; skills.uninstall reported as unsupported (ADR-0007)."
 ```
 
 ---
@@ -3826,18 +3920,22 @@ git commit -m "feat(skills): list and install over skills.status / skills.instal
 - Modify: `app/src/test/kotlin/com/openclaw/ghostcrab/ui/InstalledSkillsViewModelTest.kt`, `app/src/test/kotlin/com/openclaw/ghostcrab/ui/AIRecommendationViewModelTest.kt` (fakes)
 - Test: `app/src/test/kotlin/com/openclaw/ghostcrab/data/impl/InstalledSkillRepositoryImplTest.kt`
 
-`skills.update {skillKey, enabled}` is in the 2026.10.3 schema (`SkillsUpdateParams`) but was not exercised in M5; Task 26 verifies it.
+Verified 2026-10-15: `skills.update {skillKey, enabled}` answers `{ok:true, skillKey, config:{enabled}}`, also for a key the gateway does not know, so the key must be in the last `skills.status` before GhostCrab writes it. `skills.status` stays stale until the gateway emits `config.changed` (~80 ms after the write, sometimes before the response); there is no `skills.changed` event. The repository subscribes to `config.changed` before sending, waits for it (2 s cap), then re-reads the list.
 
 - [ ] **Step 1: Write the failing repository test**
 
 Add to `InstalledSkillRepositoryImplTest`:
 ```kotlin
-    @Test fun `disable sends skills update and refreshes the list`() = runTest {
-        val session = ScriptedWsSession(
+    @Test fun `disable waits for config changed, then re-reads skills status`() = runTest {
+        lateinit var session: ScriptedWsSession
+        session = ScriptedWsSession(
             respond = { method, _ ->
                 when (method) {
-                    "skills.update" -> okReply
                     "skills.status" -> GatewayFixtures.frame("res-skills-status")
+                    // Like the real gateway: config.changed can arrive before the skills.update response.
+                    "skills.update" -> GatewayFixtures.frame("res-skills-update").also {
+                        session.push(GatewayFixtures.frame("evt-config-changed"))
+                    }
                     else -> null
                 }
             },
@@ -3847,7 +3945,16 @@ Add to `InstalledSkillRepositoryImplTest`:
         val params = session.paramsOf("skills.update")
         assertEquals("browser-automation", params.stringOrNull("skillKey"))
         assertEquals("false", params["enabled"].toString())
-        assertEquals(2, repo.observeInstalled().first().size)
+        val methods = session.sent.map { it.stringOrNull("method") }
+        assertEquals(listOf("skills.status", "skills.update", "skills.status"), methods)
+        assertEquals(3, repo.observeInstalled().first().size)
+    }
+
+    @Test fun `a key skills status does not list is refused without a write`() = runTest {
+        val session = ScriptedWsSession(respond = fixtures("skills.status" to "res-skills-status"))
+        val result = skillsRepo(session).setSkillEnabled("qa-does-not-exist", enabled = false)
+        assertEquals(404, (result.exceptionOrNull() as GatewayApiException).statusCode)
+        assertTrue(session.sent.none { it.stringOrNull("method") == "skills.update" })
     }
 ```
 
@@ -3876,26 +3983,59 @@ and add at the end of the interface:
      *
      * Additive (v1.1): ADR-0005, ADR-0007.
      *
-     * @param skillKey [com.openclaw.ghostcrab.domain.model.InstalledSkill.slug] as reported by `skills.status`.
+     * @param skillKey [com.openclaw.ghostcrab.domain.model.InstalledSkill.slug] as reported by `skills.status`
+     *   (an `owner/slug` is reduced to `slug`).
      * @param enabled `false` to disable.
      * @return Success once the gateway accepted the change and the list was re-read; failure otherwise
-     *   (e.g. `GatewayMissingScopeException` without `operator.admin`).
+     *   (`GatewayApiException` 404 for a key `skills.status` does not list, `GatewayMissingScopeException` without
+     *   `operator.admin`).
      */
     suspend fun setSkillEnabled(skillKey: String, enabled: Boolean): Result<Unit>
 ```
 
-In `InstalledSkillRepositoryImpl.kt` add `private const val METHOD_UPDATE = "skills.update"` next to the other constants and, after `uninstall(...)`:
+In `InstalledSkillRepositoryImpl.kt` add next to the other constants:
 ```kotlin
-    /** `skills.update {skillKey, enabled}`, then a `skills.status` refresh. */
+private const val METHOD_UPDATE = "skills.update"
+private const val EVENT_CONFIG_CHANGED = "config.changed"
+private const val STATUS_NOT_FOUND = 404
+
+/** `config.changed` follows a write within ~80 ms; without it the list is re-read anyway after this long. */
+private const val CONFIG_CHANGED_WAIT_MS = 2_000L
+```
+add the imports
+```kotlin
+import com.openclaw.ghostcrab.domain.exception.GatewayApiException
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.withTimeoutOrNull
+```
+(`kotlinx.coroutines.flow.first` is needed too if the file lacks it) and, after `uninstall(...)`:
+```kotlin
+    /**
+     * `skills.update {skillKey, enabled}`, then a `skills.status` re-read once the gateway emits `config.changed`
+     * (the list is stale until then, and the event can precede the response). The gateway answers `ok:true` even
+     * for unknown keys, so the key must be listed by `skills.status` first.
+     */
     override suspend fun setSkillEnabled(skillKey: String, enabled: Boolean): Result<Unit> = suspendRunCatching {
         val rpc = session()
-        rpc.request(
-            METHOD_UPDATE,
-            buildJsonObject {
-                put("skillKey", skillKey)
+        val key = skillKey.substringAfterLast('/')
+        val listed = installedFlow.value.takeIf { list -> list.any { it.slug == key } } ?: fetchStatus(rpc)
+        if (listed.none { it.slug == key }) {
+            throw GatewayApiException(rpc.endpoint, STATUS_NOT_FOUND, "skill $key is not listed by skills.status")
+        }
+        coroutineScope {
+            // Subscribed before the request goes out, so an early config.changed is not missed.
+            val changed = async(start = CoroutineStart.UNDISPATCHED) {
+                withTimeoutOrNull(CONFIG_CHANGED_WAIT_MS) { rpc.events.first { it.event == EVENT_CONFIG_CHANGED } }
+            }
+            val params = buildJsonObject {
+                put("skillKey", key)
                 put("enabled", enabled)
-            },
-        )
+            }
+            rpc.request(METHOD_UPDATE, params)
+            changed.await()
+        }
         fetchStatus(rpc)
         Unit
     }
@@ -3931,7 +4071,7 @@ with
 - [ ] **Step 5: Run the tests to see the ViewModel test fail**
 
 Run: `./gradlew testDebugUnitTest --tests "com.openclaw.ghostcrab.ui.InstalledSkillsViewModelTest" --tests "com.openclaw.ghostcrab.data.impl.InstalledSkillRepositoryImplTest"`
-Expected: FAIL in `InstalledSkillsViewModelTest` (`enabledCalls` is empty: the ViewModel still calls `uninstall`); the repository test passes.
+Expected: FAIL in `InstalledSkillsViewModelTest` (`enabledCalls` is empty: the ViewModel still calls `uninstall`); the two repository tests pass (add `import com.openclaw.ghostcrab.domain.exception.GatewayApiException` to the repository test if missing).
 
 - [ ] **Step 6: Switch the ViewModel and the screen to "Disable"**
 
@@ -4017,7 +4157,7 @@ git commit -m "feat(skills): disable via skills.update instead of uninstall" -m 
 - Modify: `app/src/main/kotlin/com/openclaw/ghostcrab/di/DataModule.kt`
 - Rewrite: `app/src/test/kotlin/com/openclaw/ghostcrab/data/ConfigRepositoryImplTest.kt`
 
-`config.get` returns the authored config as `parsed` (secrets redacted as `__OPENCLAW_REDACTED__`) and an opaque `hash`; `config.patch {raw, baseHash}` merges a JSON merge patch (`raw` is JSON5 text; JSON is valid JSON5) and is admin-only, 30 writes/min (`/app/docs/gateway/configuration/config-rpc.md`). The frozen `ConfigRepository` contract keeps its 412/422 semantics so `ConfigEditorViewModel` (reload on 412, inline error on validation) is unchanged.
+`config.get` returns the authored config as `parsed` (secrets redacted as `__OPENCLAW_REDACTED__`) and an opaque `hash`; `config.patch {raw, baseHash}` merges a JSON merge patch (`raw` is JSON5 text; JSON is valid JSON5) and is admin-only, 30 writes/min (`/app/docs/gateway/configuration/config-rpc.md`). Verified 2026-10-15: a stale or unknown `baseHash` fails `INVALID_REQUEST "config changed since last load; re-run config.get and retry"` and a missing one `"config base hash required for <path>; …"` (neither has `details`); schema errors fail `"invalid config: <path>: …"` with `details.issues[{path, message, allowedValues?}]`; success answers `{ok, path, hash, config, changedPaths, sentinel}`, and that `hash` is the next `baseHash`. The frozen `ConfigRepository` contract keeps its 412/422 semantics so `ConfigEditorViewModel` (reload on 412, inline error on validation) is unchanged.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -4039,7 +4179,6 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
-import kotlinx.serialization.json.putJsonObject
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -4049,21 +4188,8 @@ class ConfigRepositoryImplTest {
 
     private val fixtureHash = "hmac-sha256:v1:u_qU7JLKF7G9u0jc_GfUp-dKovJYwiLpy0gNxuKjka0"
 
-    /** Success shape assumed for config.patch (only ok:true is relied on; the payload was not captured in M5). */
-    private val okPatch: JsonObject = buildJsonObject {
-        put("type", "res")
-        put("ok", true)
-        putJsonObject("payload") { put("ok", true) }
-    }
-
-    private fun rejection(message: String): JsonObject = buildJsonObject {
-        put("type", "res")
-        put("ok", false)
-        putJsonObject("error") {
-            put("code", "INVALID_REQUEST")
-            put("message", message)
-        }
-    }
+    private val okPatch: JsonObject = GatewayFixtures.frame("res-config-patch")
+    private val patchedHash = "hmac-sha256:v1:9zRz_TNpxroYBBCZhMFq3HGpv1dFAcFxPnmwn7VTXYE"
 
     private fun configSession(patchReply: JsonObject?) = ScriptedWsSession(
         respond = { method, _ ->
@@ -4104,21 +4230,38 @@ class ConfigRepositoryImplTest {
         assertEquals(fixtureHash, session.paramsOf("config.patch").stringOrNull("baseHash"))
     }
 
+    @Test fun `the hash a patch returns is the next baseHash`() = runTest {
+        val session = configSession(okPatch)
+        val socket = rpc(session)
+        val repo = ConfigRepositoryImpl { socket }
+        repo.updateConfig("gateway", buildJsonObject { put("port", 18790) })
+        repo.updateConfig("gateway", buildJsonObject { put("port", 18791) })
+        val patches = session.sent.filter { it.stringOrNull("method") == "config.patch" }
+        assertEquals(listOf("config.get", "config.patch", "config.patch"), session.sent.map { it.stringOrNull("method") })
+        assertEquals(patchedHash, (patches[1]["params"] as JsonObject).stringOrNull("baseHash"))
+    }
+
     @Test fun `a stale hash is HTTP-412 style so the editor reloads`() = runTest {
-        val stale = rejection("config changed since last load (baseHash mismatch); re-run config.get")
-        val socket = rpc(configSession(stale))
+        val socket = rpc(configSession(GatewayFixtures.frame("err-config-stale-hash")))
+        val repo = ConfigRepositoryImpl { socket }
+        val e = assertThrows<GatewayApiException> { repo.updateConfig("gateway", JsonObject(emptyMap())) }
+        assertEquals(412, e.statusCode)
+    }
+
+    @Test fun `a missing hash is HTTP-412 style too`() = runTest {
+        val socket = rpc(configSession(GatewayFixtures.frame("err-config-base-hash-required")))
         val repo = ConfigRepositoryImpl { socket }
         val e = assertThrows<GatewayApiException> { repo.updateConfig("gateway", JsonObject(emptyMap())) }
         assertEquals(412, e.statusCode)
     }
 
     @Test fun `a validation rejection is HTTP-422 style with the server text`() = runTest {
-        val socket = rpc(configSession(rejection("invalid config: gateway.port must be between 1 and 65535")))
+        val socket = rpc(configSession(GatewayFixtures.frame("err-config-invalid")))
         val repo = ConfigRepositoryImpl { socket }
         val patch = buildJsonObject { put("port", 99999) }
         val e = assertThrows<GatewayApiException> { repo.updateConfig("gateway", patch) }
         assertEquals(422, e.statusCode)
-        assertTrue(e.body.orEmpty().contains("gateway.port"))
+        assertTrue(e.body.orEmpty().startsWith("invalid config: gateway.port"))
     }
 
     @Test fun `a missing admin scope passes through typed`() = runTest {
@@ -4173,13 +4316,15 @@ internal fun configPatchParams(patch: JsonObject, baseHash: String?): JsonObject
     baseHash?.let { put("baseHash", it) }
 }
 
+/** Messages of the two `baseHash` rejections (verified against 2026.10.3; neither carries `details`). */
+private val STALE_HASH_PREFIXES = listOf("config changed since last load", "config base hash required")
+
 /**
- * Maps a rejected `config.patch` onto the frozen `ConfigRepository` contract: a stale `baseHash` becomes a
- * 412-style [GatewayApiException] (callers reload), any other `INVALID_REQUEST` (validation, array removal
- * without `replacePaths`) a 422-style one carrying the server text; anything else passes through.
- *
- * ⚠ The stale-hash error was not captured in M5 (QA §8.9). [isStaleBaseHash] matches "hash" in the detail code
- * or message; Task 26 captures the real frame and pins it.
+ * Maps a rejected `config.patch` onto the frozen `ConfigRepository` contract: a stale, unknown or missing
+ * `baseHash` becomes a 412-style [GatewayApiException] (callers reload), any other `INVALID_REQUEST` (schema
+ * validation with `details.issues[{path, message, allowedValues?}]`, a JSON5 syntax error, array removal without
+ * `replacePaths`) a 422-style one carrying the server text, which names the first failing path; anything else
+ * passes through.
  *
  * @return The exception to throw.
  */
@@ -4190,7 +4335,7 @@ internal fun GatewayRpcException.toConfigWriteException(): GatewayException = wh
 }
 
 private fun GatewayRpcException.isStaleBaseHash(): Boolean =
-    detailCode?.contains("HASH", ignoreCase = true) == true || rpcMessage.contains("hash", ignoreCase = true)
+    code == "INVALID_REQUEST" && STALE_HASH_PREFIXES.any { rpcMessage.startsWith(it) }
 ```
 
 - [ ] **Step 4: Rewrite the repository**
@@ -4256,7 +4401,7 @@ class ConfigRepositoryImpl(
         } catch (e: GatewayRpcException) {
             throw e.toConfigWriteException()
         }
-        // Not every gateway echoes the new hash; without one the next write reads a fresh snapshot first.
+        // 2026.10.3 answers {ok, path, hash, config, changedPaths, sentinel}; without a hash the next write re-reads.
         lastHash = CachedHash(rpc, (result as? JsonObject)?.stringOrNull("hash"))
     }
 
@@ -4295,13 +4440,13 @@ with
 - [ ] **Step 5: Run the tests**
 
 Run: `./gradlew testDebugUnitTest --tests "com.openclaw.ghostcrab.data.ConfigRepositoryImplTest" --tests "com.openclaw.ghostcrab.ui.ConfigEditorViewModelTest" --tests "com.openclaw.ghostcrab.di.KoinModulesTest"`
-Expected: PASS (7 new tests; the editor ViewModel tests mock `ConfigRepository` and stay green).
+Expected: PASS (9 new tests; the editor ViewModel tests mock `ConfigRepository` and stay green).
 
 - [ ] **Step 6: Commit**
 
 ```bash
 git add app/src/main/kotlin/com/openclaw/ghostcrab/data/impl/ConfigWrites.kt app/src/main/kotlin/com/openclaw/ghostcrab/data/impl/ConfigRepositoryImpl.kt app/src/main/kotlin/com/openclaw/ghostcrab/domain/repository/ConfigRepository.kt app/src/main/kotlin/com/openclaw/ghostcrab/di/DataModule.kt app/src/test/kotlin/com/openclaw/ghostcrab/data/ConfigRepositoryImplTest.kt
-git commit -m "feat(config): read and write config over config.get / config.patch" -m "parsed sections + hash as ETag; section merge patches with baseHash bound to the session socket; stale hash -> 412, rejected value -> 422 so the editor keeps its reload and inline-error paths (ADR-0007)."
+git commit -m "feat(config): read and write config over config.get / config.patch" -m "parsed sections + hash as ETag; section merge patches with baseHash bound to the session socket and refreshed from each patch answer; stale or missing hash -> 412, rejected value -> 422 with the server text, matched on the verified 2026.10.3 messages (ADR-0007)."
 ```
 
 ---
@@ -5103,7 +5248,7 @@ git commit -m "feat(ai): mark AI recommendations unsupported on OpenClaw gateway
 - Create: `app/src/main/kotlin/com/openclaw/ghostcrab/ui/connection/PairingApproval.kt`
 - Test: `app/src/test/kotlin/com/openclaw/ghostcrab/ui/PairingApprovalTest.kt`
 
-A device waiting for approval has no session (the gateway closes the socket with `1008`), so it cannot subscribe to `device.pair.resolved`. The only way to notice the approval is to connect again. Upstream expires a pending device-pairing request after 5 minutes (`/app/docs/gateway/pairing.md`).
+A device waiting for approval has no session: verified 2026-10-15, the gateway closes the socket with `1008` right after `PAIRING_REQUIRED`, and `device.pair.resolved {requestId, deviceId, decision}` reaches only an already-paired admin socket. The only way to notice the approval is to connect again; the `requestId` stays the same across those reconnects, so the panel's command stays valid. Upstream expires a pending device-pairing request after 5 minutes (`/app/docs/gateway/pairing.md`). The same panel covers `metadata-upgrade` (a changed `platform`, which Task 11 makes impossible for GhostCrab's own builds).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -5782,14 +5927,14 @@ git commit -m "feat(pairing): approval panel on the saved-gateway list" -m "Reco
 
 ---
 
-### Task 22: `openclaw qr` setup codes and `ws(s)://` URLs
+### Task 22: `openclaw qr` setup codes are explained; `ws(s)://` URLs accepted
 
 **Files:**
 - Modify: `app/src/main/kotlin/com/openclaw/ghostcrab/domain/util/GatewayUrl.kt`, `app/src/main/kotlin/com/openclaw/ghostcrab/domain/util/PairCode.kt`
-- Modify: `app/src/main/kotlin/com/openclaw/ghostcrab/ui/connection/ManualEntryViewModel.kt`, `app/src/main/kotlin/com/openclaw/ghostcrab/ui/connection/ManualEntryScreen.kt`, `app/src/main/kotlin/com/openclaw/ghostcrab/di/UiModule.kt`, `app/src/main/res/values/strings.xml`
-- Test: `app/src/test/kotlin/com/openclaw/ghostcrab/domain/GatewayUrlTest.kt`, `app/src/test/kotlin/com/openclaw/ghostcrab/domain/PairCodeTest.kt`, `app/src/test/kotlin/com/openclaw/ghostcrab/ui/ManualEntryViewModelTest.kt`, `app/src/test/kotlin/com/openclaw/ghostcrab/ui/QrScanViewModelTest.kt`
+- Modify: `app/src/main/kotlin/com/openclaw/ghostcrab/ui/connection/QrScanViewModel.kt`, `app/src/main/kotlin/com/openclaw/ghostcrab/MainActivity.kt`
+- Test: `app/src/test/kotlin/com/openclaw/ghostcrab/domain/GatewayUrlTest.kt`, `app/src/test/kotlin/com/openclaw/ghostcrab/domain/PairCodeTest.kt`, `app/src/test/kotlin/com/openclaw/ghostcrab/ui/QrScanViewModelTest.kt`
 
-The setup code is base64url JSON `{url: "ws(s)://…", bootstrapToken, expiresAtMs, urls?}`, bare or as `oc-pair://<code>` (`/app/docs/channels/pairing.md`, `/app/docs/cli/connect.md`). It reuses `PairBundle` (new optional `bootstrapToken`), so the QR scanner, the deep-link handler and `PairingHandoff` need no change: the token stays in memory and never enters a route.
+The setup code is base64url JSON `{url: "ws(s)://…", bootstrapToken, expiresAtMs, urls?}`, bare or as `oc-pair://<code>` (`/app/docs/cli/qr.md`, `/app/docs/channels/pairing.md`). Verified 2026-10-15: its bootstrap token authenticates only `role: "node"` connects; over plain `ws://` it yields a node token with `scopes: []` and no operator handoff, and a node token is refused for operator (`AUTH_DEVICE_TOKEN_MISMATCH`). GhostCrab connects as an operator, so a setup code can never authorize it. GhostCrab therefore recognises setup codes only to say so: the scanner shows what the code is, the gateway URL inside it, and what to do instead (gateway URL + token in Manual Entry, then `openclaw devices approve`). The bootstrap token is dropped while decoding; it never reaches a type, a log or the hand-off.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -5805,9 +5950,7 @@ Add to `GatewayUrlTest`:
 
 Add to `PairCodeTest`:
 ```kotlin
-    // ── openclaw qr setup codes (ADR-0007) ────────────────────────────────────
-
-    private val now = 1_792_027_500_000L
+    // ── openclaw qr setup codes (ADR-0007): recognised and explained, never used ─────────────
 
     /** base64url of {"url":"ws://172.17.0.2:18789","bootstrapToken":"bt-test-0001","expiresAtMs":1792028000000}. */
     private val setupCode =
@@ -5816,32 +5959,30 @@ Add to `PairCodeTest`:
 
     private fun encode(json: String) = Base64.getUrlEncoder().withoutPadding().encodeToString(json.toByteArray())
 
-    @Test fun `a setup code yields the http base url and the bootstrap token`() {
-        val bundle = (decodePairCode(setupCode, nowMs = now) as PairCodeResult.Bundle).bundle
-        assertEquals("http://172.17.0.2:18789", bundle.url.toString())
-        assertEquals("bt-test-0001", bundle.bootstrapToken)
-        assertNull(bundle.token)
-        assertFalse(bundle.toString().contains("bt-test-0001"))
+    @Test fun `a setup code is recognised with its gateway url and nothing else`() {
+        val result = decodePairCode(setupCode) as PairCodeResult.SetupCode
+        assertEquals("http://172.17.0.2:18789", result.url?.toString())
+        assertFalse(result.toString().contains("bt-test-0001"))
     }
 
-    @Test fun `oc-pair links carry the same setup code`() {
-        val bundle = (decodePairCode("oc-pair://$setupCode", nowMs = now) as PairCodeResult.Bundle).bundle
-        assertEquals("bt-test-0001", bundle.bootstrapToken)
+    @Test fun `oc-pair links are setup codes too`() {
+        assertInstanceOf(PairCodeResult.SetupCode::class.java, decodePairCode("oc-pair://$setupCode"))
     }
 
-    @Test fun `a wss setup code maps to https on 443`() {
+    @Test fun `a wss setup code names the https gateway on 443`() {
         val code = encode("""{"url":"wss://gw.example/ws","bootstrapToken":"bt"}""")
-        val bundle = (decodePairCode(code, nowMs = now) as PairCodeResult.Bundle).bundle
-        assertEquals("https://gw.example:443", bundle.url.toString())
+        assertEquals("https://gw.example:443", (decodePairCode(code) as PairCodeResult.SetupCode).url?.toString())
     }
 
-    @Test fun `an expired setup code is rejected with a reason`() {
-        val result = decodePairCode(setupCode, nowMs = 1_792_028_000_001L) as PairCodeResult.Invalid
-        assertTrue(result.reason.contains("expired"))
+    @Test fun `the explanation says why and what to do instead`() {
+        val text = setupCodeExplanation(GatewayUrl("http", "172.17.0.2", 18789))
+        assertTrue(text.contains("http://172.17.0.2:18789"))
+        assertTrue(text.contains("gateway token"))
+        assertTrue(text.contains("openclaw devices approve"))
     }
 
     @Test fun `base64 json without a bootstrap token is not a setup code`() {
-        assertInstanceOf(PairCodeResult.Invalid::class.java, decodePairCode(encode("""{"url":"ws://h:1"}"""), nowMs = now))
+        assertInstanceOf(PairCodeResult.Invalid::class.java, decodePairCode(encode("""{"url":"ws://h:1"}""")))
     }
 
     @Test fun `a plain ws url is accepted as a gateway url`() {
@@ -5849,65 +5990,29 @@ Add to `PairCodeTest`:
         assertEquals("http://192.168.1.50:18789", result.url.toString())
     }
 ```
+(add the imports `com.openclaw.ghostcrab.domain.util.GatewayUrl` and `com.openclaw.ghostcrab.domain.util.setupCodeExplanation`).
 
-Add to `ManualEntryViewModelTest` (imports: `com.openclaw.ghostcrab.domain.repository.GatewayBootstrapConnector`, `io.mockk.match`):
-```kotlin
-    @Test fun `a setup code connects with its bootstrap token and saves no token`() = runTest {
-        val connector = mockk<GatewayBootstrapConnector>(relaxed = true)
-        val handoff = PairingHandoff()
-        val setupVm =
-            ManualEntryViewModel(connectionManager, profileRepository, onboardingRepository, handoff, connector)
-        val gateway = GatewayUrl("http", "172.17.0.2", 18789)
-        handoff.offer(PairBundle(gateway, token = null, name = null, bootstrapToken = "bt-test-0001"))
-        assertTrue(setupVm.consumePendingPairing())
-        assertTrue(setupVm.form.value.fromSetupCode)
-
-        setupVm.connect()
-
-        coVerify { connector.connectWithBootstrapToken("http://172.17.0.2:18789", "bt-test-0001") }
-        coVerify(exactly = 0) { connectionManager.connect(any(), any()) }
-        coVerify { profileRepository.saveProfile(match { !it.hasToken }, null) }
-    }
-
-    @Test fun `editing the address drops the setup-code token`() = runTest {
-        val connector = mockk<GatewayBootstrapConnector>(relaxed = true)
-        val handoff = PairingHandoff()
-        val setupVm =
-            ManualEntryViewModel(connectionManager, profileRepository, onboardingRepository, handoff, connector)
-        val gateway = GatewayUrl("http", "172.17.0.2", 18789)
-        handoff.offer(PairBundle(gateway, token = null, name = null, bootstrapToken = "bt-test-0001"))
-        setupVm.consumePendingPairing()
-
-        setupVm.onHostChange("10.0.0.9")
-        setupVm.connect()
-
-        assertFalse(setupVm.form.value.fromSetupCode)
-        coVerify(exactly = 0) { connector.connectWithBootstrapToken(any(), any()) }
-        coVerify { connectionManager.connect("http://10.0.0.9:18789", null) }
-    }
-```
-
-Add to `QrScanViewModelTest` (imports: `com.openclaw.ghostcrab.ui.connection.QrScanEvent` is already there):
+Add to `QrScanViewModelTest`:
 ```kotlin
     @Test
-    fun `onQrDecoded openclaw setup code hands the bootstrap token to Manual Entry`() = runTest {
+    fun `onQrDecoded openclaw setup code explains instead of pairing`() = runTest {
         val handoff = PairingHandoff()
         val vm = QrScanViewModel(handoff)
-        // No expiresAtMs: the decode uses the wall clock.
         val code = Base64.getUrlEncoder().withoutPadding()
             .encodeToString("""{"url":"ws://192.168.1.50:18789","bootstrapToken":"bt-test-0001"}""".toByteArray())
-        vm.events.test {
-            vm.onQrDecoded(code)
-            assertEquals(QrScanEvent.NavigateToPairedEntry, awaitItem())
-        }
-        assertEquals("bt-test-0001", handoff.take()?.bootstrapToken)
+        vm.onQrDecoded(code)
+        val message = (vm.uiState.value as QrScanUiState.InvalidQr).message
+        assertTrue(message.contains("http://192.168.1.50:18789"))
+        assertTrue(message.contains("openclaw devices approve"))
+        assertNull(handoff.take())
     }
 ```
+(add `import java.util.Base64`, `assertNull` and `assertTrue` if missing).
 
 - [ ] **Step 2: Run them to make sure they fail**
 
-Run: `./gradlew testDebugUnitTest --tests "com.openclaw.ghostcrab.domain.*" --tests "com.openclaw.ghostcrab.ui.ManualEntryViewModelTest" --tests "com.openclaw.ghostcrab.ui.QrScanViewModelTest"`
-Expected: FAIL (`fromWebSocketUrl`, `bootstrapToken`, `nowMs`, `fromSetupCode` unresolved).
+Run: `./gradlew testDebugUnitTest --tests "com.openclaw.ghostcrab.domain.*" --tests "com.openclaw.ghostcrab.ui.QrScanViewModelTest"`
+Expected: FAIL (`fromWebSocketUrl`, `SetupCode` and `setupCodeExplanation` unresolved).
 
 - [ ] **Step 3: Accept `ws(s)://` in `GatewayUrl`**
 
@@ -5931,31 +6036,20 @@ In `GatewayUrl.kt`, inside `companion object`, after `parse(...)`:
         }
 ```
 
-- [ ] **Step 4: Decode setup codes**
+- [ ] **Step 4: Recognise setup codes**
 
 In `PairCode.kt`:
 
-Replace `PairBundle` with:
+Add to `PairCodeResult`, after `PlainUrl`:
 ```kotlin
-/**
- * Connection bundle from a `ghostcrab://pair?p=<base64url(json)>` code (schema v1) or an `openclaw qr` setup code.
- *
- * @property url Validated gateway base URL.
- * @property token Bearer token, or `null` for unauthenticated gateways. Sensitive — never log.
- * @property name Optional display name.
- * @property bootstrapToken Single-use setup-code token (ADR-0007), or `null`. Sensitive — never log, never persist.
- */
-data class PairBundle(
-    val url: GatewayUrl,
-    val token: String?,
-    val name: String?,
-    val bootstrapToken: String? = null,
-) {
-    /** Redacts [token] and [bootstrapToken]. */
-    override fun toString(): String =
-        "PairBundle(url=$url, token=${token?.let { REDACTED_PLACEHOLDER }}, name=$name, " +
-            "bootstrapToken=${bootstrapToken?.let { REDACTED_PLACEHOLDER }})"
-}
+
+    /**
+     * An `openclaw qr` setup code. It pairs OpenClaw node apps and cannot authorize an operator client such as
+     * GhostCrab (ADR-0007), so it is only explained (see [setupCodeExplanation]). Its bootstrap token is not kept.
+     *
+     * @property url The gateway URL inside the code as an `http(s)` base URL, or `null` when it has none usable.
+     */
+    data class SetupCode(val url: GatewayUrl?) : PairCodeResult
 ```
 
 Add after `private const val PAIR_VERSION = 1`:
@@ -5966,31 +6060,29 @@ private val BASE64URL_TEXT = Regex("^[A-Za-z0-9_-]+={0,2}$")
 
 Add after `PairPayloadV1`:
 ```kotlin
-/** `openclaw qr` setup-code payload. `urls` (fallback routes) is ignored: GhostCrab uses `url`. */
+/** The two `openclaw qr` setup-code fields GhostCrab reads; the token only proves it is a setup code. */
 @Serializable
 private data class SetupCodePayload(
     val url: String? = null,
     val bootstrapToken: String? = null,
-    val expiresAtMs: Long? = null,
 ) {
     override fun toString(): String =
-        "SetupCodePayload(url=$url, bootstrapToken=${bootstrapToken?.let { REDACTED_PLACEHOLDER }}, " +
-            "expiresAtMs=$expiresAtMs)"
+        "SetupCodePayload(url=$url, bootstrapToken=${bootstrapToken?.let { REDACTED_PLACEHOLDER }})"
 }
 ```
 
 Replace `decodePairCode` (and its KDoc) with:
 ```kotlin
 /**
- * Decodes [raw] from a QR code or a `VIEW` intent: a `ghostcrab://pair?p=…` bundle, an `openclaw qr` setup code
- * (bare base64url or `oc-pair://<code>`), or a plain `http(s)` / `ws(s)` gateway URL. Input longer than
- * [MAX_PAIR_CODE_LENGTH] is rejected without decoding.
+ * Decodes [raw] from a QR code or a `VIEW` intent: a `ghostcrab://pair?p=…` bundle, a plain `http(s)` / `ws(s)`
+ * gateway URL, or an `openclaw qr` setup code (bare base64url or `oc-pair://<code>`), which is only recognised.
+ * Input longer than [MAX_PAIR_CODE_LENGTH] is rejected without decoding.
  *
  * @param raw Scanned text or deep-link URI string.
- * @param nowMs Current time, for setup-code expiry.
- * @return [PairCodeResult.Bundle], [PairCodeResult.PlainUrl], or [PairCodeResult.Invalid]; never throws.
+ * @return [PairCodeResult.Bundle], [PairCodeResult.PlainUrl], [PairCodeResult.SetupCode] or
+ *   [PairCodeResult.Invalid]; never throws.
  */
-fun decodePairCode(raw: String, nowMs: Long = System.currentTimeMillis()): PairCodeResult {
+fun decodePairCode(raw: String): PairCodeResult {
     val trimmed = raw.trim()
     return when {
         raw.length > MAX_PAIR_CODE_LENGTH ->
@@ -5998,147 +6090,55 @@ fun decodePairCode(raw: String, nowMs: Long = System.currentTimeMillis()): PairC
         // Every ghostcrab: link is pairing data, so a broken link never gets the plain-URL message.
         trimmed.startsWith(PAIR_SCHEME, ignoreCase = true) -> decodeBundle(trimmed)
         trimmed.startsWith(SETUP_CODE_SCHEME, ignoreCase = true) ->
-            decodeSetupCode(trimmed.substring(SETUP_CODE_SCHEME.length), nowMs)
+            decodeSetupCode(trimmed.substring(SETUP_CODE_SCHEME.length))
                 ?: PairCodeResult.Invalid("OpenClaw setup code could not be decoded")
         else -> GatewayUrl.parse(trimmed)?.let { PairCodeResult.PlainUrl(it) }
             ?: GatewayUrl.fromWebSocketUrl(trimmed)?.let { PairCodeResult.PlainUrl(it) }
-            ?: trimmed.takeIf { BASE64URL_TEXT.matches(it) }?.let { decodeSetupCode(it, nowMs) }
-            ?: PairCodeResult.Invalid(
-                "QR code doesn't contain a gateway URL, ghostcrab://pair link or OpenClaw setup code",
-            )
+            ?: trimmed.takeIf { BASE64URL_TEXT.matches(it) }?.let { decodeSetupCode(it) }
+            ?: PairCodeResult.Invalid("QR code doesn't contain a valid gateway URL")
     }
+}
+
+/** @return The setup code's gateway URL, or `null` when [encoded] is not a setup code (no bootstrap token). */
+private fun decodeSetupCode(encoded: String): PairCodeResult.SetupCode? {
+    val payload = decodeBase64Text(encoded)?.let { decodeOrNull(SetupCodePayload.serializer(), it) }
+    if (payload == null || payload.bootstrapToken.isNullOrBlank()) return null
+    return PairCodeResult.SetupCode(payload.url?.let { GatewayUrl.fromWebSocketUrl(it) ?: GatewayUrl.parse(it) })
 }
 
 /**
- * @return A bundle for a valid setup code, [PairCodeResult.Invalid] for a setup code that is expired or has no usable
- *   URL, or `null` when [encoded] is not a setup code at all.
+ * User-facing explanation for a scanned or pasted setup code (ADR-0007): what it is, why GhostCrab cannot use it,
+ * and what to do instead.
+ *
+ * @param url The gateway URL inside the code, when usable.
+ * @return One paragraph naming the URL (when known), the gateway token and the approval command.
  */
-@Suppress("ReturnCount")
-private fun decodeSetupCode(encoded: String, nowMs: Long): PairCodeResult? {
-    val json = decodeBase64Text(encoded) ?: return null
-    val payload = decodeOrNull(SetupCodePayload.serializer(), json) ?: return null
-    val bootstrapToken = payload.bootstrapToken?.takeIf { it.isNotBlank() } ?: return null
-    val url = payload.url?.let { GatewayUrl.fromWebSocketUrl(it) ?: GatewayUrl.parse(it) }
-        ?: return PairCodeResult.Invalid("Setup code has no valid ws(s) gateway URL")
-    if (payload.expiresAtMs != null && payload.expiresAtMs <= nowMs) {
-        return PairCodeResult.Invalid("Setup code expired; run `openclaw qr` on the gateway host again")
-    }
-    return PairCodeResult.Bundle(PairBundle(url = url, token = null, name = null, bootstrapToken = bootstrapToken))
-}
+fun setupCodeExplanation(url: GatewayUrl?): String =
+    "This is an OpenClaw setup code (`openclaw qr`). Setup codes pair OpenClaw node apps; they cannot give " +
+        "GhostCrab operator access (over plain ws:// they grant no access at all). Open Manual Entry, enter " +
+        (url?.let { "$it" } ?: "the gateway URL") + " and the gateway token, then approve this device on the " +
+        "gateway host with `openclaw devices approve <requestId>`."
 ```
 
-- [ ] **Step 5: Connect with the bootstrap token from Manual Entry**
-
-In `ManualEntryViewModel.kt`:
-
-Add the import `import com.openclaw.ghostcrab.domain.repository.GatewayBootstrapConnector`.
-
-In `ManualEntryFormState`, add after `val portError: String? = null,`:
+In `QrScanViewModel.kt`, add the import `import com.openclaw.ghostcrab.domain.util.setupCodeExplanation` and, in `onQrDecoded`'s `when`, after the `PairCodeResult.Invalid` branch:
 ```kotlin
-    /** `true` while a scanned `openclaw qr` setup code supplies a one-time bootstrap token. */
-    val fromSetupCode: Boolean = false,
+            is PairCodeResult.SetupCode -> _uiState.value = QrScanUiState.InvalidQr(setupCodeExplanation(result.url))
 ```
-and replace its `toString()` with:
+In `MainActivity.kt`, in `acceptPairIntent`'s `when`, after the `PairCodeResult.PlainUrl` branch:
 ```kotlin
-    override fun toString(): String =
-        "ManualEntryFormState(useHttps=$useHttps, host=$host, port=$port, " +
-            "token=${if (token.isEmpty()) "" else "[REDACTED]"}, tokenVisible=$tokenVisible, " +
-            "hostError=$hostError, portError=$portError, fromSetupCode=$fromSetupCode)"
+            is PairCodeResult.SetupCode -> Unit // unreachable: pairLinkToHandle only passes ghostcrab: links
 ```
 
-Change the constructor to:
-```kotlin
-class ManualEntryViewModel(
-    private val connectionManager: GatewayConnectionManager,
-    private val profileRepository: ConnectionProfileRepository,
-    private val onboardingRepository: OnboardingRepository,
-    private val pairingHandoff: PairingHandoff,
-    private val bootstrapConnector: GatewayBootstrapConnector? = null,
-) : ViewModel() {
-```
-
-Add after `private var tokenFromPairing = false`:
-```kotlin
-
-    /** Single-use token from a scanned setup code; memory only, cleared once used or when the address changes. */
-    private var pairedBootstrapToken: String? = null
-```
-
-In `addressEditedByHand()` add as the first lines:
-```kotlin
-        pairedBootstrapToken = null
-        _form.update { it.copy(fromSetupCode = false) }
-```
-
-In `setPrefillUrl(...)`, after `tokenFromPairing = false` add `pairedBootstrapToken = null`, and add `fromSetupCode = false,` to the `it.copy(...)`.
-
-In `consumePendingPairing()`, after `tokenFromPairing = !bundle.token.isNullOrEmpty()` add
-```kotlin
-        pairedBootstrapToken = bundle.bootstrapToken?.takeIf { it.isNotBlank() }
-```
-and add `fromSetupCode = pairedBootstrapToken != null,` to its `it.copy(...)`.
-
-In `connect()`, replace
-```kotlin
-                val approved = connectAwaitingApproval(
-                    wakeUps = pairingWakeUps,
-                    onPrompt = { _uiState.value = ManualEntryUiState.AwaitingApproval(it) },
-                ) { connectionManager.connect(url, token) }
-```
-with
-```kotlin
-                val bootstrap = pairedBootstrapToken?.takeIf { token == null }
-                val connector = bootstrapConnector
-                val doConnect: suspend () -> Unit = when {
-                    bootstrap != null && connector != null ->
-                        suspend { connector.connectWithBootstrapToken(url, bootstrap) }
-                    else ->
-                        suspend { connectionManager.connect(url, token) }
-                }
-                val approved = connectAwaitingApproval(
-                    wakeUps = pairingWakeUps,
-                    onPrompt = { _uiState.value = ManualEntryUiState.AwaitingApproval(it) },
-                    connect = doConnect,
-                )
-                if (approved) pairedBootstrapToken = null // single use
-```
-
-In `UiModule.kt` replace
-```kotlin
-    viewModel { ManualEntryViewModel(get(), get(), get(), get()) }
-```
-with
-```kotlin
-    viewModel { ManualEntryViewModel(get(), get(), get(), get(), get()) }
-```
-
-Add to `strings.xml`:
-```xml
-    <string name="manual_entry_setup_code_hint">OpenClaw setup code loaded: GhostCrab pairs with its one-time bootstrap token, so no gateway token is needed. The gateway owner still approves this device.</string>
-```
-In `ManualEntryScreen.kt`, directly after the assembled-URL `Text(...)` (the one using `form.assembledUrl`), add:
-```kotlin
-            if (form.fromSetupCode) {
-                Spacer(Modifier.height(Spacing.sm))
-                Text(
-                    text = stringResource(R.string.manual_entry_setup_code_hint),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = BrandTokens.colorCyanPulse,
-                )
-            }
-```
-(add imports `androidx.compose.ui.res.stringResource` and `com.openclaw.ghostcrab.R` if the file lacks them).
-
-- [ ] **Step 6: Run the tests and the gate**
+- [ ] **Step 5: Run the tests and the gate**
 
 Run: `./gradlew testDebugUnitTest detekt lintDebug`
-Expected: BUILD SUCCESSFUL (existing `PairCodeTest`, `PairLinkIntentTest`, `QrScanViewModelTest` stay green: `ghostcrab://pair` v1 is unchanged).
+Expected: BUILD SUCCESSFUL (existing `PairCodeTest`, `PairLinkIntentTest`, `QrScanViewModelTest` stay green: `ghostcrab://pair` v1 and the invalid-QR message are unchanged).
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add app/src/main/kotlin/com/openclaw/ghostcrab/domain/util/GatewayUrl.kt app/src/main/kotlin/com/openclaw/ghostcrab/domain/util/PairCode.kt app/src/main/kotlin/com/openclaw/ghostcrab/ui/connection/ManualEntryViewModel.kt app/src/main/kotlin/com/openclaw/ghostcrab/ui/connection/ManualEntryScreen.kt app/src/main/kotlin/com/openclaw/ghostcrab/di/UiModule.kt app/src/main/res/values/strings.xml app/src/test/kotlin/com/openclaw/ghostcrab/domain app/src/test/kotlin/com/openclaw/ghostcrab/ui/ManualEntryViewModelTest.kt app/src/test/kotlin/com/openclaw/ghostcrab/ui/QrScanViewModelTest.kt
-git commit -m "feat(pairing): accept openclaw qr setup codes and ws(s) URLs" -m "Setup codes (bare or oc-pair://) decode to the http(s) base URL plus a single-use bootstrap token kept in memory; Manual Entry connects with auth.bootstrapToken and saves the profile without a token (ADR-0007)."
+git add app/src/main/kotlin/com/openclaw/ghostcrab/domain/util/GatewayUrl.kt app/src/main/kotlin/com/openclaw/ghostcrab/domain/util/PairCode.kt app/src/main/kotlin/com/openclaw/ghostcrab/ui/connection/QrScanViewModel.kt app/src/main/kotlin/com/openclaw/ghostcrab/MainActivity.kt app/src/test/kotlin/com/openclaw/ghostcrab/domain app/src/test/kotlin/com/openclaw/ghostcrab/ui/QrScanViewModelTest.kt
+git commit -m "feat(pairing): explain openclaw qr setup codes, accept ws(s) URLs" -m "Setup-code bootstrap tokens authenticate only node clients (verified against 2026.10.3), so a scanned code shows what it is, its gateway URL and the token + devices approve path instead of connecting; the token is dropped while decoding (ADR-0007)."
 ```
 
 ---
@@ -6488,7 +6488,7 @@ git commit -m "refactor: remove the speculative REST and JSON-RPC client paths" 
 - Modify: `scripts/mock-gateway/.gitignore`, `.github/workflows/ci.yml`, `.github/workflows/android-screenshots.yml`, `.github/workflows/ios-screenshots.yml` (the store-screenshot jobs from PR #131 start this mock)
 - Delete: `scripts/mock-gateway/smoke-ws.mjs`
 
-The mock is what on-device QA and the conformance tests run against, so it must reject everything the real gateway rejects. Error shapes are compared against the fixtures from Task 1. Node 24 (built-in `WebSocket` client, `node:test`).
+The mock is what on-device QA and the conformance tests run against, so it must reject everything the real gateway rejects. Error and success shapes are compared against the fixtures from Task 1, including the frames pinned on 2026-10-15 (client-id allow-list, platform pinning, stable `requestId`, operator-refused bootstrap tokens, `config.patch` errors and success, `skills.update` + `config.changed`, ClawHub install entries). Node 24 (built-in `WebSocket` client, `node:test`).
 
 - [ ] **Step 1: Write the shared device helpers**
 
@@ -6538,23 +6538,25 @@ export function verifyPayload(publicKeyB64Url, payload, signatureB64Url) {
 
 `scripts/mock-gateway/lib/client.mjs`:
 ```js
-// Minimal protocol-4 client: challenge -> signed connect -> req/res. Used by the tests and probe-real.mjs.
+// Minimal protocol-4 client: challenge -> signed connect -> req/res/events. Used by the tests and probe-real.mjs.
 import { newIdentity, payloadV3, signPayload } from "./device.mjs";
 
 export const OPERATOR_SCOPES = ["operator.read", "operator.write", "operator.admin"];
-const DEFAULT_CLIENT = { id: "openclaw-android", version: "0.3.0-test", platform: "android", mode: "ui", displayName: "GhostCrab test" };
+export const DEFAULT_CLIENT = { id: "openclaw-android", version: "0.3.0-test", platform: "android", mode: "ui", displayName: "GhostCrab test" };
 
 /**
- * @returns {Promise<{hello, error, request, close, identity}>} hello is the hello-ok payload, or null with error set.
+ * @returns {Promise<{hello, error, closed, request, nextEvent, close, identity}>} hello is the hello-ok payload, or
+ *   null with error set; closed resolves to the socket's {code, reason}.
  */
 export async function connect(url, { identity = newIdentity(), auth = {}, scopes = OPERATOR_SCOPES, withDevice = true, tamperSignature = false, client = DEFAULT_CLIENT } = {}) {
   const ws = new WebSocket(url);
   const inbox = [];
   const waiters = [];
-  let closed = null;
+  let ended = null;
   const wake = () => waiters.splice(0).forEach((resolve) => resolve());
+  const closed = new Promise((resolve) => ws.addEventListener("close", (ev) => resolve({ code: ev.code, reason: ev.reason })));
   ws.addEventListener("message", (ev) => { inbox.push(JSON.parse(String(ev.data))); wake(); });
-  ws.addEventListener("close", (ev) => { closed = { code: ev.code, reason: ev.reason }; wake(); });
+  ws.addEventListener("close", (ev) => { ended = { code: ev.code, reason: ev.reason }; wake(); });
   await new Promise((resolve, reject) => {
     ws.addEventListener("open", resolve, { once: true });
     ws.addEventListener("error", reject, { once: true });
@@ -6564,7 +6566,7 @@ export async function connect(url, { identity = newIdentity(), auth = {}, scopes
     for (;;) {
       const index = inbox.findIndex(predicate);
       if (index >= 0) return inbox.splice(index, 1)[0];
-      if (closed || Date.now() > deadline) return null;
+      if (ended || Date.now() > deadline) return null;
       await new Promise((resolve) => { waiters.push(resolve); setTimeout(resolve, Math.max(0, deadline - Date.now())); });
     }
   };
@@ -6574,6 +6576,7 @@ export async function connect(url, { identity = newIdentity(), auth = {}, scopes
     ws.send(JSON.stringify({ type: "req", id, method, params }));
     return next((frame) => frame.type === "res" && frame.id === id);
   };
+  const nextEvent = (name, timeoutMs = 2000) => next((frame) => frame.type === "event" && frame.event === name, timeoutMs);
   const challenge = await next((frame) => frame.type === "event" && frame.event === "connect.challenge");
   const { nonce, ts } = challenge.payload;
   const params = { minProtocol: 4, maxProtocol: 4, client, role: "operator", scopes, caps: [], commands: [], permissions: {}, locale: "en-US", userAgent: "ghostcrab-test/0" };
@@ -6588,7 +6591,15 @@ export async function connect(url, { identity = newIdentity(), auth = {}, scopes
     params.device = { id: identity.deviceId, publicKey: identity.publicKey, signature, signedAt: ts, nonce };
   }
   const res = await request("connect", params);
-  return { identity, hello: res?.ok ? res.payload : null, error: res?.ok ? null : res?.error ?? null, request, close: () => ws.close() };
+  return {
+    identity,
+    hello: res?.ok ? res.payload : null,
+    error: res?.ok ? null : res?.error ?? null,
+    closed,
+    request,
+    nextEvent,
+    close: () => ws.close(),
+  };
 }
 ```
 
@@ -6600,11 +6611,12 @@ import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { createMockGateway } from "../server.mjs";
-import { connect, OPERATOR_SCOPES } from "../lib/client.mjs";
+import { connect, DEFAULT_CLIENT, OPERATOR_SCOPES } from "../lib/client.mjs";
 import { newIdentity } from "../lib/device.mjs";
 
 const FIXTURES = new URL("../../../fixtures/gateway-protocol/2026.10.3/", import.meta.url);
 const fixture = (name) => JSON.parse(fs.readFileSync(new URL(`${name}.json`, FIXTURES), "utf8"));
+const keys = (object) => Object.keys(object).sort();
 const TOKEN = "shared-token";
 let gateway;
 let url;
@@ -6629,6 +6641,9 @@ async function pairedSession(identity = newIdentity()) {
   assert.ok(second.hello, JSON.stringify(second.error));
   return second;
 }
+
+const skillNamed = async (session, key) =>
+  (await session.request("skills.status")).payload.skills.find((skill) => skill.skillKey === key);
 
 test("HTTP surface: JSON probes, HTML elsewhere, 404 for /api", async () => {
   const health = await fetch(`${base}/health`);
@@ -6663,17 +6678,27 @@ test("a token without device identity gets no scopes, like the real gateway", as
   s.close();
 });
 
-test("pairing: PAIRING_REQUIRED until approved, then scopes and a reusable device token", async () => {
+test("client id and mode are allow-lists checked before auth", async () => {
+  const badId = await connect(url, { client: { ...DEFAULT_CLIENT, id: "ghostcrab-android" }, auth: { token: TOKEN } });
+  assert.deepEqual(badId.error, fixture("err-client-id-invalid").error);
+  assert.equal((await badId.closed).code, 1008);
+  const badMode = await connect(url, { client: { ...DEFAULT_CLIENT, mode: "operator" }, auth: { token: TOKEN } });
+  assert.match(badMode.error.message, /at \/client\/mode: must be equal to one of the allowed values/);
+});
+
+test("pairing: one stable requestId until approved, then scopes and a reusable device token", async () => {
   const identity = newIdentity();
   const first = await connect(url, { identity, auth: { token: TOKEN } });
   const expected = fixture("err-pairing-required").error;
   assert.equal(first.error.code, expected.code);
-  assert.deepEqual(Object.keys(first.error.details).sort(), Object.keys(expected.details).sort());
-  first.close();
+  assert.deepEqual(keys(first.error.details), keys(expected.details));
+  assert.equal((await first.closed).code, 1008);
+  const retry = await connect(url, { identity, auth: { token: TOKEN } });
+  assert.equal(retry.error.details.requestId, first.error.details.requestId);
   await approve();
   const second = await connect(url, { identity, auth: { token: TOKEN } });
   assert.deepEqual(second.hello.auth.scopes, OPERATOR_SCOPES);
-  assert.deepEqual(Object.keys(second.hello).sort(), Object.keys(fixture("hello-ok-paired").payload).sort());
+  assert.deepEqual(keys(second.hello), keys(fixture("hello-ok-paired").payload));
   second.close();
   const reuse = await connect(url, { identity, auth: { deviceToken: second.hello.auth.deviceToken }, scopes: ["operator.read"] });
   assert.equal(reuse.hello.auth.method, "device-token");
@@ -6681,7 +6706,21 @@ test("pairing: PAIRING_REQUIRED until approved, then scopes and a reusable devic
   reuse.close();
 });
 
-test("methods: real names, real failures", async () => {
+test("a changed platform needs re-approval; a changed client id or letter case does not", async () => {
+  const identity = newIdentity();
+  (await pairedSession(identity)).close();
+  const otherId = await connect(url, { identity, client: { ...DEFAULT_CLIENT, id: "openclaw-ios" }, auth: { token: TOKEN } });
+  assert.ok(otherId.hello, JSON.stringify(otherId.error));
+  otherId.close();
+  const upperCase = await connect(url, { identity, client: { ...DEFAULT_CLIENT, platform: "Android" }, auth: { token: TOKEN } });
+  assert.ok(upperCase.hello, JSON.stringify(upperCase.error));
+  upperCase.close();
+  const moved = await connect(url, { identity, client: { ...DEFAULT_CLIENT, platform: "ios" }, auth: { token: TOKEN } });
+  assert.equal(moved.error.details.reason, "metadata-upgrade");
+  assert.deepEqual(keys(moved.error.details), keys(fixture("err-pairing-metadata-upgrade").error.details));
+});
+
+test("skills: verified shapes, and skills.status catches up on config.changed", async () => {
   const s = await pairedSession();
   const status = await s.request("skills.status");
   for (const key of ["name", "skillKey", "source", "bundled", "disabled"]) assert.ok(key in status.payload.skills[0], key);
@@ -6689,40 +6728,49 @@ test("methods: real names, real failures", async () => {
   const notFound = await s.request("skills.install", { source: "clawhub", slug: "missing-skill", force: false });
   assert.equal(notFound.error.code, "UNAVAILABLE");
   assert.match(notFound.error.message, /not found on ClawHub/);
-  assert.equal((await s.request("skills.install", { source: "clawhub", slug: "someone/demo-skill", force: false })).ok, true);
-  assert.equal((await s.request("skills.update", { skillKey: "demo-skill", enabled: false })).ok, true);
+  const installed = await s.request("skills.install", { source: "clawhub", slug: "@someone/demo-skill", force: false });
+  assert.deepEqual(keys(installed.payload), keys(fixture("res-skills-install").payload));
+  assert.equal(installed.payload.slug, "demo-skill");
+  const entry = await skillNamed(s, "demo-skill");
+  assert.equal(entry.source, "openclaw-workspace");
+  assert.equal(entry.clawhub.installedVersion, "1.0.0");
+  const update = await s.request("skills.update", { skillKey: "demo-skill", enabled: false });
+  assert.deepEqual(keys(update.payload), keys(fixture("res-skills-update").payload));
+  assert.equal((await skillNamed(s, "demo-skill")).disabled, false); // stale until config.changed
+  assert.ok(await s.nextEvent("config.changed"));
+  assert.equal((await skillNamed(s, "demo-skill")).disabled, true);
+  assert.equal((await s.request("skills.update", { skillKey: "no-such-skill", enabled: false })).ok, true);
   assert.ok(Array.isArray((await s.request("models.list")).payload.models));
   s.close();
 });
 
-test("config.patch needs the current baseHash, validates, and restores redacted secrets", async () => {
+test("config.patch: verified error and success shapes, redacted secrets restored", async () => {
   const s = await pairedSession();
   const first = (await s.request("config.get")).payload;
   assert.equal(first.parsed.gateway.auth.token, "__OPENCLAW_REDACTED__");
-  const stale = await s.request("config.patch", { raw: JSON.stringify({ gateway: { port: 18790 } }), baseHash: "stale" });
-  assert.equal(stale.error.code, "INVALID_REQUEST");
-  const invalid = await s.request("config.patch", { raw: JSON.stringify({ gateway: { port: 99999 } }), baseHash: first.hash });
-  assert.match(invalid.error.message, /gateway\.port/);
+  const raw = JSON.stringify({ gateway: { port: 18790 } });
+  assert.deepEqual((await s.request("config.patch", { raw, baseHash: "stale" })).error, fixture("err-config-stale-hash").error);
+  assert.match((await s.request("config.patch", { raw })).error.message, /^config base hash required for gateway\.port; /);
+  const tooBig = await s.request("config.patch", { raw: JSON.stringify({ gateway: { port: 99999 } }), baseHash: first.hash });
+  assert.deepEqual(tooBig.error, fixture("err-config-invalid").error);
   const patch = { gateway: { port: 18790, auth: { token: "__OPENCLAW_REDACTED__" } } };
-  assert.equal((await s.request("config.patch", { raw: JSON.stringify(patch), baseHash: first.hash })).ok, true);
-  const after = (await s.request("config.get")).payload;
-  assert.equal(after.parsed.gateway.port, 18790);
-  assert.notEqual(after.hash, first.hash);
+  const done = await s.request("config.patch", { raw: JSON.stringify(patch), baseHash: first.hash });
+  assert.deepEqual(keys(done.payload), keys(fixture("res-config-patch").payload));
+  assert.ok(await s.nextEvent("config.changed"));
+  const next = (await s.request("config.get")).payload;
+  assert.equal(next.parsed.gateway.port, 18790);
+  assert.equal(next.hash, done.payload.hash);
+  assert.notEqual(next.hash, first.hash);
   assert.equal(gateway.state.config.gateway.auth.token, TOKEN);
   s.close();
 });
 
-test("a setup-code bootstrap token pairs once and is then spent", async () => {
+test("setup codes never authenticate an operator client", async () => {
   const { bootstrapToken, setupCode } = await (await fetch(`${base}/__mock/setup-code`, { method: "POST" })).json();
   assert.equal(JSON.parse(Buffer.from(setupCode, "base64url").toString()).bootstrapToken, bootstrapToken);
-  const identity = newIdentity();
-  assert.equal((await connect(url, { identity, auth: { bootstrapToken } })).error.details.code, "PAIRING_REQUIRED");
-  await approve();
-  const paired = await connect(url, { identity, auth: { bootstrapToken } });
-  assert.equal(paired.hello.auth.method, "bootstrap-token");
-  paired.close();
-  const replay = await connect(url, { identity: newIdentity(), auth: { bootstrapToken } });
-  assert.equal(replay.error.details.code, "AUTH_BOOTSTRAP_TOKEN_INVALID");
+  const attempt = await connect(url, { auth: { bootstrapToken } });
+  assert.equal(attempt.error.details.code, "AUTH_BOOTSTRAP_TOKEN_INVALID");
+  assert.equal(attempt.error.details.recommendedNextStep, "review_auth_configuration");
 });
 ```
 
@@ -6737,7 +6785,8 @@ Expected: FAIL (`createMockGateway` is not exported by the old `server.mjs`).
 // Mock OpenClaw gateway speaking the real control plane (WS protocol 4), as captured from
 // ghcr.io/openclaw/openclaw 2026.10.3 (docs/QA_REAL_GATEWAY_2026-10.md, docs/adr/0007-gateway-protocol-alignment.md).
 //   HTTP: /health, /ready (JSON); Control-UI-style HTML for other GETs; 404 text/plain for /api/* and other methods.
-//   WS (any path): connect.challenge -> signed connect -> hello-ok | PAIRING_REQUIRED, then req/res RPCs.
+//   WS (any path): connect.challenge -> signed connect -> hello-ok | PAIRING_REQUIRED, then req/res RPCs, and
+//   config.changed events ~80 ms after writes.
 //   Mock-only routes (never on a real gateway): POST /__mock/devices/approve, POST /__mock/setup-code.
 // Env: PORT (18790), HOST (0.0.0.0), TOKEN (shared token; unset = auth mode none), SCOPES (granted subset),
 //      AUTO_APPROVE=1 (approve new devices at once), FAIL_MODE (comma list: install-unavailable),
@@ -6746,12 +6795,23 @@ import http from "node:http";
 import { createHash, randomUUID } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import { WebSocketServer } from "ws";
-import { deviceIdFor, payloadV3, verifyPayload } from "./lib/device.mjs";
+import { deviceIdFor, normalizeMeta, payloadV3, verifyPayload } from "./lib/device.mjs";
 
 export const PROTOCOL = 4;
 export const MOCK_VERSION = "2026.10.3-mock";
 export const ALL_SCOPES = ["operator.read", "operator.write", "operator.admin"];
 export const REDACTED = "__OPENCLAW_REDACTED__";
+const CONFIG_PATH = "/mock/openclaw.json";
+
+/** The ids and modes GhostCrab and these tests send. Upstream's allow-lists are longer; anything else is refused before auth. */
+const CLIENT_IDS = new Set(["openclaw-android", "openclaw-ios"]);
+const CLIENT_MODES = new Set(["ui", "cli"]);
+/** The real gateway emits config.changed ~80 ms after a write; skills.status is stale until then. */
+const CONFIG_CHANGED_DELAY_MS = 80;
+/** The real gateway closes a socket that never sends connect after ~15 s. */
+const CONNECT_DEADLINE_MS = 15_000;
+const BOOTSTRAP_INVALID =
+  "unauthorized: setup code invalid, expired, revoked, or already used (create a new code; review `openclaw devices list`)";
 
 /** Scope each method needs; null = none (health works on a scope-less socket, as upstream). */
 const METHOD_SCOPE = {
@@ -6775,9 +6835,8 @@ export function createMockGateway({
 } = {}) {
   const fail = new Set(failModes);
   const state = {
-    paired: new Map(), // deviceId -> { deviceToken, scopes }
-    pending: new Map(), // deviceId -> { requestId, scopes }
-    bootstrapTokens: new Set(),
+    paired: new Map(), // deviceId -> { deviceToken, scopes, platform }
+    pending: new Map(), // deviceId -> { requestId, scopes, platform }
     config: {
       gateway: { mode: "local", port: 18789, bind: "lan", auth: token ? { mode: "token", token } : { mode: "none" } },
       agents: { entries: { main: {} } },
@@ -6794,6 +6853,17 @@ export function createMockGateway({
   let revision = 1;
   const configHash = () =>
     "mock-sha256:v1:" + createHash("sha256").update(`${revision}:${JSON.stringify(state.config)}`).digest("base64url");
+  const peers = new Set(); // { ws, session } of authenticated sockets
+  const timers = new Set();
+  const later = (fn, delayMs = CONFIG_CHANGED_DELAY_MS) => {
+    const timer = setTimeout(() => {
+      timers.delete(timer);
+      fn();
+    }, delayMs);
+    timer.unref?.();
+    timers.add(timer);
+    return timer;
+  };
 
   const server = http.createServer((req, res) => handleHttp(req, res));
   const wss = new WebSocketServer({ noServer: true });
@@ -6810,9 +6880,8 @@ export function createMockGateway({
     if (req.method === "GET" && (path === "/ready" || path === "/readyz")) return json(200, { ready: true });
     if (req.method === "POST" && path === "/__mock/devices/approve") return json(200, { approved: approveAll() });
     if (req.method === "POST" && path === "/__mock/setup-code") {
-      const bootstrapToken = randomUUID();
-      state.bootstrapTokens.add(bootstrapToken);
-      const setup = { url: `ws://${req.headers.host}`, bootstrapToken, expiresAtMs: Date.now() + 10 * 60_000 };
+      // For the QR explanation flow: like upstream, the token never authenticates an operator client.
+      const setup = { url: `ws://${req.headers.host}`, bootstrapToken: randomUUID(), expiresAtMs: Date.now() + 10 * 60_000 };
       return json(200, { setupCode: Buffer.from(JSON.stringify(setup)).toString("base64url"), ...setup });
     }
     if (req.method === "GET" && !path.startsWith("/api/")) {
@@ -6826,7 +6895,12 @@ export function createMockGateway({
   function approveAll() {
     const approved = [];
     for (const [deviceId, request] of state.pending) {
-      state.paired.set(deviceId, { deviceToken: `dt-${randomUUID()}`, scopes: request.scopes });
+      const previous = state.paired.get(deviceId);
+      state.paired.set(deviceId, {
+        deviceToken: previous?.deviceToken ?? `dt-${randomUUID()}`,
+        scopes: request.scopes,
+        platform: request.platform,
+      });
       approved.push(request.requestId);
     }
     state.pending.clear();
@@ -6839,6 +6913,14 @@ export function createMockGateway({
     const ts = Date.now();
     let session = null;
     const send = (frame) => ws.send(JSON.stringify(frame));
+    const deadline = later(() => {
+      if (!session) ws.close(1000);
+    }, CONNECT_DEADLINE_MS);
+    ws.on("close", () => {
+      clearTimeout(deadline);
+      timers.delete(deadline);
+      for (const peer of peers) if (peer.ws === ws) peers.delete(peer);
+    });
     send({ type: "event", event: "connect.challenge", payload: { nonce, ts, capabilities: [] } });
     ws.on("message", (data) => {
       let frame;
@@ -6858,20 +6940,37 @@ export function createMockGateway({
           return ws.close(1008, result.error.message.slice(0, 120));
         }
         session = result.session;
+        clearTimeout(deadline);
+        timers.delete(deadline);
+        peers.add({ ws, session });
         return send({ type: "res", id: frame.id, ok: true, payload: hello(session) });
       }
       return send({ type: "res", id: frame.id, ...dispatch(session, frame.method, frame.params ?? {}) });
     });
   }
 
+  function broadcastConfigChanged() {
+    const frame = JSON.stringify({ type: "event", event: "config.changed", payload: { path: CONFIG_PATH, hash: configHash(), ts: Date.now() } });
+    for (const peer of peers) {
+      if (peer.session.scopes.length && peer.ws.readyState === peer.ws.OPEN) peer.ws.send(frame);
+    }
+  }
+
   const reject = (code, message, details) => ({ error: { code, message, ...(details ? { details } : {}) } });
   const rejectAuth = (detail, message, authReason, recommendedNextStep) =>
     reject("INVALID_REQUEST", message, { code: detail, authReason, canRetryWithDeviceToken: false, recommendedNextStep });
+  const invalidParam = (field) =>
+    reject("INVALID_REQUEST", `invalid connect params: at /client/${field}: must be equal to one of the allowed values`);
 
   function authenticate(params, nonce, ts) {
     if (!(params.minProtocol <= PROTOCOL && PROTOCOL <= params.maxProtocol)) {
       return reject("INVALID_REQUEST", "protocol mismatch", { code: "PROTOCOL_MISMATCH" });
     }
+    const client = params.client ?? {};
+    // Schema validation runs before any credential check (verified): wrong ids or modes never reach auth.
+    if (!CLIENT_IDS.has(client.id)) return invalidParam("id");
+    if (!CLIENT_MODES.has(client.mode)) return invalidParam("mode");
+    if (params.role !== "operator") return reject("INVALID_REQUEST", "the mock gateway serves operator clients only");
     const auth = params.auth ?? {};
     const device = params.device;
     if (!device) {
@@ -6883,7 +6982,6 @@ export function createMockGateway({
     if (device.id !== deviceId) return reject("INVALID_REQUEST", "device identity mismatch", { code: "DEVICE_AUTH_DEVICE_ID_MISMATCH", reason: "device-id-mismatch" });
     if (device.nonce !== nonce) return reject("INVALID_REQUEST", "device nonce mismatch", { code: "DEVICE_AUTH_NONCE_MISMATCH", reason: "device-nonce-mismatch" });
     if (device.signedAt !== ts) return reject("INVALID_REQUEST", "device signature expired", { code: "DEVICE_AUTH_SIGNATURE_EXPIRED", reason: "device-signature-stale" });
-    const client = params.client ?? {};
     const requested = Array.isArray(params.scopes) ? params.scopes : [];
     const signed = payloadV3({
       deviceId, clientId: client.id, clientMode: client.mode, role: params.role, scopes: requested,
@@ -6902,33 +7000,36 @@ export function createMockGateway({
       method = "token";
     } else if (auth.deviceToken !== undefined) {
       if (paired?.deviceToken !== auth.deviceToken) {
-        return rejectAuth("AUTH_DEVICE_TOKEN_MISMATCH", "unauthorized: device token mismatch", "device_token_mismatch", "update_auth_credentials");
+        return rejectAuth("AUTH_DEVICE_TOKEN_MISMATCH", "unauthorized: device token mismatch (rotate/reissue device token)", "device_token_mismatch", "update_auth_credentials");
       }
       method = "device-token";
     } else if (auth.bootstrapToken !== undefined) {
-      if (!state.bootstrapTokens.has(auth.bootstrapToken)) {
-        return rejectAuth("AUTH_BOOTSTRAP_TOKEN_INVALID", "unauthorized: bootstrap token invalid or expired", "bootstrap_token_invalid", "update_auth_credentials");
-      }
-      method = "bootstrap-token";
+      // Verified: setup-code tokens authenticate role "node" only; for an operator they are simply invalid.
+      return rejectAuth("AUTH_BOOTSTRAP_TOKEN_INVALID", BOOTSTRAP_INVALID, "bootstrap_token_invalid", "review_auth_configuration");
     } else if (token) {
       return rejectAuth("AUTH_TOKEN_MISSING", "unauthorized: gateway token missing (provide gateway auth token)", "token_missing", "update_auth_configuration");
     }
-    if (!paired && autoApprove) state.paired.set(deviceId, { deviceToken: `dt-${randomUUID()}`, scopes: requested });
+    const platform = normalizeMeta(client.platform);
+    if (!paired && autoApprove) state.paired.set(deviceId, { deviceToken: `dt-${randomUUID()}`, scopes: requested, platform });
     const grant = state.paired.get(deviceId);
-    if (!grant) {
+    if (!grant || grant.platform !== platform) {
+      // Verified: one requestId per pending device across reconnects; platform is pinned at approval.
       const requestId = state.pending.get(deviceId)?.requestId ?? randomUUID();
-      state.pending.set(deviceId, { requestId, scopes: requested });
-      return reject("NOT_PAIRED", "pairing required: device is not approved yet", {
+      state.pending.set(deviceId, { requestId, scopes: requested, platform });
+      const upgrade = Boolean(grant);
+      return reject("NOT_PAIRED", upgrade ? "pairing required: device identity changed and must be re-approved" : "pairing required: device is not approved yet", {
         code: "PAIRING_REQUIRED",
-        reason: "not-paired",
+        reason: upgrade ? "metadata-upgrade" : "not-paired",
         requestId,
-        remediationHint: "Approve this device from the pending pairing requests.",
+        remediationHint: upgrade
+          ? "Review the refreshed device details, then approve the pending request."
+          : "Approve this device from the pending pairing requests.",
         deviceId,
         requestedRole: params.role,
         requestedScopes: requested,
+        ...(upgrade ? { approvedRoles: ["operator"], approvedScopes: grant.scopes } : {}),
       });
     }
-    if (method === "bootstrap-token") state.bootstrapTokens.delete(auth.bootstrapToken); // single use
     const granted = requested.filter((scope) => grant.scopes.includes(scope) && scopes.includes(scope));
     return { session: { deviceId, method, scopes: granted, deviceToken: grant.deviceToken } };
   }
@@ -6938,7 +7039,7 @@ export function createMockGateway({
       type: "hello-ok",
       protocol: PROTOCOL,
       server: { version, connId: randomUUID() },
-      features: { methods: Object.keys(METHOD_SCOPE), events: ["connect.challenge", "tick", "health", "skills.changed"], capabilities: [] },
+      features: { methods: Object.keys(METHOD_SCOPE), events: ["connect.challenge", "tick", "health", "config.changed", "skills.changed"], capabilities: [] },
       snapshot: {
         presence: [{ host: displayName, mode: "gateway", reason: "self", version }],
         stateVersion: { presence: 1, health: 1 },
@@ -6971,23 +7072,46 @@ export function createMockGateway({
     }
   }
 
-  function installSkill({ source, slug, version }) {
+  function installSkill({ source, slug, version: requestedVersion }) {
     if (source !== "clawhub" || typeof slug !== "string" || !slug) return err("INVALID_REQUEST", "invalid skills.install params");
     if (fail.has("install-unavailable") || slug.startsWith("missing")) {
       const message = `Skill "${slug}" not found on ClawHub. Run \`openclaw skills search ${slug}\` to find the right skill reference.`;
       return { ok: false, payload: { ok: false, error: message }, error: { code: "UNAVAILABLE", message } };
     }
-    const skillKey = slug.split("/").pop();
+    // Verified: "@owner/key" installs as "key", listed with source openclaw-workspace plus a clawhub object.
+    const parts = slug.replace(/^@/, "").split("/");
+    const skillKey = parts.at(-1);
+    const installedVersion = requestedVersion ?? "1.0.0";
     state.skills = state.skills.filter((skill) => skill.skillKey !== skillKey);
-    state.skills.push({ name: skillKey, skillKey, source: "openclaw-managed", bundled: false, disabled: false, eligible: true, ...(version ? { version } : {}) });
-    return ok({ ok: true, skillKey });
+    state.skills.push({
+      name: skillKey, skillKey, source: "openclaw-workspace", bundled: false, disabled: false, eligible: true,
+      clawhub: {
+        status: "linked", valid: true, registry: "https://clawhub.ai", slug: skillKey,
+        ownerHandle: parts.length > 1 ? parts[0] : "mock", installedVersion, installedAt: Date.now(),
+      },
+      skillCard: { present: false },
+    });
+    return ok({
+      ok: true, message: `Installed ${skillKey}@${installedVersion}`, stdout: "", stderr: "", code: 0,
+      slug: skillKey, version: installedVersion, targetDir: `/mock/workspace/skills/${skillKey}`,
+    });
   }
 
   function updateSkill({ skillKey, enabled }) {
-    const skill = state.skills.find((entry) => entry.skillKey === skillKey);
-    if (!skill) return err("INVALID_REQUEST", `unknown skill: ${skillKey}`);
-    if (typeof enabled === "boolean") skill.disabled = !enabled;
-    return ok({ ok: true, skillKey, enabled: !skill.disabled });
+    if (typeof skillKey !== "string" || typeof enabled !== "boolean") {
+      return err("INVALID_REQUEST", "invalid skills.update params: must have required property 'skillKey'");
+    }
+    // Verified: ok:true even for keys no skill has (the entry is written to config); skills.status catches up only
+    // when config.changed fires.
+    const entries = state.config.skills?.entries ?? {};
+    state.config.skills = { ...state.config.skills, entries: { ...entries, [skillKey]: { ...entries[skillKey], enabled } } };
+    revision += 1;
+    later(() => {
+      const skill = state.skills.find((entry) => entry.skillKey === skillKey);
+      if (skill) skill.disabled = !enabled;
+      broadcastConfigChanged();
+    });
+    return ok({ ok: true, skillKey, config: { enabled } });
   }
 
   const redact = (value) =>
@@ -6995,32 +7119,46 @@ export function createMockGateway({
 
   function configSnapshot() {
     const view = redact(state.config);
-    return { path: "/mock/openclaw.json", exists: true, raw: JSON.stringify(view, null, 2), parsed: view, config: view, valid: true, issues: [], warnings: [], hash: configHash() };
+    return { path: CONFIG_PATH, exists: true, raw: JSON.stringify(view, null, 2), parsed: view, config: view, valid: true, issues: [], warnings: [], hash: configHash() };
+  }
+
+  /** Dotted paths of a patch's leaves, e.g. {gateway:{port:1}} -> ["gateway.port"]. */
+  function leafPaths(value, prefix = "") {
+    if (value === null || typeof value !== "object" || Array.isArray(value)) return prefix ? [prefix] : [];
+    return Object.entries(value).flatMap(([key, child]) => leafPaths(child, prefix ? `${prefix}.${key}` : key));
   }
 
   function patchConfig({ raw, baseHash }) {
-    if (baseHash !== configHash()) {
-      // ⚠ Synthetic shape: the real stale-baseHash error was not captured in M5 (QA §8.9). Replace it with the
-      // frame probe-real.mjs captures (Android plan Task 26).
-      return err("INVALID_REQUEST", "config changed since last load; re-run config.get (baseHash mismatch)", { code: "CONFIG_BASE_HASH_MISMATCH" });
-    }
     let patch;
     try {
       patch = JSON.parse(raw);
-    } catch {
-      return err("INVALID_REQUEST", "invalid config.patch raw: not JSON (the mock does not parse JSON5)");
+    } catch (e) {
+      return err("INVALID_REQUEST", `SyntaxError: JSON5: ${e.message} (the mock parses JSON only)`);
     }
+    // Verified messages; neither carries details.
+    if (baseHash === undefined) {
+      return err("INVALID_REQUEST", `config base hash required for ${leafPaths(patch)[0] ?? "<root>"}; re-run config.get and retry with baseHash`);
+    }
+    if (baseHash !== configHash()) return err("INVALID_REQUEST", "config changed since last load; re-run config.get and retry");
     const next = mergePatch(structuredClone(state.config), patch, state.config);
     const port = next.gateway?.port;
     if (!Number.isInteger(port) || port < 1 || port > 65535) {
-      return err("INVALID_REQUEST", "invalid config: gateway.port must be an integer between 1 and 65535", {
-        code: "INVALID_CONFIG",
-        issues: [{ path: "gateway.port", message: "must be an integer between 1 and 65535" }],
-      });
+      const message = Number.isInteger(port) && port > 65535
+        ? "Too big: expected number to be <=65535 (maximum: 65535)"
+        : "Invalid input: expected an integer between 1 and 65535";
+      return err("INVALID_REQUEST", `invalid config: gateway.port: ${message}`, { issues: [{ path: "gateway.port", message }] });
     }
     state.config = next;
     revision += 1;
-    return ok({ ok: true, changedPaths: Object.keys(patch), hash: configHash() });
+    later(() => broadcastConfigChanged());
+    return ok({
+      ok: true,
+      path: CONFIG_PATH,
+      hash: configHash(),
+      config: redact(state.config),
+      changedPaths: leafPaths(patch),
+      sentinel: { persisted: true, payload: { kind: "config-patch", status: "ok" } },
+    });
   }
 
   /** RFC 7396 merge patch; the redaction sentinel keeps the current secret (upstream "secret restoration"). */
@@ -7043,6 +7181,8 @@ export function createMockGateway({
       return new Promise((resolve) => server.listen(port, host, () => resolve(server.address())));
     },
     close() {
+      for (const timer of timers) clearTimeout(timer);
+      timers.clear();
       for (const client of wss.clients) client.terminate();
       wss.close();
       server.closeAllConnections();
@@ -7071,25 +7211,25 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
 `scripts/mock-gateway/probe-real.mjs`:
 ```js
 #!/usr/bin/env node
-// Probe a real OpenClaw gateway with the same client the conformance tests use; prints frames, never tokens.
-// usage: node probe-real.mjs <ws-url> <shared-token> [pair|stale-hash|skills]
-//   pair        connect with a persistent identity (.probe-identity.json, gitignored) and print hello-ok.auth
-//   stale-hash  config.patch with a wrong baseHash (changes nothing) to capture the real error frame
-//   skills      skills.update disable+enable of SKILL_KEY (default browser-automation); optional INSTALL_SLUG install
+// Re-checks a real OpenClaw gateway against the behaviour pinned in fixtures/gateway-protocol/2026.10.3 (run it when a
+// new gateway release ships). Uses the conformance tests' client; prints frames, never tokens.
+// usage: node probe-real.mjs <ws-url> <shared-token> [pair|config|skills]
+//   pair    connect with a persistent identity (.probe-identity.json, gitignored) and print hello-ok.auth
+//   config  config.patch with a wrong and with no baseHash (both rejected; nothing changes)
+//   skills  skills.update disable+enable of SKILL_KEY (default browser-automation) with the config.changed timing;
+//           optional INSTALL_SLUG install
 import fs from "node:fs";
 import { connect } from "./lib/client.mjs";
 import { newIdentity } from "./lib/device.mjs";
-
 const [url, token, scenario = "pair"] = process.argv.slice(2);
 if (!url || !token) {
-  console.error("usage: node probe-real.mjs <ws-url> <shared-token> [pair|stale-hash|skills]");
+  console.error("usage: node probe-real.mjs <ws-url> <shared-token> [pair|config|skills]");
   process.exit(2);
 }
 const identityFile = new URL("./.probe-identity.json", import.meta.url); // holds a private key: gitignored
 const identity = fs.existsSync(identityFile) ? JSON.parse(fs.readFileSync(identityFile, "utf8")) : newIdentity();
 fs.writeFileSync(identityFile, JSON.stringify(identity), { mode: 0o600 });
 const print = (label, value) => console.log(label, JSON.stringify(value, (key, v) => (key === "deviceToken" ? "<redacted>" : v)));
-
 const session = await connect(url, { identity, auth: { token } });
 if (!session.hello) {
   print("connect error:", session.error);
@@ -7098,12 +7238,17 @@ if (!session.hello) {
   process.exit(1);
 }
 print("hello-ok.auth:", session.hello.auth);
-if (scenario === "stale-hash") {
-  print("config.patch with a stale baseHash:", await session.request("config.patch", { raw: "{}", baseHash: "stale" }));
+if (scenario === "config") {
+  print("config.patch, stale baseHash:", await session.request("config.patch", { raw: "{}", baseHash: "stale" }));
+  print("config.patch, no baseHash:", await session.request("config.patch", { raw: JSON.stringify({ gateway: { port: 18789 } }) }));
 } else if (scenario === "skills") {
   const skillKey = process.env.SKILL_KEY ?? "browser-automation";
-  print("skills.update disable:", await session.request("skills.update", { skillKey, enabled: false }));
-  print("skills.update enable:", await session.request("skills.update", { skillKey, enabled: true }));
+  for (const enabled of [false, true]) {
+    const started = Date.now();
+    print(`skills.update enabled=${enabled}:`, await session.request("skills.update", { skillKey, enabled }));
+    const changed = await session.nextEvent("config.changed");
+    console.log(`config.changed ${changed ? `after ${Date.now() - started} ms` : "not seen within 2 s"}`);
+  }
   if (process.env.INSTALL_SLUG) {
     print("skills.install:", await session.request("skills.install", { source: "clawhub", slug: process.env.INSTALL_SLUG, force: false, timeoutMs: 120000 }));
   }
@@ -7173,7 +7318,7 @@ approve the phone with:
 curl -X POST http://127.0.0.1:18790/__mock/devices/approve
 ```
 
-A setup code for the QR flow (paste it into a QR generator, or use it as an `oc-pair://` link):
+A setup code to test the QR explanation (GhostCrab recognises it and explains that setup codes cannot authorize an operator client; as on a real gateway, its token is refused for operators):
 
 ```bash
 curl -X POST http://127.0.0.1:18790/__mock/setup-code
@@ -7192,7 +7337,10 @@ curl -X POST http://127.0.0.1:18790/__mock/setup-code
 
 Methods: `health`, `status`, `models.list`, `skills.status`, `skills.install`, `skills.update`, `config.get`,
 `config.patch` (`baseHash` required; `gateway.port` validated; `__OPENCLAW_REDACTED__` restores the secret).
-Anything else answers `INVALID_REQUEST unknown method: …`, as upstream.
+Anything else answers `INVALID_REQUEST unknown method: …`, as upstream. Writes (`config.patch`, `skills.update`)
+emit `config.changed` ~80 ms later, and `skills.status` reflects a `skills.update` only from then on, as upstream.
+`client.id` must be `openclaw-android` or `openclaw-ios` and `client.mode` `ui` or `cli`; a paired device that
+changes `platform` must be approved again.
 
 ## Tests
 
@@ -7204,20 +7352,21 @@ CI runs them in the `mock-gateway` job of `.github/workflows/ci.yml`.
 
 ## Probing a real gateway
 
-`node probe-real.mjs ws://<host>:18789/ws <token> [pair|stale-hash|skills]` connects with a persistent device
-identity (`.probe-identity.json`, gitignored) and prints frames with device tokens redacted. Used to pin
-behaviour the M5 captures did not cover (stale `baseHash` error, `skills.update`, ClawHub skill `source`).
+`node probe-real.mjs ws://<host>:18789/ws <token> [pair|config|skills]` connects with a persistent device
+identity (`.probe-identity.json`, gitignored) and prints frames with device tokens redacted. Run it when a new
+gateway release ships, to re-check what the fixtures pin (`baseHash` errors, `skills.update` and the
+`config.changed` timing, ClawHub skill entries).
 
 ## Not covered
 
-TLS (`wss://`), JSON5 in `config.patch` (`raw` must be JSON), events beyond the challenge, scope/role upgrade
-requests, and setup-code expiry.
+TLS (`wss://`), JSON5 in `config.patch` (`raw` must be JSON), events beyond the challenge and `config.changed`,
+scope/role upgrade requests, and `role: "node"` clients (the only ones setup codes serve).
 ````
 
 - [ ] **Step 7: Run the conformance tests**
 
 Run: `cd scripts/mock-gateway && npm install && npm test`
-Expected: PASS (8 tests).
+Expected: PASS (10 tests).
 
 - [ ] **Step 8: Add the CI job**
 
@@ -7279,7 +7428,7 @@ Both workflows keep their `curl …/health` readiness check (still JSON). Until 
 ```bash
 cd scripts/mock-gateway && npm install --package-lock-only && cd ../..
 git add -A scripts/mock-gateway .github/workflows/ci.yml .github/workflows/android-screenshots.yml .github/workflows/ios-screenshots.yml
-git commit -m "test(mock-gateway): speak the real OpenClaw protocol 4" -m "Challenge, Ed25519-signed connect, pairing approval, device and bootstrap tokens, string error codes, skills.status/install/update, config.get/patch with baseHash. Conformance tests compare error shapes with the captured 2026.10.3 frames and run in CI; probe-real.mjs captures what M5 did not."
+git commit -m "test(mock-gateway): speak the real OpenClaw protocol 4" -m "Challenge, Ed25519-signed connect with the client-id/mode allow-lists, pairing approval with a stable requestId and platform pinning, device tokens, operator-refused setup codes, string error codes, skills.status/install/update with config.changed, config.get/patch with the verified baseHash errors. Conformance tests compare shapes with the captured 2026.10.3 frames and run in CI; probe-real.mjs re-checks a new gateway release."
 ```
 
 ---
@@ -7288,7 +7437,7 @@ git commit -m "test(mock-gateway): speak the real OpenClaw protocol 4" -m "Chall
 
 **Files:**
 - Modify: `docs/QA_REAL_GATEWAY_2026-10.md` (append §10)
-- Possibly modify: `app/src/main/kotlin/com/openclaw/ghostcrab/data/impl/ConfigWrites.kt`, `app/src/main/kotlin/com/openclaw/ghostcrab/data/impl/InstalledSkillRepositoryImpl.kt`, `scripts/mock-gateway/server.mjs`, `fixtures/gateway-protocol/2026.10.3/`
+- Possibly modify (only if the gateway release differs from 2026.10.3): `app/src/main/kotlin/com/openclaw/ghostcrab/data/impl/ConfigWrites.kt`, `app/src/main/kotlin/com/openclaw/ghostcrab/data/impl/InstalledSkillRepositoryImpl.kt`, `scripts/mock-gateway/server.mjs`, `fixtures/gateway-protocol/`
 
 Needs Docker Desktop, an Android emulator or device, and a human. The emulator reaches the host's Docker port at `10.0.2.2`, which the gateway treats as remote, so pairing is exercised.
 
@@ -7302,20 +7451,18 @@ docker cp openclaw.json openclaw-qa:/home/node/.openclaw/openclaw.json && rm ope
 docker start openclaw-qa
 docker inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' ghcr.io/openclaw/openclaw:latest
 ```
-Record the version. If it is not `2026.10.3`, run Step 2 first and diff the frames against `fixtures/gateway-protocol/2026.10.3/`.
+Record the version. The frames the plan relies on were pinned against `2026.10.3` (M5 plus the 2026-10-15 verification run, ADR-0007), so Step 2 is needed only for a different release.
 
-- [ ] **Step 2: Pin the frames M5 did not capture** ⚠ manual
+- [ ] **Step 2: Re-check the pinned behaviour on a different release** ⚠ manual, only if the version is not `2026.10.3`
 
 ```bash
 cd scripts/mock-gateway
 node probe-real.mjs ws://127.0.0.1:18789/ws '<token>' pair          # prints the requestId; then:
 docker exec openclaw-qa node openclaw.mjs devices approve <requestId>
-node probe-real.mjs ws://127.0.0.1:18789/ws '<token>' stale-hash
-node probe-real.mjs ws://127.0.0.1:18789/ws '<token>' skills
+node probe-real.mjs ws://127.0.0.1:18789/ws '<token>' config
+INSTALL_SLUG=@steipete/weather node probe-real.mjs ws://127.0.0.1:18789/ws '<token>' skills
 ```
-- If the stale-hash error's `code` / `details.code` / message do not contain "hash", update `isStaleBaseHash()` in `ConfigWrites.kt`, the `rejection(...)` text in `ConfigRepositoryImplTest`, and `patchConfig()` in the mock to the real shape; save the frame as `fixtures/gateway-protocol/2026.10.3/err-config-stale-hash.json` (replace any token with `dt-test-0001`) and assert on it in `ConfigRepositoryImplTest`.
-- If `skills.update` is rejected, revert the UI part of Task 14 (hide the Disable action) and record why.
-- With `INSTALL_SLUG=<a small ClawHub skill>`, note the `source` of the installed skill; if it is not `openclaw-managed` or contains no `clawhub`, extend `skillSourceOf()` and its test.
+Compare with `fixtures/gateway-protocol/2026.10.3/` (`err-config-stale-hash`, `err-config-base-hash-required`, `res-skills-update`, `evt-config-changed`, `res-skills-install`, the `weather` entry of `res-skills-status`). On any difference, add a `fixtures/gateway-protocol/<version>/` set (tokens replaced with `dt-test-0001`), adapt `ConfigWrites.isStaleBaseHash()`, `skillSourceOf()` or the mock, and record it.
 
 - [ ] **Step 3: Run the app against it** ⚠ manual (emulator or device)
 
@@ -7327,19 +7474,19 @@ node probe-real.mjs ws://127.0.0.1:18789/ws '<token>' skills
 5. Config editor: the `gateway` section opens typed (port 18789, bind lan, auth token, token field empty). Change a hot-reloadable value in the raw editor (find one with `docker exec openclaw-qa node openclaw.mjs gateway call config.schema.lookup --params '{"path":"agents.defaults"}'`, `reloadKind: "hot"`), save, reload, change it back. Do **not** change `gateway.port`/`bind` on the live gateway (that restarts it).
 6. Concurrent edit: change the same value with `docker exec … gateway call config.patch` between load and save → the editor reloads with the concurrent-edit message.
 7. Models: empty list without a provider. If you configure one, activating a model makes `docker exec openclaw-qa node openclaw.mjs models status` show it as default.
-8. Installed Skills (debug build): 51 skills, disabled ones marked; Disable one → `skills.status` shows it disabled.
+8. Installed Skills (debug build): 51 skills, disabled ones marked; Disable one → the row shows "disabled" right after the write (the list is re-read after `config.changed`).
 9. `adb logcat -d | grep -iE "bearer|deviceToken|bootstrapToken|<token>"` → no output for the whole session.
 10. `docker stop openclaw-qa` → Dashboard shows Degraded within 60 s.
-11. QR: `docker exec openclaw-qa node openclaw.mjs qr --url ws://<host LAN IP>:18789/ws` prints a setup-code QR (without `--url` the code names the container IP, which the phone cannot reach); scan it on a **device** → Manual Entry shows the setup-code hint; Connect → approval panel → approve → Dashboard; the saved profile has no token. Then save a config value: upstream hands plain-LAN `ws://` setup codes a limited operator profile without `operator.admin` (`/app/docs/cli/qr.md`), so record whether config writes and skill installs work or fail with `MISSING_SCOPE` after a setup-code-only pairing.
+11. QR: `docker exec openclaw-qa node openclaw.mjs qr --url ws://<host LAN IP>:18789/ws` prints a setup-code QR; scan it on a **device** → the scanner explains that setup codes pair node apps, names `http://<host LAN IP>:18789` and points to the gateway token and `openclaw devices approve`; nothing connects and nothing is stored.
 12. Store screenshots: `gh workflow run android-screenshots.yml` (uses this mock with `AUTO_APPROVE=1`, Task 25 Step 9), then check the artifact: `05-dashboard` shows `Home Lab` and the `hello-ok` version, no AI screenshot (action hidden). Commit refreshed PNGs under `screenshots/store/android/` only if they look right.
 
 - [ ] **Step 4: Record and commit**
 
-Append `## 10. Post-alignment verification (ADR-0007, <date>)` to `docs/QA_REAL_GATEWAY_2026-10.md` with the image digest/version, the Step 2 frames (tokens redacted), and the Step 3 results per item.
+Append `## 10. Post-alignment verification (ADR-0007, <date>)` to `docs/QA_REAL_GATEWAY_2026-10.md` with the image digest/version, any Step 2 differences (tokens redacted), and the Step 3 results per item.
 
 ```bash
 git add docs/QA_REAL_GATEWAY_2026-10.md fixtures/gateway-protocol app/src scripts/mock-gateway
-git commit -m "docs: verify the protocol alignment against the real gateway" -m "Records the post-ADR-0007 device pass and pins the stale-baseHash, skills.update and skill source behaviour captured with probe-real.mjs."
+git commit -m "docs: verify the protocol alignment against the real gateway" -m "Records the post-ADR-0007 device pass (and, for a release other than 2026.10.3, what probe-real.mjs found)."
 ```
 
 ---
@@ -7347,7 +7494,7 @@ git commit -m "docs: verify the protocol alignment against the real gateway" -m 
 ### Task 27: Docs, changelog, CLAUDE.md
 
 **Files:**
-- Modify: `docs/adr/0002-auth-mode-probing.md`, `docs/adr/0004-gateway-proxied-ai.md`, `CHANGELOG.md`, `CLAUDE.md`, `docs/IMPLEMENTATION_PLAN.md`
+- Modify: `docs/adr/0002-auth-mode-probing.md`, `docs/adr/0004-gateway-proxied-ai.md`, `docs/adr/0005-additive-repository-methods.md`, `CHANGELOG.md`, `CLAUDE.md`, `docs/IMPLEMENTATION_PLAN.md`
 
 - [ ] **Step 1: Mark the superseded decisions**
 
@@ -7358,6 +7505,14 @@ In `docs/adr/0002-auth-mode-probing.md` replace `**Status:** Accepted` with:
 In `docs/adr/0004-gateway-proxied-ai.md` replace `**Status:** Accepted` with:
 ```markdown
 **Status:** Accepted; amended by ADR-007 (2026-10-14): OpenClaw has no recommendation API, so the feature is disabled (`AI_PRO_ENABLED = false`) until a `chat.send`-based design gets its own ADR. The rule "no provider keys on the device" stands.
+```
+In `docs/adr/0005-additive-repository-methods.md`, after the last instance list, add:
+```markdown
+
+Instances on `feat/protocol-alignment-android` (ADR-0007, Android):
+
+- `InstalledSkillRepository.setSkillEnabled()`
+- `InstalledSkill.disabled` (additive model field with a default)
 ```
 
 - [ ] **Step 2: Changelog**
@@ -7377,7 +7532,7 @@ In `CHANGELOG.md`, directly under `## [Unreleased]`, add:
 
 #### Added
 
-- QR codes from `openclaw qr` (setup codes, bare or `oc-pair://`) and `ws(s)://` URLs. The single-use bootstrap token stays in memory.
+- `ws(s)://` gateway URLs in QR codes. `openclaw qr` setup codes (bare or `oc-pair://`) are recognised and explained: they pair OpenClaw node apps and cannot authorize an operator client, so the scanner points to the gateway token and `openclaw devices approve` instead.
 - Copy telling Linux, Windows and Docker users to run `openclaw plugins enable bonjour`.
 - `scripts/mock-gateway` now speaks protocol 4 and has conformance tests in CI.
 
@@ -7427,7 +7582,7 @@ In `docs/IMPLEMENTATION_PLAN.md`:
 - [ ] **Step 5: Commit, push, PR**
 
 ```bash
-git add docs/adr/0002-auth-mode-probing.md docs/adr/0004-gateway-proxied-ai.md CHANGELOG.md CLAUDE.md docs/IMPLEMENTATION_PLAN.md
+git add docs/adr/0002-auth-mode-probing.md docs/adr/0004-gateway-proxied-ai.md docs/adr/0005-additive-repository-methods.md CHANGELOG.md CLAUDE.md docs/IMPLEMENTATION_PLAN.md
 git commit -m "docs: record the Android protocol alignment" -m "ADR-002 superseded, ADR-004 amended, changelog, CLAUDE.md package map and gateway notes, implementation-plan ledger (ADR-0007)."
 git push -u origin feat/protocol-alignment-android
 gh pr create --title "feat(android): align with the real OpenClaw gateway protocol (ADR-0007)" --body "Implements docs/superpowers/plans/2026-10-15-protocol-alignment-android.md. Real-gateway verification results: docs/QA_REAL_GATEWAY_2026-10.md section 10."
@@ -7452,8 +7607,9 @@ Coverage of every M5 mismatch (`docs/QA_REAL_GATEWAY_2026-10.md` §2, §3, §8):
 | `/config` + `PATCH` → `config.get`/`config.patch` + `baseHash` (#9) | 15, 16 |
 | `/api/models/*` → `models.list` + `agents.defaults.model.primary` (#10) | 17 |
 | AI recommend has no upstream equivalent (#11) | 18 |
-| `openclaw qr` setup code and `ws(s)://` (#12) | 22 |
+| `openclaw qr` setup code and `ws(s)://` (#12): setup codes recognised and explained, never used (node-only tokens) | 22 |
 | Bonjour opt-in, TXT has no `version` (#13) | 23 (version now comes from `hello-ok`, Task 10) |
 | Mock gateway validates a contract that does not exist (#14) | 25 |
 | Bearer on the WS upgrade is useless; logcat bearer check | 10, 24 |
-| Unverified upstream behaviour (stale hash, `skills.update`, skill `source`) | 26 |
+| Behaviour pinned by the 2026-10-15 verification run: client-id/mode allow-list and platform pinning; stable `requestId`, 1008 after `PAIRING_REQUIRED`; node-only bootstrap tokens; `baseHash` errors, validation `issues`, `config.patch` success; `skills.update` + `config.changed`; ClawHub install entry | 1, 11, 13, 14, 15, 19, 22, 25 |
+| A new gateway release | 26 (probe-real.mjs re-check) |

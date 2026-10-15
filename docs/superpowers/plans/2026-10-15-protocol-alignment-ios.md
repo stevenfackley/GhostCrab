@@ -14,6 +14,12 @@
 
 - `docs/adr/0007-gateway-protocol-alignment.md` (the decision), `docs/QA_REAL_GATEWAY_2026-10.md` §3, §5, §8 (the evidence), `docs/adr/0005-additive-repository-methods.md`, `docs/adr/0006-ios-ats-local-networking.md` (ATS applies to `ws://` exactly as to `http://`).
 - The Android plan `docs/superpowers/plans/2026-10-15-protocol-alignment-android.md` implements the same design in Kotlin; its "Read first" section lists the protocol facts. The test vectors in this plan are the same ones (RFC 8032 TEST 1, the fingerprint the real gateway accepted, a Node-26-produced signature).
+- Pinned by the verification run of 2026-10-15 against the same 2026.10.3 image (frames in Task 1; ADR-0007 "Verification"):
+  - `client.id` and `client.mode` are allow-lists checked before auth (`ghostcrab-ios` or `mode: "operator"` → `INVALID_REQUEST invalid connect params …`, close 1008). On a paired device a different `platform` (case-insensitive) re-triggers pairing (`metadata-upgrade`); a different `client.id` does not. GhostCrab sends one constant identity: `openclaw-ios`, `ui`, `ios` (also on Mac Catalyst), no `deviceFamily`.
+  - Pairing: the `requestId` is stable across reconnects; the gateway closes an unpaired socket with 1008 right after `PAIRING_REQUIRED`; `device.pair.resolved` reaches only an already-paired admin socket; a socket that never sends `connect` is closed after ~15 s.
+  - Setup-code bootstrap tokens authenticate only `role: "node"`; over `ws://` they yield a node token with `scopes: []` and no operator handoff. GhostCrab (an operator client) never connects with one; it explains setup codes instead (Task 18).
+  - `config.patch`: stale or unknown `baseHash` → `"config changed since last load; re-run config.get and retry"`, missing → `"config base hash required for <path>; …"` (both `INVALID_REQUEST`, no `details`); validation → `"invalid config: <path>: …"` with `details.issues[]`; success → `{ok, path, hash, config, changedPaths, sentinel}`.
+  - `skills.update` → `{ok:true, skillKey, config:{enabled}}`, also for unknown keys; `skills.status` is stale until the `config.changed` event (~80 ms later, sometimes before the response); there is no `skills.changed` event. A ClawHub install answers `{ok, message, slug, version, …}` and is listed with `source: "openclaw-workspace"` plus `clawhub {slug, installedVersion, installedAt, …}`.
 - Conventions (same as `docs/superpowers/plans/2026-10-13-ios-finish.md`):
   - This plan was written on Windows. Every build and test step is marked **⚠ must run on the Mac Mini (steve-mac-mini, Xcode)**. Steps that need a person, a real gateway or a device are marked **⚠ manual**.
   - Always `cd ios && xcodegen generate` before `xcodebuild`; new files only appear after regenerating.
@@ -32,7 +38,7 @@
 1. Tasks 1–8 build the protocol layer bottom-up; nothing uses it until Task 9.
 2. Task 9 switches `GatewayConnectionManagerImpl` to the WS handshake (repositories still compile through `requireClient()`).
 3. Tasks 10–14 move scopes, skills, config, models and AI onto the session socket.
-4. Tasks 15–19 are the UI (pairing loop, approval card on both screens, setup-code QR, discovery copy).
+4. Tasks 15–19 are the UI (pairing loop, approval card on both screens, setup-code explanation, discovery copy).
 5. Task 20 deletes the dead REST code. Task 21 is the ⚠ manual real-gateway pass. Task 22 is docs.
 
 If the Android plan already ran, `fixtures/gateway-protocol/2026.10.3/` and `scripts/mock-gateway` (protocol 4) exist; Task 21 can also use the mock.
@@ -41,7 +47,7 @@ If the Android plan already ran, `fixtures/gateway-protocol/2026.10.3/` and `scr
 
 | File | Status | Responsibility |
 |---|---|---|
-| `fixtures/gateway-protocol/2026.10.3/*.json` | create (if absent) | 14 frames from the real gateway; shared with Android and the mock |
+| `fixtures/gateway-protocol/2026.10.3/*.json` | create (if absent) | 23 frames from the real gateway; shared with Android and the mock |
 | `ios/project.yml` | modify | fixtures folder as a test resource |
 | `ios/GhostCrab/Domain/Error/GatewayError.swift` | modify | `rpc`, `methodUnsupported`, `missingScope`, `pairingRequired`, `connectRejected`, `protocolViolation` |
 | `ios/GhostCrab/Data/Gateway/GatewayFrames.swift` | create | frame types, codec, `AnyCodable` helpers |
@@ -54,10 +60,9 @@ If the Android plan already ran, `fixtures/gateway-protocol/2026.10.3/` and `scr
 | `ios/GhostCrab/Data/Gateway/GatewayWebSocketURL.swift` | create | `http(s)` base → `ws(s)://…/ws`, cleartext policy for sockets |
 | `ios/GhostCrab/Data/Storage/Keychain.swift` | modify | configurable service |
 | `ios/GhostCrab/Data/Storage/DeviceIdentityStore.swift`, `DeviceTokenStore.swift` | create | Keychain seed; per-gateway device tokens |
-| `ios/GhostCrab/Domain/Repository/GatewayBootstrapConnector.swift` | create | additive: setup-code connect |
 | `ios/GhostCrab/Data/Impl/*` | rewrite | manager, scope probe, skills, config, models, AI on the socket |
 | `ios/GhostCrab/UI/Connection/PairingApproval.swift`, `PairingApprovalCard.swift` | create | retry loop, prompt, card |
-| `ios/GhostCrab/UI/Connection/ManualEntry*`, `ConnectionPicker*`, `QrScanViewModel.swift`, `UI/Navigation/PairingHandoff.swift`, `Domain/Util/PairingLink.swift` | modify | pairing UI, setup codes |
+| `ios/GhostCrab/UI/Connection/ManualEntry*`, `ConnectionPicker*`, `QrScanViewModel.swift`, `Domain/Util/PairingLink.swift` | modify | pairing UI, setup codes recognised and explained (never used) |
 | `ios/GhostCrabTests/Support/*`, `ios/GhostCrabTests/Gateway/*` | create | fixtures loader, scripted socket, stores, tests |
 
 ---
@@ -72,7 +77,7 @@ If the Android plan already ran, `fixtures/gateway-protocol/2026.10.3/` and `scr
 
 - [ ] **Step 1: Create the fixture files (skip if the Android plan already did)**
 
-Frames from the M5 captures against 2026.10.3 (`docs/QA_REAL_GATEWAY_2026-10.md` §3, §9). Trimmed: `hello-ok.features` keeps the methods/events GhostCrab uses, `snapshot` keeps only the self presence entry, `skills.status` keeps two of 51 skills, `config.get` keeps the fields GhostCrab reads. Replaced: the issued device token (`dt-test-0001`); `recoveryScope` removed. Everything else is byte-for-byte what the gateway sent. The Android plan's Task 1 creates the same 14 files; if they exist, check them with `git diff --no-index` against the contents below and skip this step.
+Frames from the M5 captures against 2026.10.3 (`docs/QA_REAL_GATEWAY_2026-10.md` §3, §9), plus nine from the verification run of 2026-10-15 against the same image (client-id allow-list, metadata-upgrade pairing, `config.patch` errors and success, `skills.update`, `config.changed`, `skills.install`; `res-skills-status` gained the ClawHub-installed `weather` entry). Trimmed: `hello-ok.features` keeps the methods/events GhostCrab uses, `snapshot` keeps only the self presence entry, `skills.status` keeps two of 51 skills, `config.get` keeps the fields GhostCrab reads. Replaced: the issued device token (`dt-test-0001`); `recoveryScope` removed. Everything else is byte-for-byte what the gateway sent. The Android plan's Task 1 creates the same 23 files; if they exist, check them with `git diff --no-index` against the contents below and skip this step.
 
 `fixtures/gateway-protocol/2026.10.3/challenge.json`:
 ```json
@@ -131,7 +136,7 @@ Frames from the M5 captures against 2026.10.3 (`docs/QA_REAL_GATEWAY_2026-10.md`
 
 `fixtures/gateway-protocol/2026.10.3/res-skills-status.json`:
 ```json
-{"type":"res","id":"qa-3","ok":true,"payload":{"workspaceDir":"/home/node/.openclaw/workspace","managedSkillsDir":"/home/node/.openclaw/skills","agentId":"main","skills":[{"name":"1password","description":"Set up and use 1Password CLI for sign-in, desktop integration, and reading or injecting secrets.","source":"openclaw-bundled","bundled":true,"filePath":"/app/skills/1password/SKILL.md","baseDir":"/app/skills/1password","skillKey":"1password","always":false,"disabled":true,"blockedByAllowlist":false,"eligible":false,"emoji":"🔐","homepage":"https://developer.1password.com/docs/cli/get-started/","missing":{"bins":["op"],"anyBins":[],"env":[],"config":[],"os":[]},"configChecks":[],"blockedByAgentFilter":false,"platformIncompatible":false,"modelVisible":false,"userInvocable":true,"commandVisible":false,"requirements":{"bins":["op"],"anyBins":[],"env":[],"config":[],"os":[]},"install":[{"id":"brew","kind":"brew","label":"Install 1Password CLI (brew)","bins":["op"]}]},{"name":"browser-automation","description":"Use when controlling web pages with the OpenClaw browser tool, especially multi-step flows, login checks, tab management, or recovery from stale refs/timeouts.","source":"openclaw-extra","bundled":false,"filePath":"/home/node/.openclaw/plugin-skills/browser-automation/SKILL.md","baseDir":"/home/node/.openclaw/plugin-skills/browser-automation","skillKey":"browser-automation","always":false,"disabled":false,"blockedByAllowlist":false,"eligible":true,"missing":{"bins":[],"anyBins":[],"env":[],"config":[],"os":[]},"configChecks":[],"blockedByAgentFilter":false,"platformIncompatible":false,"modelVisible":true,"userInvocable":false,"commandVisible":false,"requirements":{"bins":[],"anyBins":[],"env":[],"config":[],"os":[]},"install":[]}]}}
+{"type":"res","id":"qa-3","ok":true,"payload":{"workspaceDir":"/home/node/.openclaw/workspace","managedSkillsDir":"/home/node/.openclaw/skills","agentId":"main","skills":[{"name":"1password","description":"Set up and use 1Password CLI for sign-in, desktop integration, and reading or injecting secrets.","source":"openclaw-bundled","bundled":true,"filePath":"/app/skills/1password/SKILL.md","baseDir":"/app/skills/1password","skillKey":"1password","always":false,"disabled":true,"blockedByAllowlist":false,"eligible":false,"emoji":"🔐","homepage":"https://developer.1password.com/docs/cli/get-started/","missing":{"bins":["op"],"anyBins":[],"env":[],"config":[],"os":[]},"configChecks":[],"blockedByAgentFilter":false,"platformIncompatible":false,"modelVisible":false,"userInvocable":true,"commandVisible":false,"requirements":{"bins":["op"],"anyBins":[],"env":[],"config":[],"os":[]},"install":[{"id":"brew","kind":"brew","label":"Install 1Password CLI (brew)","bins":["op"]}]},{"name":"browser-automation","description":"Use when controlling web pages with the OpenClaw browser tool, especially multi-step flows, login checks, tab management, or recovery from stale refs/timeouts.","source":"openclaw-extra","bundled":false,"filePath":"/home/node/.openclaw/plugin-skills/browser-automation/SKILL.md","baseDir":"/home/node/.openclaw/plugin-skills/browser-automation","skillKey":"browser-automation","always":false,"disabled":false,"blockedByAllowlist":false,"eligible":true,"missing":{"bins":[],"anyBins":[],"env":[],"config":[],"os":[]},"configChecks":[],"blockedByAgentFilter":false,"platformIncompatible":false,"modelVisible":true,"userInvocable":false,"commandVisible":false,"requirements":{"bins":[],"anyBins":[],"env":[],"config":[],"os":[]},"install":[]},{"name":"weather","description":"Get current weather and forecasts (no API key required).","source":"openclaw-workspace","bundled":false,"filePath":"/home/node/.openclaw/workspace/skills/weather/SKILL.md","baseDir":"/home/node/.openclaw/workspace/skills/weather","skillKey":"weather","always":false,"disabled":false,"blockedByAllowlist":false,"eligible":true,"homepage":"https://wttr.in/:help","install":[],"clawhub":{"status":"linked","valid":true,"registry":"https://clawhub.ai","slug":"weather","ownerHandle":"steipete","installedVersion":"1.0.0","installedAt":1792035309473},"skillCard":{"present":true,"path":"/home/node/.openclaw/workspace/skills/weather/skill-card.md","sizeBytes":1748}}]}}
 ```
 
 `fixtures/gateway-protocol/2026.10.3/res-models-list.json` (no provider configured on the QA gateway, hence empty):
@@ -142,6 +147,51 @@ Frames from the M5 captures against 2026.10.3 (`docs/QA_REAL_GATEWAY_2026-10.md`
 `fixtures/gateway-protocol/2026.10.3/res-config-get.json`:
 ```json
 {"type":"res","id":"qa-5","ok":true,"payload":{"path":"/home/node/.openclaw/openclaw.json","exists":true,"raw":"{\n  \"gateway\": {\n    \"mode\": \"local\",\n    \"port\": 18789,\n    \"bind\": \"lan\",\n    \"auth\": {\n      \"mode\": \"token\",\n      \"token\": \"__OPENCLAW_REDACTED__\"\n    }\n  },\n  \"agents\": {\n    \"entries\": {\n      \"main\": {}\n    }\n  }\n}","parsed":{"gateway":{"mode":"local","port":18789,"bind":"lan","auth":{"mode":"token","token":"__OPENCLAW_REDACTED__"}},"agents":{"entries":{"main":{}}}},"config":{"gateway":{"mode":"local","port":18789,"bind":"lan","auth":{"mode":"token","token":"__OPENCLAW_REDACTED__"}},"agents":{"entries":{"main":{}}}},"valid":true,"issues":[],"warnings":[],"hash":"hmac-sha256:v1:u_qU7JLKF7G9u0jc_GfUp-dKovJYwiLpy0gNxuKjka0","configRevisionHash":"hmac-sha256:v1:8TC1wWOnH2Dg0m3BtlCjnweykbH02riydC06wWjOVMg","appliedConfigHash":"hmac-sha256:v1:8TC1wWOnH2Dg0m3BtlCjnweykbH02riydC06wWjOVMg"}}
+```
+
+`fixtures/gateway-protocol/2026.10.3/err-client-id-invalid.json` (a `client.id` outside upstream's allow-list is rejected before auth, then close 1008):
+```json
+{"type":"res","id":"qa-1","ok":false,"error":{"code":"INVALID_REQUEST","message":"invalid connect params: at /client/id: must be equal to one of the allowed values"}}
+```
+
+`fixtures/gateway-protocol/2026.10.3/err-pairing-metadata-upgrade.json` (a paired device whose `platform` changed must be re-approved):
+```json
+{"type":"res","id":"qa-1","ok":false,"error":{"code":"NOT_PAIRED","message":"pairing required: device identity changed and must be re-approved","details":{"code":"PAIRING_REQUIRED","reason":"metadata-upgrade","requestId":"6837c6b0-f559-445b-bc0c-a50fbe5b5998","remediationHint":"Review the refreshed device details, then approve the pending request.","deviceId":"3f219088c9d60e28387657a427ae904a1061b0f74df3722362be8f14f4b2e3d4","requestedRole":"operator","requestedScopes":["operator.read","operator.write","operator.admin"],"approvedRoles":["operator"],"approvedScopes":["operator.admin","operator.read","operator.write"]}}}
+```
+
+`fixtures/gateway-protocol/2026.10.3/err-config-stale-hash.json` (stale or unknown `baseHash`; no `details`):
+```json
+{"type":"res","id":"qa-6","ok":false,"error":{"code":"INVALID_REQUEST","message":"config changed since last load; re-run config.get and retry"}}
+```
+
+`fixtures/gateway-protocol/2026.10.3/err-config-base-hash-required.json` (`config.patch` without `baseHash`):
+```json
+{"type":"res","id":"qa-6","ok":false,"error":{"code":"INVALID_REQUEST","message":"config base hash required for skills.entries.gifgrep.env.QA_MARK; re-run config.get and retry with baseHash"}}
+```
+
+`fixtures/gateway-protocol/2026.10.3/err-config-invalid.json` (schema validation; `details.issues[]` carries `path`, `message` and sometimes `allowedValues`):
+```json
+{"type":"res","id":"qa-6","ok":false,"error":{"code":"INVALID_REQUEST","message":"invalid config: gateway.port: Too big: expected number to be <=65535 (maximum: 65535)","details":{"issues":[{"path":"gateway.port","message":"Too big: expected number to be <=65535 (maximum: 65535)"}]}}}
+```
+
+`fixtures/gateway-protocol/2026.10.3/res-config-patch.json` (success; `config` trimmed, `sentinel.payload` trimmed to `kind`/`status`):
+```json
+{"type":"res","id":"qa-6","ok":true,"payload":{"ok":true,"path":"/home/node/.openclaw/openclaw.json","hash":"hmac-sha256:v1:9zRz_TNpxroYBBCZhMFq3HGpv1dFAcFxPnmwn7VTXYE","config":{"gateway":{"mode":"local","port":18789,"bind":"lan","auth":{"mode":"token","token":"__OPENCLAW_REDACTED__"}},"agents":{"entries":{"main":{}}},"skills":{"entries":{"gifgrep":{"enabled":false,"env":{"QA_MARK":"1"}}}}},"changedPaths":["skills.entries.gifgrep.env"],"sentinel":{"persisted":true,"payload":{"kind":"config-patch","status":"ok"}}}}
+```
+
+`fixtures/gateway-protocol/2026.10.3/res-skills-update.json` (also `ok:true` for a key `skills.status` does not list):
+```json
+{"type":"res","id":"qa-7","ok":true,"payload":{"ok":true,"skillKey":"browser-automation","config":{"enabled":false}}}
+```
+
+`fixtures/gateway-protocol/2026.10.3/evt-config-changed.json` (~80 ms after a `skills.update` / `config.patch`, sometimes before its `res`; `skills.status` is stale until then):
+```json
+{"type":"event","event":"config.changed","payload":{"path":"/home/node/.openclaw/openclaw.json","hash":"hmac-sha256:v1:2sFWUUtsC-UI1KuZe97ow05xC0utmh6-UkQUs2Itm1Q","ts":1792035286950},"seq":2}
+```
+
+`fixtures/gateway-protocol/2026.10.3/res-skills-install.json` (`skills.install {source:"clawhub", slug:"@steipete/weather"}`; the answer names the bare key):
+```json
+{"type":"res","id":"qa-8","ok":true,"payload":{"ok":true,"message":"Installed weather@1.0.0","stdout":"","stderr":"","code":0,"slug":"weather","version":"1.0.0","targetDir":"/home/node/.openclaw/workspace/skills/weather"}}
 ```
 
 - [ ] **Step 2: Bundle the fixture folder into the test target**
@@ -195,8 +245,9 @@ import CryptoKit
 import Foundation
 @testable import GhostCrab
 
-/// Frames captured from `ghcr.io/openclaw/openclaw` 2026.10.3 during roadmap M5 (`docs/QA_REAL_GATEWAY_2026-10.md`),
-/// trimmed, issued device token replaced by `dt-test-0001`. Bundled from `fixtures/gateway-protocol/2026.10.3/`.
+/// Frames captured from `ghcr.io/openclaw/openclaw` 2026.10.3 during roadmap M5 (`docs/QA_REAL_GATEWAY_2026-10.md`) and
+/// the 2026-10-15 verification run, trimmed, issued device token replaced by `dt-test-0001`. Bundled from
+/// `fixtures/gateway-protocol/2026.10.3/`.
 enum GatewayFixtures {
 
     static let version = "2026.10.3"
@@ -206,6 +257,9 @@ enum GatewayFixtures {
         "err-pairing-required", "err-token-mismatch", "err-token-missing", "err-device-identity-required",
         "err-missing-scope", "err-unknown-method", "err-skill-not-found",
         "res-health", "res-skills-status", "res-models-list", "res-config-get",
+        "err-client-id-invalid", "err-pairing-metadata-upgrade",
+        "err-config-stale-hash", "err-config-base-hash-required", "err-config-invalid", "res-config-patch",
+        "res-skills-update", "evt-config-changed", "res-skills-install",
     ]
 
     struct Missing: Error, CustomStringConvertible {
@@ -267,7 +321,7 @@ func gatewayError(_ body: () async throws -> Void) async -> GatewayError? {
 
 - [ ] **Step 6: Run the test to verify it passes** ⚠ must run on the Mac Mini (steve-mac-mini, Xcode)
 
-Run the Step 4 command. Expected: PASS (14 cases).
+Run the Step 4 command. Expected: PASS (23 cases).
 
 - [ ] **Step 7: Commit**
 
@@ -963,28 +1017,42 @@ import Foundation
 
 /// Fake gateway socket. Emits the captured `connect.challenge` first (unless `challenge` is false), then answers
 /// each request with the next queued frame for its method, its `id` rewritten to the request's id. The last queued
-/// frame of a method repeats. A method without frames gets no answer. Methods in `closeAfterReplyTo` end the socket
-/// after the reply, as the real gateway does after a failed `connect` (close 1008).
+/// frame of a method repeats. A method without frames gets no answer. `eventsBeforeReply` frames are pushed right
+/// before a method's reply (the real gateway's `config.changed` can precede the response of the write that caused
+/// it). Methods in `closeAfterReplyTo` end the socket after the reply, as the real gateway does after a failed
+/// `connect` (close 1008).
 actor ScriptedGatewayWebSocket: GatewayWebSocket {
 
     private var inbox: [String?]
     private var waiter: CheckedContinuation<String?, Never>?
     private var replies: [String: [String]]
+    private let eventsBefore: [String: [String]]
     private let closeAfter: Set<String>
     private var sentFrames: [String] = []
 
     /// `true` once the client called `close()`.
     private(set) var closedByClient = false
 
-    init(challenge: Bool = true, replies: [String: [String]] = [:], closeAfterReplyTo: Set<String> = []) throws {
+    init(
+        challenge: Bool = true,
+        replies: [String: [String]] = [:],
+        eventsBeforeReply: [String: [String]] = [:],
+        closeAfterReplyTo: Set<String> = []
+    ) throws {
         self.inbox = challenge ? [try GatewayFixtures.text("challenge")] : []
         self.replies = replies
+        self.eventsBefore = eventsBeforeReply
         self.closeAfter = closeAfterReplyTo
     }
 
     /// The raw text of the first request the client sent for `method`.
     func sentRequest(_ method: String) -> String? {
-        sentFrames.first { text in
+        sentRequests(method).first
+    }
+
+    /// The raw text of every request the client sent for `method`, in order.
+    func sentRequests(_ method: String) -> [String] {
+        sentFrames.filter { text in
             (try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any])?["method"] as? String == method
         }
     }
@@ -1007,6 +1075,7 @@ actor ScriptedGatewayWebSocket: GatewayWebSocket {
             queue.removeFirst()
             replies[method] = queue
         }
+        eventsBefore[method]?.forEach { deliver($0) }
         deliver(try Self.rewritingId(reply, to: id))
         if closeAfter.contains(method) { deliver(nil) }
     }
@@ -1571,7 +1640,7 @@ public struct DeviceAuthPayload: Sendable {
     public let scopes: [String]
     /// The challenge `ts` (also sent as `device.signedAt`).
     public let signedAtMs: Int64
-    /// The credential sent in `auth` (shared, device or bootstrap token), or `nil`. Sensitive.
+    /// The credential sent in `auth` (shared or device token), or `nil`. Sensitive.
     public let token: String?
     /// The challenge nonce (also sent as `device.nonce`).
     public let nonce: String
@@ -1963,14 +2032,49 @@ struct GatewayHandshakeTests {
         #expect(params["scopes"] as? [String] == ["operator.read"])
     }
 
-    @Test func bootstrapAndNoCredential() async throws {
+    @Test func noCredentialSendsNoAuthBlock() async throws {
         let identity = try DeviceIdentity(seed: TestKeys.rfcSeed)
-        let boot = try ScriptedGatewayWebSocket(replies: try .fixtures(["connect": "hello-ok-paired"]))
-        _ = try await GatewayHandshake.perform(rpc: await rpc(boot), client: client, auth: .bootstrap("bt-test-0001"), identity: identity)
-        #expect((try await connectParams(boot)["auth"] as? [String: Any])?["bootstrapToken"] as? String == "bt-test-0001")
         let none = try ScriptedGatewayWebSocket(replies: try .fixtures(["connect": "hello-ok-paired"]))
         _ = try await GatewayHandshake.perform(rpc: await rpc(none), client: client, auth: .none, identity: identity)
         #expect(try await connectParams(none)["auth"] == nil)
+    }
+
+    @Test func theIOSIdentityIsTheAllowListedConstant() {
+        let info = GatewayClientInfo.current()
+        #expect(info.id == "openclaw-ios")
+        #expect(info.mode == "ui")
+        #expect(info.platform == "ios")
+        #expect(info.deviceFamily == nil)
+        #expect(info.displayName == "GhostCrab (iOS)")
+    }
+
+    @Test func anIdOutsideTheAllowListIsAPlainRPCRejection() async throws {
+        let socket = try ScriptedGatewayWebSocket(replies: try .fixtures(["connect": "err-client-id-invalid"]), closeAfterReplyTo: ["connect"])
+        let channel = await rpc(socket)
+        let wrongID = GatewayClientInfo(id: "ghostcrab-ios", version: "0.3.0", platform: "ios", displayName: "GhostCrab (iOS)", locale: "en-US")
+        let identity = try DeviceIdentity(seed: TestKeys.rfcSeed)
+        guard case let .rpc(_, _, code, _, message, _)? = await gatewayError({
+            _ = try await GatewayHandshake.perform(rpc: channel, client: wrongID, auth: .sharedToken("shared-token"), identity: identity)
+        }) else {
+            Issue.record("expected rpc")
+            return
+        }
+        #expect(code == "INVALID_REQUEST")
+        #expect(message.contains("/client/id"))
+    }
+
+    @Test func aPlatformChangeOnAPairedDeviceAsksForReApproval() async throws {
+        let socket = try ScriptedGatewayWebSocket(replies: try .fixtures(["connect": "err-pairing-metadata-upgrade"]), closeAfterReplyTo: ["connect"])
+        let channel = await rpc(socket)
+        let identity = try DeviceIdentity(seed: TestKeys.rfcSeed)
+        guard case let .pairingRequired(_, requestId, reason, _)? = await gatewayError({
+            _ = try await GatewayHandshake.perform(rpc: channel, client: client, auth: .sharedToken("shared-token"), identity: identity)
+        }) else {
+            Issue.record("expected pairingRequired")
+            return
+        }
+        #expect(reason == "metadata-upgrade")
+        #expect(requestId == "6837c6b0-f559-445b-bc0c-a50fbe5b5998")
     }
 
     @Test func pairingRequiredAndTokenMismatchAreTyped() async throws {
@@ -2025,10 +2129,9 @@ struct GatewayHandshakeTests {
         #expect(hello.authRequirement(token: nil) == .token)
         #expect(hello.capabilities == ["config", "models", "skills"])
         let stored = StoredDeviceToken(token: "dt", scopes: ["operator.read"], role: "operator", deviceId: TestKeys.rfcDeviceId)
-        guard case .sharedToken = GatewayConnectAuth.select(sharedToken: "t", stored: stored, bootstrapToken: "b"),
-              case .deviceToken = GatewayConnectAuth.select(sharedToken: nil, stored: stored, bootstrapToken: "b"),
-              case .bootstrap = GatewayConnectAuth.select(sharedToken: nil, stored: nil, bootstrapToken: "b"),
-              case .none = GatewayConnectAuth.select(sharedToken: nil, stored: nil, bootstrapToken: nil) else {
+        guard case .sharedToken = GatewayConnectAuth.select(sharedToken: "t", stored: stored),
+              case .deviceToken = GatewayConnectAuth.select(sharedToken: nil, stored: stored),
+              case .none = GatewayConnectAuth.select(sharedToken: nil, stored: nil) else {
             Issue.record("credential order differs from upstream selectGatewayConnectAuth")
             return
         }
@@ -2047,9 +2150,18 @@ Expected: FAIL to compile (`cannot find 'GatewayClientInfo' in scope`).
 ```swift
 import Foundation
 
-/// `connect.params.client` (ADR-0007): `id` is one of upstream's closed client ids (`openclaw-ios`); `version` and
-/// `displayName` stay honest. No `deviceFamily`: it is bound into the signature and pinned at approval.
+/// `connect.params.client` (ADR-0007). `id` and `mode` must be values upstream's allow-lists accept (checked before
+/// auth: anything else is `INVALID_REQUEST invalid connect params`, close 1008); `version` and `displayName` stay
+/// honest. `platform` is bound into the device signature and pinned when the device is approved: changing it
+/// re-triggers pairing (`metadata-upgrade`), so it is a constant, never derived from the device. No `deviceFamily`.
 public struct GatewayClientInfo: Sendable, Equatable {
+
+    /// Upstream allow-listed id for the iOS app; any other id is rejected before auth (verified 2026-10-15).
+    public static let iosClientID = "openclaw-ios"
+
+    /// Pinned at approval (case-insensitive). The same on iPhone, iPad and Mac Catalyst; never derive it.
+    public static let iosPlatform = "ios"
+
     public let id: String
     public let version: String
     public let platform: String
@@ -2072,12 +2184,12 @@ public struct GatewayClientInfo: Sendable, Equatable {
     /// `connect.params.userAgent`.
     public var userAgent: String { "ghostcrab-\(platform)/\(version)" }
 
-    /// This build's client info.
+    /// This build's client info: the constant id, mode and platform with this build's version.
     public static func current(bundle: Bundle = .main) -> GatewayClientInfo {
         GatewayClientInfo(
-            id: "openclaw-ios",
+            id: iosClientID,
             version: bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.0",
-            platform: "ios",
+            platform: iosPlatform,
             displayName: "GhostCrab (iOS)",
             locale: Locale.current.identifier(.bcp47)
         )
@@ -2090,23 +2202,22 @@ public enum GatewayConnectAuth: Sendable {
     case sharedToken(String)
     /// A device token this gateway issued earlier (`auth.deviceToken`), reused with its granted scopes.
     case deviceToken(String, scopes: [String])
-    /// Single-use `openclaw qr` setup-code token (`auth.bootstrapToken`).
-    case bootstrap(String)
     /// No credential: `auth.mode: none` gateways and the auth probe.
     case none
 
-    /// Upstream `selectGatewayConnectAuth` order: shared token, stored device token, bootstrap token, nothing.
-    public static func select(sharedToken: String?, stored: StoredDeviceToken?, bootstrapToken: String?) -> GatewayConnectAuth {
+    /// Upstream `selectGatewayConnectAuth` order for an operator client: shared token, stored device token, nothing.
+    /// Setup-code bootstrap tokens are not a credential here: the gateway accepts them only for `role: "node"`
+    /// (verified 2026-10-15, ADR-0007).
+    public static func select(sharedToken: String?, stored: StoredDeviceToken?) -> GatewayConnectAuth {
         if let sharedToken { return .sharedToken(sharedToken) }
         if let stored { return .deviceToken(stored.token, scopes: stored.scopes) }
-        if let bootstrapToken { return .bootstrap(bootstrapToken) }
         return .none
     }
 
     /// The value bound into the signature's token field.
     var signatureToken: String? {
         switch self {
-        case .sharedToken(let token), .deviceToken(let token, _), .bootstrap(let token): return token
+        case .sharedToken(let token), .deviceToken(let token, _): return token
         case .none: return nil
         }
     }
@@ -2123,7 +2234,6 @@ extension GatewayConnectAuth: CustomStringConvertible, CustomDebugStringConverti
         switch self {
         case .sharedToken: return "sharedToken(<redacted>)"
         case let .deviceToken(_, scopes): return "deviceToken(<redacted>, scopes: \(scopes))"
-        case .bootstrap: return "bootstrap(<redacted>)"
         case .none: return "none"
         }
     }
@@ -2203,7 +2313,6 @@ struct ConnectParams: Encodable, Sendable {
     struct Auth: Encodable, Sendable {
         let token: String?
         let deviceToken: String?
-        let bootstrapToken: String?
     }
     struct Device: Encodable, Sendable {
         let id: String
@@ -2259,9 +2368,8 @@ public enum GatewayHandshake {
             platform: client.platform, deviceFamily: client.deviceFamily
         ).v3
         let authBlock: ConnectParams.Auth? = switch auth {
-        case .sharedToken(let token): ConnectParams.Auth(token: token, deviceToken: nil, bootstrapToken: nil)
-        case .deviceToken(let token, _): ConnectParams.Auth(token: nil, deviceToken: token, bootstrapToken: nil)
-        case .bootstrap(let token): ConnectParams.Auth(token: nil, deviceToken: nil, bootstrapToken: token)
+        case .sharedToken(let token): ConnectParams.Auth(token: token, deviceToken: nil)
+        case .deviceToken(let token, _): ConnectParams.Auth(token: nil, deviceToken: token)
         case .none: nil
         }
         return ConnectParams(
@@ -2321,14 +2429,14 @@ public enum GatewayHandshake {
 
 - [ ] **Step 4: Run the test to verify it passes** ⚠ must run on the Mac Mini (steve-mac-mini, Xcode)
 
-Expected: PASS (7 tests).
+Expected: PASS (10 tests).
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git checkout -- ios/GhostCrab/App/BuildInfo.swift
 git add ios/GhostCrab/Data/Gateway/GatewayHandshake.swift ios/GhostCrabTests/Gateway/GatewayHandshakeTests.swift
-git commit -m "feat(ios): connect handshake with signed device identity" -m "challenge -> v3-signed connect -> hello-ok; upstream credential order; auth mode, scopes, device token, host and capabilities from hello-ok (ADR-0007)."
+git commit -m "feat(ios): connect handshake with signed device identity" -m "challenge -> v3-signed connect -> hello-ok; upstream credential order for operators (shared, device, none); the allow-listed client identity is a constant (openclaw-ios, ui, ios) because a changed platform re-triggers pairing; auth mode, scopes, device token, host and capabilities from hello-ok (ADR-0007)."
 ```
 
 ---
@@ -2336,7 +2444,6 @@ git commit -m "feat(ios): connect handshake with signed device identity" -m "cha
 
 **Files:**
 - Create: `ios/GhostCrab/Data/Gateway/GatewayWebSocketURL.swift`
-- Create: `ios/GhostCrab/Domain/Repository/GatewayBootstrapConnector.swift`
 - Rewrite: `ios/GhostCrab/Data/Impl/GatewayConnectionManagerImpl.swift` (the actor; the factory, `SnapshotBox` and `AlwaysBlockCleartextSettingsRepository` stay)
 - Modify: `ios/GhostCrab/App/AppContainer.swift`
 - Modify: `ios/GhostCrabTests/Support/GatewayTestDoubles.swift`, `ios/GhostCrabTests/Api/GatewayConnectionManagerCancellationTests.swift`
@@ -2460,8 +2567,8 @@ func sentParams(_ socket: ScriptedGatewayWebSocket, _ method: String) async thro
     return try #require(try jsonObject(text)["params"] as? [String: Any])
 }
 
-/// `{"type":"res","ok":true,"payload":{"ok":true}}`: the success shape assumed for writes whose success frame
-/// M5 did not capture (`skills.install`, `skills.update`, `config.patch`). Task 21 pins the real ones.
+/// `{"type":"res","ok":true,"payload":{"ok":true}}`: a minimal success for writes whose answer a test does not read.
+/// Tests that read the answer use the captured frames (`res-config-patch`, `res-skills-update`, `res-skills-install`).
 let okReply = #"{"type":"res","id":"x","ok":true,"payload":{"ok":true}}"#
 
 /// An `ok:false` frame with `code`, `message` and optional `details.code`.
@@ -2617,20 +2724,6 @@ struct GatewayConnectionManagerImplTests {
         #expect(tokens.load(gatewayKey: key) == nil)
     }
 
-    @Test func bootstrapConnectSendsTheSetupCodeTokenAndKeepsTheDeviceToken() async throws {
-        let socket = try ScriptedGatewayWebSocket(replies: try .fixtures(["connect": "hello-ok-paired"]))
-        let (manager, url) = makeManager(socket)
-        try await manager.connect(url: url, bootstrapToken: "bt-test-0001")
-        let auth = try #require(try await sentParams(socket, "connect")["auth"] as? [String: Any])
-        #expect(auth["bootstrapToken"] as? String == "bt-test-0001")
-        #expect(auth["token"] == nil)
-        #expect(tokens.load(gatewayKey: GatewayKey.of(url))?.token == "dt-test-0001")
-        guard case .connected(_, _, _, _, _, _, _, nil) = manager.currentState else {
-            Issue.record("expected connected without a shared token")
-            return
-        }
-    }
-
     // MARK: probeAuth
 
     @Test func probeAuthMapsAMissingTokenToTokenAndSendsNoCredential() async throws {
@@ -2693,30 +2786,8 @@ struct GatewayConnectionManagerImplTests {
 
 Run the test command with `GatewayConnectionManagerImplTests`. Expected: FAIL to compile (`extra arguments at positions #1, #2` / `incorrect argument labels in call`).
 
-- [ ] **Step 8: Add the additive bootstrap protocol**
 
-`ios/GhostCrab/Domain/Repository/GatewayBootstrapConnector.swift`:
-```swift
-import Foundation
-
-/// Connects with the single-use bootstrap token of an `openclaw qr` setup code instead of a shared gateway token
-/// (ADR-0007). Same state transitions and errors as ``GatewayConnectionManager/connect(url:token:)``; on success
-/// the gateway-issued device token is stored, so later connects need no token at all.
-///
-/// Additive (v1.1): new protocol, no frozen v1.0 contract changes (ADR-0005).
-public protocol GatewayBootstrapConnector: Sendable {
-
-    /// - Parameters:
-    ///   - url: Gateway base URL (`http(s)://host:port`), derived from the setup code's `ws(s)://` URL.
-    ///   - bootstrapToken: The setup code's `bootstrapToken`. Sensitive — never log, never persist.
-    /// - Throws: `GatewayError.pairingRequired` until the device is approved on the gateway host (non-official
-    ///   clients are never auto-approved); `GatewayError.connectRejected` with `AUTH_BOOTSTRAP_TOKEN_INVALID` once
-    ///   the token expired (10 min) or was used; `GatewayError.unreachable` if the host cannot be reached.
-    func connect(url: String, bootstrapToken: String) async throws
-}
-```
-
-- [ ] **Step 9: Rewrite the manager**
+- [ ] **Step 8: Rewrite the manager**
 
 In `ios/GhostCrab/Data/Impl/GatewayConnectionManagerImpl.swift`, keep the `// MARK: - Client factory` section (protocol and `DefaultOpenClawAPIClientFactory`) as it is, and replace everything from `// MARK: - Connection manager` down to, but not including, `// ── Snapshot box impl` with:
 ```swift
@@ -2729,7 +2800,7 @@ In `ios/GhostCrab/Data/Impl/GatewayConnectionManagerImpl.swift`, keep the `// MA
 /// The actor serialises `connect` / `disconnect` / `probeAuth`. State is exposed through ``connectionStates()``
 /// (latest value replayed on subscribe) and the synchronous ``currentState`` snapshot. A session socket that the
 /// gateway drops moves the state to `.error(.unreachable)`.
-public actor GatewayConnectionManagerImpl: GatewayConnectionManager, GatewayBootstrapConnector {
+public actor GatewayConnectionManagerImpl: GatewayConnectionManager {
 
     /// The live session: REST client (`/health`, teardown), control-plane socket, and the hello that opened it.
     private struct ActiveSession {
@@ -2844,15 +2915,10 @@ public actor GatewayConnectionManagerImpl: GatewayConnectionManager, GatewayBoot
     /// See ``GatewayConnectionManager/connect(url:token:)``. A cancelled handshake ends `.disconnected` and
     /// throws `CancellationError`; a cancellation after the handshake succeeded leaves `.connected`.
     public func connect(url: String, token: String?) async throws {
-        try await establish(url: url, token: token, bootstrapToken: nil)
+        try await establish(url: url, token: token)
     }
 
-    /// See ``GatewayBootstrapConnector/connect(url:bootstrapToken:)``.
-    public func connect(url: String, bootstrapToken: String) async throws {
-        try await establish(url: url, token: nil, bootstrapToken: bootstrapToken)
-    }
-
-    private func establish(url: String, token: String?, bootstrapToken: String?) async throws {
+    private func establish(url: String, token: String?) async throws {
         await closeActive()
         let baseURL = try parseURL(url)
         publish(.connecting(url: url))
@@ -2869,7 +2935,7 @@ public actor GatewayConnectionManagerImpl: GatewayConnectionManager, GatewayBoot
             let stored = deviceTokens.load(gatewayKey: key).flatMap { $0.deviceId == identity.deviceId ? $0 : nil }
             let socket = try await openRPC(baseURL: baseURL, allowCleartext: allowCleartext)
             rpc = socket
-            let auth = GatewayConnectAuth.select(sharedToken: token, stored: stored, bootstrapToken: bootstrapToken)
+            let auth = GatewayConnectAuth.select(sharedToken: token, stored: stored)
             let hello = try await GatewayHandshake.perform(rpc: socket, client: clientInfo, auth: auth, identity: identity)
             rememberDeviceToken(hello, key: key, identity: identity, stored: stored)
             active = ActiveSession(client: rest, rpc: socket, hello: hello)
@@ -3035,7 +3101,7 @@ public actor GatewayConnectionManagerImpl: GatewayConnectionManager, GatewayBoot
 
 ```
 
-- [ ] **Step 10: Wire it in the container and fix the cancellation test**
+- [ ] **Step 9: Wire it in the container and fix the cancellation test**
 
 In `AppContainer.swift` replace
 ```swift
@@ -3065,16 +3131,16 @@ with
         )
 ```
 
-- [ ] **Step 11: Run the tests** ⚠ must run on the Mac Mini (steve-mac-mini, Xcode)
+- [ ] **Step 10: Run the tests** ⚠ must run on the Mac Mini (steve-mac-mini, Xcode)
 
-Run the test command with `-only-testing:GhostCrabTests` (the whole unit suite: the container, the cancellation test and every ViewModel test still compile against the fakes). Expected: PASS, including the 14 new manager tests.
+Run the test command with `-only-testing:GhostCrabTests` (the whole unit suite: the container, the cancellation test and every ViewModel test still compile against the fakes). Expected: PASS, including the 13 new manager tests.
 
-- [ ] **Step 12: Commit**
+- [ ] **Step 11: Commit**
 
 ```bash
 git checkout -- ios/GhostCrab/App/BuildInfo.swift
-git add ios/GhostCrab/Data/Gateway/GatewayWebSocketURL.swift ios/GhostCrab/Domain/Repository/GatewayBootstrapConnector.swift ios/GhostCrab/Data/Impl/GatewayConnectionManagerImpl.swift ios/GhostCrab/App/AppContainer.swift ios/GhostCrabTests/Support/GatewayTestDoubles.swift ios/GhostCrabTests/Api/GatewayConnectionManagerCancellationTests.swift ios/GhostCrabTests/Gateway/GatewayWebSocketURLTests.swift ios/GhostCrabTests/Gateway/GatewayConnectionManagerImplTests.swift
-git commit -m "feat(ios): connect over the protocol-4 WS handshake" -m "Replaces the /status auth probe (ADR-002, superseded by ADR-0007) with /health plus a signed connect. Auth mode, version, host and capabilities come from hello-ok; device tokens are stored per gateway and reused; additive GatewayBootstrapConnector for setup codes; a dropped session socket ends in .error."
+git add ios/GhostCrab/Data/Gateway/GatewayWebSocketURL.swift ios/GhostCrab/Data/Impl/GatewayConnectionManagerImpl.swift ios/GhostCrab/App/AppContainer.swift ios/GhostCrabTests/Support/GatewayTestDoubles.swift ios/GhostCrabTests/Api/GatewayConnectionManagerCancellationTests.swift ios/GhostCrabTests/Gateway/GatewayWebSocketURLTests.swift ios/GhostCrabTests/Gateway/GatewayConnectionManagerImplTests.swift
+git commit -m "feat(ios): connect over the protocol-4 WS handshake" -m "Replaces the /status auth probe (ADR-002, superseded by ADR-0007) with /health plus a signed connect. Auth mode, version, host and capabilities come from hello-ok; device tokens are stored per gateway and reused; a dropped session socket ends in .error."
 ```
 
 ---
@@ -3189,7 +3255,7 @@ git commit -m "feat(ios): scope probe reads hello-ok scopes" -m "There is no aut
 - Modify: `ios/GhostCrabTests/Support/Fakes.swift`
 - Test: `ios/GhostCrabTests/Gateway/InstalledSkillRepositoryImplTests.swift`
 
-The real gateway answers `skills.install` with one `res` frame and no progress events; `skills.uninstall` does not exist; `skills.update {skillKey, enabled}` is in the 2026.10.3 schema but was not exercised in M5 (QA §3, §8). Success payloads of `skills.install` / `skills.update` were not captured, so the repository relies only on `ok:true` and re-reads `skills.status`.
+The real gateway answers `skills.install` with one `res` frame and no progress events; `skills.uninstall` does not exist (QA §3, §8). Verified 2026-10-15: a ClawHub install answers `{ok, message, slug, version, targetDir, …}` with the bare key in `slug` and is listed with `source: "openclaw-workspace"` plus a `clawhub {slug, installedVersion, installedAt, …}` object; `skills.update {skillKey, enabled}` answers `{ok:true, skillKey, config:{enabled}}` even for unknown keys, so the key must be in the last `skills.status`; and `skills.status` stays stale until the `config.changed` event (~80 ms after the write, sometimes before its response; there is no `skills.changed` event), so the repository subscribes before writing and re-reads the list once the event arrives (2 s cap).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -3217,30 +3283,35 @@ struct InstalledSkillRepositoryImplTests {
     @Test func refreshMapsSkillsStatus() async throws {
         let (repo, _) = try await makeRepo(try .fixtures(["skills.status": "res-skills-status"]))
         let skills = try await repo.refreshFromGateway().get()
-        #expect(skills.map(\.slug) == ["1password", "browser-automation"])
+        #expect(skills.map(\.slug) == ["1password", "browser-automation", "weather"])
         #expect(skills[0].disabled)
         #expect(skills[0].source == .local)
         #expect(skills[0].installedVersion == "")
         #expect(!skills[1].disabled)
+        #expect(skills[2].source == .clawHub)
+        #expect(skills[2].installedVersion == "1.0.0")
+        #expect(Int(skills[2].installedAt.timeIntervalSince1970) == 1_792_035_309)
     }
 
     @Test func installSendsTheClawHubParamsAndEndsSucceeded() async throws {
-        let (repo, socket) = try await makeRepo([
-            "skills.install": [okReply],
-            "skills.status": [try GatewayFixtures.text("res-skills-status")],
-        ])
-        let progress = await events(repo.install(slug: "someone/browser-automation", version: "1.2.0"))
-        #expect(progress.first == .connecting(target: "someone/browser-automation"))
+        let (repo, socket) = try await makeRepo(try .fixtures([
+            "skills.install": "res-skills-install",
+            "skills.status": "res-skills-status",
+        ]))
+        let progress = await events(repo.install(slug: "@steipete/weather", version: "1.0.0"))
+        #expect(progress.first == .connecting(target: "@steipete/weather"))
         #expect(progress.contains(.applying(step: "skills.install")))
         guard case .succeeded(let installed)? = progress.last else {
             Issue.record("expected succeeded, got \(progress)")
             return
         }
-        #expect(installed.slug == "browser-automation")
+        #expect(installed.slug == "weather")
+        #expect(installed.installedVersion == "1.0.0")
+        #expect(installed.source == .clawHub)
         let params = try await sentParams(socket, "skills.install")
         #expect(params["source"] as? String == "clawhub")
-        #expect(params["slug"] as? String == "someone/browser-automation")
-        #expect(params["version"] as? String == "1.2.0")
+        #expect(params["slug"] as? String == "@steipete/weather")
+        #expect(params["version"] as? String == "1.0.0")
         #expect(params["force"] as? Bool == false)
         #expect(params["timeoutMs"] as? Int == 120_000)
     }
@@ -3267,11 +3338,16 @@ struct InstalledSkillRepositoryImplTests {
         #expect(await socket.sentMethods().isEmpty)
     }
 
-    @Test func disableSendsSkillsUpdateWithTheBareKeyAndRefreshes() async throws {
-        let (repo, socket) = try await makeRepo([
-            "skills.update": [okReply],
-            "skills.status": [try GatewayFixtures.text("res-skills-status")],
-        ])
+    @Test(.timeLimit(.minutes(1)))
+    func disableWaitsForConfigChangedThenReReadsTheList() async throws {
+        let socket = try ScriptedGatewayWebSocket(
+            challenge: false,
+            replies: try .fixtures(["skills.update": "res-skills-update", "skills.status": "res-skills-status"]),
+            // Like the real gateway: config.changed can arrive before the skills.update response.
+            eventsBeforeReply: ["skills.update": [try GatewayFixtures.text("evt-config-changed")]]
+        )
+        let rpc = await startedRPC(socket)
+        let repo = InstalledSkillRepositoryImpl(session: { rpc })
         guard case .success = await repo.setSkillEnabled(skillKey: "someone/browser-automation", enabled: false) else {
             Issue.record("expected success")
             return
@@ -3279,18 +3355,26 @@ struct InstalledSkillRepositoryImplTests {
         let params = try await sentParams(socket, "skills.update")
         #expect(params["skillKey"] as? String == "browser-automation")
         #expect(params["enabled"] as? Bool == false)
-        #expect(await socket.sentMethods() == ["skills.update", "skills.status"])
+        #expect(await socket.sentMethods() == ["skills.status", "skills.update", "skills.status"])
     }
 
-    @Test(arguments: [
-        ("openclaw-managed", false, SkillSource.clawHub),
-        ("clawhub", false, SkillSource.clawHub),
-        ("openclaw-bundled", true, SkillSource.local),
-        ("openclaw-extra", false, SkillSource.local),
-        ("workspace", false, SkillSource.unknown),
-    ])
-    func statusSourcesMapToSkillSource(source: String, bundled: Bool, expected: SkillSource) {
-        #expect(SkillSource.from(statusSource: source, bundled: bundled) == expected)
+    @Test func aKeySkillsStatusDoesNotListIsRefusedWithoutAWrite() async throws {
+        let (repo, socket) = try await makeRepo(try .fixtures(["skills.status": "res-skills-status"]))
+        guard case .failure(let error) = await repo.setSkillEnabled(skillKey: "qa-does-not-exist", enabled: false),
+              case .api(_, 404, _)? = error as? GatewayError else {
+            Issue.record("expected api 404")
+            return
+        }
+        #expect(await socket.sentMethods() == ["skills.status"])
+    }
+
+    @Test func statusEntriesMapToSkillSource() {
+        #expect(SkillSource.from(statusSource: "openclaw-workspace", bundled: false, clawhub: true) == .clawHub)
+        #expect(SkillSource.from(statusSource: "openclaw-workspace", bundled: false, clawhub: false) == .local)
+        #expect(SkillSource.from(statusSource: "openclaw-bundled", bundled: true, clawhub: false) == .local)
+        #expect(SkillSource.from(statusSource: "openclaw-extra", bundled: false, clawhub: false) == .local)
+        #expect(SkillSource.from(statusSource: "workspace", bundled: false, clawhub: false) == .unknown)
+        #expect(SkillSource.from(statusSource: nil, bundled: false, clawhub: false) == .unknown)
     }
 }
 ```
@@ -3304,6 +3388,7 @@ Expected: FAIL to compile (`extra argument 'session' in call`, `value of type 'I
 In `InstalledSkill.swift`, add after `public let installedAt: Date`:
 ```swift
     /// `true` when the gateway reports the skill disabled (`skills.status` `disabled`). Additive (v1.1).
+    /// (`installedAt` comes from `clawhub.installedAt` for ClawHub installs; the epoch otherwise.)
     public let disabled: Bool
 ```
 and replace the initializer with:
@@ -3334,7 +3419,8 @@ In `InstalledSkillRepository.swift`, add before the closing brace:
     /// - Parameters:
     ///   - skillKey: The skill's key; an `owner/slug` is reduced to `slug`.
     ///   - enabled: The new state.
-    /// - Returns: Success after the list was re-read, or the error (`GatewayError.missingScope` without `operator.admin`).
+    /// - Returns: Success after the list was re-read, or the error (`GatewayError.api` 404 for a key `skills.status`
+    ///   does not list, `GatewayError.missingScope` without `operator.admin`).
     func setSkillEnabled(skillKey: String, enabled: Bool) async -> Result<Void, any Error>
 ```
 
@@ -3353,6 +3439,8 @@ public final class InstalledSkillRepositoryImpl: InstalledSkillRepository, @unch
     /// Sent as `skills.install.timeoutMs`: the gateway downloads and verifies before it answers.
     static let installTimeoutMs = 120_000
     private static let installMargin: Duration = .seconds(10)
+    /// `config.changed` follows a write within ~80 ms; without it the list is re-read anyway after this long.
+    static let configChangedWait: Duration = .seconds(2)
 
     private let session: @Sendable () async throws -> GatewayRPCClient
     private let stateBox = InstalledSkillStateBox()
@@ -3393,12 +3481,13 @@ public final class InstalledSkillRepositoryImpl: InstalledSkillRepository, @unch
                 do {
                     let rpc = try await self.session()
                     continuation.yield(.applying(step: "skills.install"))
-                    _ = try await rpc.request(
+                    let result = try await rpc.request(
                         "skills.install",
                         params: SkillsInstallParams(slug: slug, version: version, timeoutMs: Self.installTimeoutMs),
                         timeout: .milliseconds(Self.installTimeoutMs) + Self.installMargin
                     )
-                    continuation.yield(.succeeded(installed: try await self.installedSkill(after: rpc, slug: slug, version: version)))
+                    let installed = await self.installedSkill(after: rpc, requested: slug, result: result?.objectValue)
+                    continuation.yield(.succeeded(installed: installed))
                 } catch let error as GatewayError {
                     continuation.yield(.failed(error: error.toSkillInstallError(slug: slug)))
                 } catch is CancellationError {
@@ -3422,14 +3511,39 @@ public final class InstalledSkillRepositoryImpl: InstalledSkillRepository, @unch
         }
     }
 
+    /// `skills.update {skillKey, enabled}`, then a `skills.status` re-read once the gateway emits `config.changed`
+    /// (the list is stale until then, and the event can precede the response). The gateway answers `ok:true` even
+    /// for unknown keys, so the key must be listed by `skills.status` first.
     public func setSkillEnabled(skillKey: String, enabled: Bool) async -> Result<Void, any Error> {
         do {
             let rpc = try await session()
-            _ = try await rpc.request("skills.update", params: SkillsUpdateParams(skillKey: Self.bareKey(skillKey), enabled: enabled))
+            let key = Self.bareKey(skillKey)
+            var listed = stateBox.current()
+            if !listed.contains(where: { $0.slug == key }) {
+                listed = try await fetchStatus(rpc)
+            }
+            guard listed.contains(where: { $0.slug == key }) else {
+                return .failure(GatewayError.api(url: rpc.endpoint, statusCode: 404, body: "skill \(key) is not listed by skills.status"))
+            }
+            let changes = await rpc.events() // subscribed before the write, so an early config.changed is kept
+            _ = try await rpc.request("skills.update", params: SkillsUpdateParams(skillKey: key, enabled: enabled))
+            await Self.awaitConfigChanged(changes, timeout: Self.configChangedWait)
             _ = try await fetchStatus(rpc)
             return .success(())
         } catch {
             return .failure(error)
+        }
+    }
+
+    /// Returns at the first `config.changed` in `events`, or after `timeout`.
+    static func awaitConfigChanged(_ events: AsyncStream<GatewayEventFrame>, timeout: Duration) async {
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask {
+                for await event in events where event.event == "config.changed" { return }
+            }
+            group.addTask { _ = try? await Task.sleep(for: timeout) }
+            await group.next()
+            group.cancelAll()
         }
     }
 
@@ -3443,19 +3557,38 @@ public final class InstalledSkillRepositoryImpl: InstalledSkillRepository, @unch
         return list
     }
 
-    /// `owner/slug` installs appear in `skills.status` under their bare key.
-    private func installedSkill(after rpc: GatewayRPCClient, slug: String, version: String?) async throws -> InstalledSkill {
-        let refreshed = try await fetchStatus(rpc)
-        let key = Self.bareKey(slug)
-        return refreshed.first { $0.slug == slug || $0.slug == key }
-            ?? InstalledSkill(slug: slug, installedVersion: version ?? "", source: .clawHub, installedAt: Date(timeIntervalSince1970: 0))
+    /// The install already succeeded; this only finds its entry. `skills.install` answers with the bare key and the
+    /// installed version (`{ok, message, slug, version, targetDir, …}`). A failed refresh falls back to a synthetic
+    /// entry rather than reporting a successful install as failed.
+    private func installedSkill(after rpc: GatewayRPCClient, requested: String, result: [String: AnyCodable]?) async -> InstalledSkill {
+        let key = result?["slug"]?.value as? String ?? Self.bareKey(requested)
+        let refreshed = (try? await fetchStatus(rpc)) ?? []
+        return refreshed.first { $0.slug == key }
+            ?? InstalledSkill(
+                slug: key,
+                installedVersion: result?["version"]?.value as? String ?? "",
+                source: .clawHub,
+                installedAt: Date(timeIntervalSince1970: 0)
+            )
     }
 
+    /// `@owner/key` and `owner/key` installs are listed under their bare key.
     private static func bareKey(_ slug: String) -> String {
         slug.split(separator: "/").last.map(String.init) ?? slug
     }
 }
 
+```
+
+In the existing `InstalledSkillStateBox` (below `// ── State box`), add after `private let lock = NSLock()`:
+```swift
+
+    /// The latest list, without subscribing.
+    func current() -> [InstalledSkill] {
+        lock.lock()
+        defer { lock.unlock() }
+        return stored
+    }
 ```
 
 In the same file, replace the whole `// ── Mapping` section (the `private extension InstalledSkillDTO { … }` block, up to but not including `extension GatewayError {`) with:
@@ -3486,15 +3619,24 @@ struct SkillsStatusWire: Decodable {
         let bundled: Bool?
         let disabled: Bool?
         let version: String?
+        /// Present for ClawHub installs (verified against 2026.10.3).
+        let clawhub: ClawHub?
 
-        /// `skillKey` (falls back to `name`); no install time is reported, so the epoch stands in.
+        struct ClawHub: Decodable {
+            let slug: String?
+            let installedVersion: String?
+            /// Epoch milliseconds.
+            let installedAt: Double?
+        }
+
+        /// `skillKey` (falls back to `name`); version and install time from `clawhub` when present.
         var installedSkill: InstalledSkill? {
             guard let key = skillKey ?? name else { return nil }
             return InstalledSkill(
                 slug: key,
-                installedVersion: version ?? "",
-                source: SkillSource.from(statusSource: source, bundled: bundled ?? false),
-                installedAt: Date(timeIntervalSince1970: 0),
+                installedVersion: clawhub?.installedVersion ?? version ?? "",
+                source: SkillSource.from(statusSource: source, bundled: bundled ?? false, clawhub: clawhub != nil),
+                installedAt: Date(timeIntervalSince1970: (clawhub?.installedAt ?? 0) / 1000),
                 disabled: disabled ?? false
             )
         }
@@ -3504,12 +3646,12 @@ struct SkillsStatusWire: Decodable {
 }
 
 extension SkillSource {
-    /// `skills.status` `source` → ``SkillSource``. Bundled and plugin skills (`openclaw-bundled`, `openclaw-extra`)
-    /// are local. ⚠ The `source` of a ClawHub-installed skill was not captured in M5; `openclaw-managed` (the
-    /// managed skills dir) and anything containing `clawhub` are assumed to be ClawHub. Task 21 pins it.
-    static func from(statusSource source: String?, bundled: Bool) -> SkillSource {
+    /// `skills.status` entry → ``SkillSource``. Verified against 2026.10.3: a ClawHub install reports
+    /// `source: "openclaw-workspace"` plus a `clawhub {…}` object; bundled and plugin skills (`openclaw-bundled`,
+    /// `openclaw-extra`) and hand-made workspace skills have no `clawhub` object and are local.
+    static func from(statusSource source: String?, bundled: Bool, clawhub: Bool) -> SkillSource {
+        if clawhub { return .clawHub }
         guard let source else { return .unknown }
-        if source.contains("clawhub") || source == "openclaw-managed" { return .clawHub }
         if bundled || source.hasPrefix("openclaw-") { return .local }
         return .unknown
     }
@@ -3611,14 +3753,14 @@ In `Fakes.swift`, in `FakeInstalledSkillRepository`, add `private var enabledLog
 
 - [ ] **Step 7: Run the tests** ⚠ must run on the Mac Mini (steve-mac-mini, Xcode)
 
-Run the test command with `-only-testing:GhostCrabTests`. Expected: PASS, including 11 new repository cases.
+Run the test command with `-only-testing:GhostCrabTests`. Expected: PASS, including 8 new repository tests.
 
 - [ ] **Step 8: Commit**
 
 ```bash
 git checkout -- ios/GhostCrab/App/BuildInfo.swift
 git add ios/GhostCrab/Domain/Model/InstalledSkill.swift ios/GhostCrab/Domain/Repository/InstalledSkillRepository.swift ios/GhostCrab/Data/Impl/InstalledSkillRepositoryImpl.swift ios/GhostCrab/UI/InstalledSkills ios/GhostCrabTests/Support/Fakes.swift ios/GhostCrabTests/Gateway/InstalledSkillRepositoryImplTests.swift
-git commit -m "feat(ios): skills over skills.status/install, disable via skills.update" -m "No progress events and no uninstall upstream; additive InstalledSkillRepository.setSkillEnabled (ADR-0005), the screen offers Disable and marks disabled skills (ADR-0007)."
+git commit -m "feat(ios): skills over skills.status/install, disable via skills.update" -m "No progress events and no uninstall upstream; ClawHub entries (openclaw-workspace + clawhub) and the install answer's bare key; additive InstalledSkillRepository.setSkillEnabled (ADR-0005) writes only listed keys and re-reads after config.changed; the screen offers Disable and marks disabled skills (ADR-0007)."
 ```
 
 ---
@@ -3630,7 +3772,7 @@ git commit -m "feat(ios): skills over skills.status/install, disable via skills.
 - Rewrite: `ios/GhostCrab/Data/Impl/ConfigRepositoryImpl.swift`
 - Test: `ios/GhostCrabTests/Gateway/ConfigRepositoryImplTests.swift`
 
-`config.get` returns the authored config as `parsed` (secrets redacted as `__OPENCLAW_REDACTED__`) and an opaque `hash`; `config.patch {raw, baseHash}` merges a JSON merge patch (`raw` is JSON5 text, and JSON is valid JSON5) and is admin-only, 30 writes/min (`/app/docs/gateway/configuration/config-rpc.md`). The frozen `ConfigRepository` keeps its 412 semantics, so `ConfigEditorViewModel` reloads on a concurrent edit unchanged. A rejected value becomes `GatewayError.api(statusCode: 422, body: <server text>)`, not `.configValidation`: `ConfigEditorScreen` never renders `fieldErrors`, so a `.configValidation` would vanish silently, while a 422 lands in the visible "Save failed" error (same mapping as Android).
+`config.get` returns the authored config as `parsed` (secrets redacted as `__OPENCLAW_REDACTED__`) and an opaque `hash`; `config.patch {raw, baseHash}` merges a JSON merge patch (`raw` is JSON5 text, and JSON is valid JSON5) and is admin-only, 30 writes/min (`/app/docs/gateway/configuration/config-rpc.md`). Verified 2026-10-15: a stale or unknown `baseHash` fails `INVALID_REQUEST "config changed since last load; re-run config.get and retry"`, a missing one `"config base hash required for <path>; …"` (neither has `details`), schema errors `"invalid config: <path>: …"` with `details.issues[{path, message, allowedValues?}]`; success answers `{ok, path, hash, config, changedPaths, sentinel}`, and that `hash` is the next `baseHash`. The frozen `ConfigRepository` keeps its 412 semantics, so `ConfigEditorViewModel` reloads on a concurrent edit unchanged. A rejected value becomes `GatewayError.api(statusCode: 422, body: <server text>)`, not `.configValidation`: `ConfigEditorScreen` never renders `fieldErrors`, so a `.configValidation` would vanish silently, while a 422 lands in the visible "Save failed" error (same mapping as Android).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -3645,9 +3787,9 @@ struct ConfigRepositoryImplTests {
 
     private let fixtureHash = "hmac-sha256:v1:u_qU7JLKF7G9u0jc_GfUp-dKovJYwiLpy0gNxuKjka0"
 
-    private func makeRepo(patch: [String] = [okReply]) async throws -> (ConfigRepositoryImpl, ScriptedGatewayWebSocket) {
+    private func makeRepo(patch: [String]? = nil) async throws -> (ConfigRepositoryImpl, ScriptedGatewayWebSocket) {
         var replies = try [String: [String]].fixtures(["config.get": "res-config-get"])
-        replies["config.patch"] = patch
+        replies["config.patch"] = try patch ?? [GatewayFixtures.text("res-config-patch")]
         let socket = try ScriptedGatewayWebSocket(challenge: false, replies: replies)
         let rpc = await startedRPC(socket)
         return (ConfigRepositoryImpl(session: { rpc }), socket)
@@ -3683,23 +3825,31 @@ struct ConfigRepositoryImplTests {
         #expect(try await sentParams(socket, "config.patch")["baseHash"] as? String == fixtureHash)
     }
 
-    @Test func aStaleHashIsHTTP412SoTheEditorReloads() async throws {
-        let stale = try rejectionFrame(message: "config changed since last load (baseHash mismatch); re-run config.get")
-        let (repo, _) = try await makeRepo(patch: [stale])
+    @Test func theHashAPatchReturnsIsTheNextBaseHash() async throws {
+        let (repo, socket) = try await makeRepo()
+        try await repo.updateConfig(section: "gateway", value: port(18790))
+        try await repo.updateConfig(section: "gateway", value: port(18791))
+        #expect(await socket.sentMethods() == ["config.get", "config.patch", "config.patch"])
+        let second = try jsonObject(try #require(await socket.sentRequests("config.patch").last))
+        #expect((second["params"] as? [String: Any])?["baseHash"] as? String == "hmac-sha256:v1:9zRz_TNpxroYBBCZhMFq3HGpv1dFAcFxPnmwn7VTXYE")
+    }
+
+    @Test(arguments: ["err-config-stale-hash", "err-config-base-hash-required"])
+    func aStaleOrMissingHashIsHTTP412SoTheEditorReloads(fixture: String) async throws {
+        let (repo, _) = try await makeRepo(patch: [try GatewayFixtures.text(fixture)])
         guard case .api(_, 412, _)? = await gatewayError({ try await repo.updateConfig(section: "gateway", value: port(1)) }) else {
-            Issue.record("expected api 412")
+            Issue.record("expected api 412 for \(fixture)")
             return
         }
     }
 
     @Test func aRejectedValueIsHTTP422WithTheServerText() async throws {
-        let invalid = try rejectionFrame(message: "invalid config: gateway.port must be <= 65535")
-        let (repo, _) = try await makeRepo(patch: [invalid])
+        let (repo, _) = try await makeRepo(patch: [try GatewayFixtures.text("err-config-invalid")])
         guard case .api(_, 422, let body)? = await gatewayError({ try await repo.updateConfig(section: "gateway", value: port(99_999)) }) else {
             Issue.record("expected api 422")
             return
         }
-        #expect(body == "invalid config: gateway.port must be <= 65535")
+        #expect(body == "invalid config: gateway.port: Too big: expected number to be <=65535 (maximum: 65535)")
     }
 
     @Test func aMissingAdminScopePassesThroughTyped() async throws {
@@ -3769,20 +3919,20 @@ enum ConfigWrites {
         return ConfigPatchParams(raw: String(decoding: try encoder.encode(patch), as: UTF8.self), baseHash: baseHash)
     }
 
-    /// Maps a rejected `config.patch` onto the frozen `ConfigRepository` contract: a stale `baseHash` becomes
-    /// `.api(statusCode: 412)` (callers reload), any other `INVALID_REQUEST` (validation, array removal without
-    /// `replacePaths`) `.api(statusCode: 422)` with the server text; anything else passes through.
-    /// ⚠ The stale-hash error was not captured in M5 (QA §8.9): "hash" in the detail code or message is matched;
-    /// Task 21 captures the real frame and pins it.
+    /// Messages of the two `baseHash` rejections (verified against 2026.10.3; neither carries `details`).
+    private static let staleHashPrefixes = ["config changed since last load", "config base hash required"]
+
+    /// Maps a rejected `config.patch` onto the frozen `ConfigRepository` contract: a stale, unknown or missing
+    /// `baseHash` becomes `.api(statusCode: 412)` (callers reload); any other `INVALID_REQUEST` (schema validation
+    /// with `details.issues[{path, message, allowedValues?}]`, a JSON5 syntax error, array removal without
+    /// `replacePaths`) `.api(statusCode: 422)` with the server text, which names the first failing path; anything
+    /// else passes through.
     static func mapRejection(_ error: GatewayError) -> GatewayError {
-        guard case let .rpc(url, _, code, detailCode, message, _) = error else { return error }
-        if detailCode?.localizedCaseInsensitiveContains("hash") == true || message.localizedCaseInsensitiveContains("hash") {
+        guard case let .rpc(url, _, code, _, message, _) = error, code == "INVALID_REQUEST" else { return error }
+        if staleHashPrefixes.contains(where: { message.hasPrefix($0) }) {
             return .api(url: url, statusCode: 412, body: message)
         }
-        if code == "INVALID_REQUEST" {
-            return .api(url: url, statusCode: 422, body: message)
-        }
-        return error
+        return .api(url: url, statusCode: 422, body: message)
     }
 }
 ```
@@ -3836,7 +3986,7 @@ public actor ConfigRepositoryImpl: ConfigRepository {
         } catch let error as GatewayError {
             throw ConfigWrites.mapRejection(error)
         }
-        // Not every gateway echoes the new hash; without one the next write reads a fresh snapshot first.
+        // 2026.10.3 answers {ok, path, hash, config, changedPaths, sentinel}; without a hash the next write re-reads.
         cachedHash = (ObjectIdentifier(rpc), result?.objectValue?["hash"]?.value as? String)
     }
 
@@ -3854,14 +4004,14 @@ public actor ConfigRepositoryImpl: ConfigRepository {
 
 - [ ] **Step 5: Run the tests** ⚠ must run on the Mac Mini (steve-mac-mini, Xcode)
 
-Run with `ConfigRepositoryImplTests` and `ConfigEditorViewModelTests`. Expected: PASS (7 + existing).
+Run with `ConfigRepositoryImplTests` and `ConfigEditorViewModelTests`. Expected: PASS (9 new cases + existing).
 
 - [ ] **Step 6: Commit**
 
 ```bash
 git checkout -- ios/GhostCrab/App/BuildInfo.swift
 git add ios/GhostCrab/Data/Impl/ConfigWrites.swift ios/GhostCrab/Data/Impl/ConfigRepositoryImpl.swift ios/GhostCrabTests/Gateway/ConfigRepositoryImplTests.swift
-git commit -m "feat(ios): config over config.get / config.patch" -m "parsed sections + hash as ETag; section merge patches with baseHash bound to the session socket; stale hash -> 412, rejected value -> 422 (ADR-0007)."
+git commit -m "feat(ios): config over config.get / config.patch" -m "parsed sections + hash as ETag; section merge patches with baseHash bound to the session socket and refreshed from each patch answer; stale or missing hash -> 412, rejected value -> 422 with the server text, matched on the verified 2026.10.3 messages (ADR-0007)."
 ```
 
 ---
@@ -4468,20 +4618,19 @@ git commit -m "feat(ios): approval wait loop for PAIRING_REQUIRED" -m "Re-attemp
 - Modify: `ios/GhostCrabTests/Support/Fakes.swift` (`FakeGatewayConnectionManager`)
 - Test: `ios/GhostCrabTests/UI/ManualEntryViewModelTests.swift`
 
-- [ ] **Step 1: Let the fake fail a few connects first and take bootstrap connects**
+- [ ] **Step 1: Let the fake fail a few connects first**
 
 In `Fakes.swift`, replace the whole `// MARK: - GatewayConnectionManager` class with:
 ```swift
 // MARK: - GatewayConnectionManager
 
-final class FakeGatewayConnectionManager: GatewayConnectionManager, GatewayBootstrapConnector, @unchecked Sendable {
+final class FakeGatewayConnectionManager: GatewayConnectionManager, @unchecked Sendable {
     private let lock = NSLock()
     private let connectError: GatewayError?
     private let probeResult: Result<AuthRequirement, GatewayError>
     private var queuedFailures: [GatewayError]
     private var state: GatewayConnection = .disconnected
     private var connectLog: [(url: String, token: String?)] = []
-    private var bootstrapLog: [String] = []
     private var probeLog: [String] = []
     private var disconnects = 0
 
@@ -4502,7 +4651,6 @@ final class FakeGatewayConnectionManager: GatewayConnectionManager, GatewayBoots
     var probedURLs: [String] { lock.withLock { probeLog } }
     var connectURLs: [String] { lock.withLock { connectLog.map { $0.url } } }
     var connectTokens: [String?] { lock.withLock { connectLog.map { $0.token } } }
-    var bootstrapTokens: [String] { lock.withLock { bootstrapLog } }
     var disconnectCount: Int { lock.withLock { disconnects } }
 
     var currentState: GatewayConnection { lock.withLock { state } }
@@ -4539,10 +4687,6 @@ final class FakeGatewayConnectionManager: GatewayConnectionManager, GatewayBoots
         }
     }
 
-    func connect(url: String, bootstrapToken: String) async throws {
-        lock.withLock { bootstrapLog.append(bootstrapToken) }
-        try await connect(url: url, token: nil)
-    }
 
     func disconnect() async {
         lock.withLock {
@@ -5029,14 +5173,14 @@ git commit -m "feat(ios): approval card on the gateway list" -m "Saved profiles 
 
 ---
 
-### Task 18: `openclaw qr` setup codes and `ws(s)://` URLs
+### Task 18: `openclaw qr` setup codes are explained; `ws(s)://` URLs accepted
 
 **Files:**
-- Modify: `ios/GhostCrab/Domain/Util/PairingLink.swift`, `ios/GhostCrab/UI/Navigation/PairingHandoff.swift`
-- Modify: `ios/GhostCrab/UI/Connection/QrScanViewModel.swift`, `ios/GhostCrab/UI/Connection/ManualEntryViewModel.swift`, `ios/GhostCrab/UI/Connection/ManualEntryScreen.swift`, `ios/GhostCrab/App/AppContainer.swift`
+- Modify: `ios/GhostCrab/Domain/Util/PairingLink.swift`
+- Modify: `ios/GhostCrab/UI/Connection/QrScanViewModel.swift`, `ios/GhostCrab/UI/Connection/ManualEntryViewModel.swift`
 - Test: `ios/GhostCrabTests/Domain/PairingLinkTests.swift`, `ios/GhostCrabTests/UI/QrScanViewModelTests.swift`, `ios/GhostCrabTests/UI/ManualEntryViewModelTests.swift`
 
-The setup code is base64url JSON `{url: "ws(s)://…", bootstrapToken, expiresAtMs, urls?}`, bare or as `oc-pair://<code>` (`/app/docs/cli/qr.md`, `/app/docs/channels/pairing.md`). It reuses `PairingRequest` (new optional `bootstrapToken`) and `PairingHandoff`, so the token stays in memory and never enters a route or the profile store. The code's `url` is what the gateway believes its address is; for a Docker gateway run `openclaw qr --url ws://<LAN IP>:18789/ws`.
+The setup code is base64url JSON `{url: "ws(s)://…", bootstrapToken, expiresAtMs, urls?}`, bare or as `oc-pair://<code>` (`/app/docs/cli/qr.md`). Verified 2026-10-15: its bootstrap token authenticates only `role: "node"` connects; over plain `ws://` it yields a node token with `scopes: []` and no operator handoff, and a node token is refused for operator (`AUTH_DEVICE_TOKEN_MISMATCH`). GhostCrab connects as an operator, so a setup code can never authorize it. GhostCrab therefore recognises setup codes only to say so: the QR scanner and the Pairing link field show what the code is, the gateway URL inside it, and what to do instead (gateway URL + token, then `openclaw devices approve`). The bootstrap token is not even decoded into a property, so it cannot reach a log, the hand-off or a route. The existing error messages stay as they are.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -5045,43 +5189,38 @@ Add to `PairingLinkTests` (inside the suite):
     /// base64url of {"url":"ws://172.17.0.2:18789","bootstrapToken":"bt-test-0001","expiresAtMs":1792028000000}.
     private static let setupCode =
         "eyJ1cmwiOiJ3czovLzE3Mi4xNy4wLjI6MTg3ODkiLCJib290c3RyYXBUb2tlbiI6ImJ0LXRlc3QtMDAwMSIsImV4cGlyZXNBdE1zIjoxNzkyMDI4MDAwMDAwfQ"
-    private static let beforeExpiry = Date(timeIntervalSince1970: 1_792_027_600)
 
     private func encode(_ json: String) -> String {
         Base64URL.encode(Data(json.utf8))
     }
 
-    @Test func aSetupCodeYieldsTheHTTPBaseURLAndTheBootstrapToken() throws {
-        let request = try PairingLink.decodeSetupCode(Self.setupCode, now: Self.beforeExpiry)
-        #expect(request.gatewayURL.absoluteString == "http://172.17.0.2:18789")
-        #expect(request.bootstrapToken == "bt-test-0001")
-        #expect(request.token == nil)
-        #expect(!String(describing: request).contains("bt-test-0001"))
+    @Test func aSetupCodeIsRecognisedWithItsGatewayURLAndNothingElse() throws {
+        let info = try #require(PairingLink.setupCode(Self.setupCode))
+        #expect(info.gatewayURL?.absoluteString == "http://172.17.0.2:18789")
+        #expect(!String(reflecting: info).contains("bt-test-0001"))
     }
 
-    @Test func ocPairLinksCarryTheSameSetupCode() throws {
-        let request = try PairingLink.decodeSetupCode("oc-pair://" + Self.setupCode, now: Self.beforeExpiry)
-        #expect(request.bootstrapToken == "bt-test-0001")
+    @Test func ocPairLinksAreSetupCodesEvenWhenUndecodable() {
+        #expect(PairingLink.setupCode("oc-pair://" + Self.setupCode)?.gatewayURL?.absoluteString == "http://172.17.0.2:18789")
+        #expect(PairingLink.setupCode("oc-pair://not-base64!") == SetupCodeInfo(gatewayURL: nil))
     }
 
-    @Test func aWssSetupCodeMapsToHTTPSOn443() throws {
+    @Test func aWssSetupCodeNamesTheHTTPSGatewayOn443() {
         let code = encode(#"{"url":"wss://gw.example/ws","bootstrapToken":"bt"}"#)
-        #expect(try PairingLink.decodeSetupCode(code).gatewayURL.absoluteString == "https://gw.example:443")
+        #expect(PairingLink.setupCode(code)?.gatewayURL?.absoluteString == "https://gw.example:443")
     }
 
-    @Test func anExpiredSetupCodeIsRejected() {
-        #expect(throws: PairingLinkError.setupCodeExpired) {
-            try PairingLink.decodeSetupCode(Self.setupCode, now: Date(timeIntervalSince1970: 1_792_028_000))
-        }
+    @Test func theExplanationSaysWhyAndWhatToDoInstead() throws {
+        let text = PairingLink.setupCodeExplanation(try #require(PairingLink.setupCode(Self.setupCode)))
+        #expect(text.contains("http://172.17.0.2:18789"))
+        #expect(text.contains("gateway token"))
+        #expect(text.contains("openclaw devices approve"))
     }
 
-    @Test func base64JSONWithoutABootstrapTokenIsNotASetupCode() {
-        #expect(throws: PairingLinkError.notASetupCode) {
-            try PairingLink.decodeSetupCode(self.encode(#"{"url":"ws://h:1"}"#))
-        }
-        #expect(throws: PairingLinkError.notASetupCode) {
-            try PairingLink.decodeSetupCode("http://192.168.1.20:18789")
-        }
+    @Test func otherInputIsNotASetupCode() {
+        #expect(PairingLink.setupCode(encode(#"{"url":"ws://h:1"}"#)) == nil)
+        #expect(PairingLink.setupCode("http://192.168.1.20:18789") == nil)
+        #expect(PairingLink.setupCode("gw.example.com") == nil)
     }
 
     @Test func plainWsURLsMapToHTTPBaseURLs() {
@@ -5093,185 +5232,59 @@ Add to `PairingLinkTests` (inside the suite):
 
 Add to `QrScanViewModelTests`:
 ```swift
-    @Test func aSetupCodeStashesTheBootstrapTokenAndNavigatesWithTheURLOnly() throws {
+    @Test func aSetupCodeIsExplainedAndNothingIsPaired() throws {
         let handoff = PairingHandoff()
-        let vm = QrScanViewModel(pairingHandoff: handoff, now: { Date(timeIntervalSince1970: 1_792_027_600) })
-        let recorder = NavigationRecorder()
-        vm.onNavigate = { recorder.urls.append($0) }
+        let (vm, recorder) = makeVM(handoff: handoff)
 
         vm.onCodeScanned("eyJ1cmwiOiJ3czovLzE3Mi4xNy4wLjI6MTg3ODkiLCJib290c3RyYXBUb2tlbiI6ImJ0LXRlc3QtMDAwMSIsImV4cGlyZXNBdE1zIjoxNzkyMDI4MDAwMDAwfQ")
 
-        let url = try #require(recorder.urls.first)
-        #expect(url.absoluteString == "http://172.17.0.2:18789")
-        #expect(handoff.takePairing(for: url)?.bootstrapToken == "bt-test-0001")
+        #expect(recorder.urls.isEmpty)
+        #expect(vm.error?.contains("http://172.17.0.2:18789") == true)
+        #expect(vm.error?.contains("openclaw devices approve") == true)
+        #expect(handoff.takePairing(for: try #require(URL(string: "http://172.17.0.2:18789"))) == nil)
     }
 
-    @Test func anExpiredSetupCodeSaysSo() {
-        let vm = QrScanViewModel(pairingHandoff: PairingHandoff(), now: { Date(timeIntervalSince1970: 1_792_028_001) })
-        vm.onCodeScanned("eyJ1cmwiOiJ3czovLzE3Mi4xNy4wLjI6MTg3ODkiLCJib290c3RyYXBUb2tlbiI6ImJ0LXRlc3QtMDAwMSIsImV4cGlyZXNBdE1zIjoxNzkyMDI4MDAwMDAwfQ")
-        #expect(vm.error?.contains("openclaw qr") == true)
-    }
-```
-In the same file, replace both
-```swift
-        #expect(vm.error == "QR code doesn't contain a valid gateway URL")
-```
-with
-```swift
-        #expect(vm.error == "QR code doesn't contain a gateway URL, ghostcrab://pair link or OpenClaw setup code")
-```
-
-In `ManualEntryViewModelTests`, replace the `makeVM` helper (as Task 16 left it) with:
-```swift
-    private func makeVM(
-        handoff: PairingHandoff,
-        gateway: FakeGatewayConnectionManager = FakeGatewayConnectionManager(),
-        profiles: FakeConnectionProfileRepository = FakeConnectionProfileRepository(),
-        onboarding: FakeOnboardingRepository = FakeOnboardingRepository(),
-        bootstrapConnector: (any GatewayBootstrapConnector)? = nil,
-        pairingRetryInterval: Duration = PairingApproval.retryInterval,
-        pairingTimeout: Duration = PairingApproval.timeout
-    ) -> ManualEntryViewModel {
-        ManualEntryViewModel(
-            connectionManager: gateway,
-            profileRepository: profiles,
-            onboardingRepository: onboarding,
-            pairingHandoff: handoff,
-            bootstrapConnector: bootstrapConnector,
-            pairingRetryInterval: pairingRetryInterval,
-            pairingTimeout: pairingTimeout,
-            now: { Date(timeIntervalSince1970: 1_792_027_600) } // before the test setup code's expiresAtMs
-        )
+    @Test func aWsURLIsAcceptedAsTheGatewayURL() {
+        let (vm, recorder) = makeVM()
+        vm.onCodeScanned("ws://192.168.1.50:18789")
+        #expect(recorder.urls.map(\.absoluteString) == ["http://192.168.1.50:18789"])
     }
 ```
-then add these tests:
+
+Add to `ManualEntryViewModelTests`:
 ```swift
-    @Test func aSetupCodeConnectsWithItsBootstrapTokenAndSavesNoToken() async throws {
-        let handoff = PairingHandoff()
-        let url = try #require(URL(string: "http://172.17.0.2:18789"))
-        handoff.stash(token: nil, bootstrapToken: "bt-test-0001", for: url)
-        let gateway = FakeGatewayConnectionManager()
-        let profiles = FakeConnectionProfileRepository()
-        let vm = makeVM(handoff: handoff, gateway: gateway, profiles: profiles, bootstrapConnector: gateway)
-
-        vm.setPrefillURL(url)
-        #expect(vm.fromSetupCode)
-        vm.connect()
-        await vm.connectTask?.value
-
-        #expect(gateway.bootstrapTokens == ["bt-test-0001"])
-        #expect(profiles.savedTokens == [nil])
-        #expect(profiles.savedProfiles.first?.hasToken == false)
-        #expect(!vm.fromSetupCode)
-    }
-
-    @Test func editingTheAddressDropsTheSetupCode() async throws {
-        let handoff = PairingHandoff()
-        let url = try #require(URL(string: "http://172.17.0.2:18789"))
-        handoff.stash(token: nil, bootstrapToken: "bt-test-0001", for: url)
-        let gateway = FakeGatewayConnectionManager()
-        let vm = makeVM(handoff: handoff, gateway: gateway, bootstrapConnector: gateway)
-        vm.setPrefillURL(url)
-
-        vm.setHost("192.168.1.30")
-        #expect(!vm.fromSetupCode)
-        vm.connect()
-        await vm.connectTask?.value
-        #expect(gateway.bootstrapTokens.isEmpty)
-    }
-
-    @Test func aPastedSetupCodeFillsTheForm() {
+    @Test func aPastedSetupCodeIsExplainedAndFillsNothing() {
         let vm = makeVM(handoff: PairingHandoff())
         vm.pastedLink = "oc-pair://eyJ1cmwiOiJ3czovLzE3Mi4xNy4wLjI6MTg3ODkiLCJib290c3RyYXBUb2tlbiI6ImJ0LXRlc3QtMDAwMSIsImV4cGlyZXNBdE1zIjoxNzkyMDI4MDAwMDAwfQ"
+
         vm.applyPastedLink()
-        #expect(vm.host == "172.17.0.2")
-        #expect(vm.port == "18789")
-        #expect(!vm.useHttps)
-        #expect(vm.fromSetupCode)
+
+        #expect(vm.pastedLinkError?.contains("openclaw devices approve") == true)
+        #expect(vm.host == "")
         #expect(vm.token == "")
         #expect(vm.pastedLink == "")
     }
 ```
-and replace
-```swift
-        #expect(vm.pastedLinkError == "Not an http(s) gateway URL or a ghostcrab://pair link")
-```
-with
-```swift
-        #expect(vm.pastedLinkError == "Not an http(s) gateway URL, a ghostcrab://pair link or an OpenClaw setup code")
-```
 
 - [ ] **Step 2: Run them to make sure they fail** ⚠ must run on the Mac Mini (steve-mac-mini, Xcode)
 
-Run with `PairingLinkTests`, `QrScanViewModelTests`, `ManualEntryViewModelTests`. Expected: FAIL to compile (`decodeSetupCode`, `bootstrapToken`, `now:`, `fromSetupCode` unresolved).
+Run with `PairingLinkTests`, `QrScanViewModelTests`, `ManualEntryViewModelTests`. Expected: FAIL to compile (`type 'PairingLink' has no member 'setupCode'`, `cannot find 'SetupCodeInfo' in scope`).
 
-- [ ] **Step 3: Decode setup codes**
+- [ ] **Step 3: Recognise setup codes**
 
-In `PairingLink.swift`:
-
-In `PairingRequest`, add after `public let displayName: String?`:
+In `PairingLink.swift`, add after the `PairingLinkError` `LocalizedError` extension:
 ```swift
-    /// Single-use bootstrap token from an `openclaw qr` setup code, or `nil`. Sensitive: never log or persist it.
-    public let bootstrapToken: String?
-```
-replace its initializer with:
-```swift
-    /// - Parameters:
-    ///   - gatewayURL: Validated gateway base URL.
-    ///   - token: Bearer token, or `nil`.
-    ///   - displayName: Optional label.
-    ///   - bootstrapToken: Setup-code bootstrap token, or `nil`.
-    public init(gatewayURL: URL, token: String?, displayName: String?, bootstrapToken: String? = nil) {
+/// What an `openclaw qr` setup code names (ADR-0007). Setup codes pair OpenClaw node apps; their bootstrap token
+/// cannot authorize an operator client such as GhostCrab, so only the gateway URL is kept, to explain the code.
+public struct SetupCodeInfo: Sendable, Equatable {
+    /// The code's gateway URL as an `http(s)` base URL, or `nil` when it has none usable.
+    public let gatewayURL: URL?
+
+    public init(gatewayURL: URL?) {
         self.gatewayURL = gatewayURL
-        self.token = token
-        self.displayName = displayName
-        self.bootstrapToken = bootstrapToken
     }
+}
 ```
-and replace its `description` and `customMirror` with:
-```swift
-    /// Redacted form: the token and the bootstrap token are replaced by a placeholder.
-    public var description: String {
-        let tokenText = token == nil ? "nil" : "<redacted>"
-        let bootstrapText = bootstrapToken == nil ? "nil" : "<redacted>"
-        return "PairingRequest(gatewayURL: \(gatewayURL.absoluteString), token: \(tokenText), "
-            + "displayName: \(displayName ?? "nil"), bootstrapToken: \(bootstrapText))"
-    }
-
-    /// Same as ``description``.
-    public var debugDescription: String { description }
-
-    /// Mirror without the secrets, so `dump` stays redacted.
-    public var customMirror: Mirror {
-        Mirror(
-            self,
-            children: [
-                "gatewayURL": gatewayURL.absoluteString,
-                "token": token == nil ? "nil" : "<redacted>",
-                "displayName": displayName ?? "nil",
-                "bootstrapToken": bootstrapToken == nil ? "nil" : "<redacted>",
-            ],
-            displayStyle: .struct
-        )
-    }
-```
-(The extension's existing `debugDescription` line is replaced by the one above; keep exactly one.)
-
-In `PairingLinkError`, add after `case invalidGatewayURL`:
-```swift
-    /// An `openclaw qr` setup code whose `expiresAtMs` has passed.
-    case setupCodeExpired
-    /// The input is not an `openclaw qr` setup code (callers then try other formats).
-    case notASetupCode
-```
-and in its `errorDescription` switch, after the `.invalidGatewayURL` case:
-```swift
-        case .setupCodeExpired:
-            return "setup code expired; run `openclaw qr` on the gateway host again"
-        case .notASetupCode:
-            return "not an OpenClaw setup code"
-```
-
 In `enum PairingLink`, add after `defaultHTTPSPort`:
 ```swift
 
@@ -5280,41 +5293,41 @@ In `enum PairingLink`, add after `defaultHTTPSPort`:
 ```
 and before `// MARK: - Internals`:
 ```swift
-    /// Decodes an `openclaw qr` setup code: base64url JSON `{url, bootstrapToken, expiresAtMs?, urls?}`, bare or as
-    /// `oc-pair://<code>`. `urls` (fallback routes) is ignored: GhostCrab uses `url`.
+    /// Recognises an `openclaw qr` setup code: base64url JSON with a `bootstrapToken`, bare or as `oc-pair://<code>`.
+    /// The token is never returned or stored (ADR-0007).
     ///
-    /// - Parameters:
-    ///   - raw: Untrusted text (QR payload or paste).
-    ///   - now: Wall clock for `expiresAtMs`.
-    /// - Returns: The `http(s)` base URL and the bootstrap token (`token` is `nil`).
-    /// - Throws: ``PairingLinkError/notASetupCode`` when `raw` is not one (bare input only; an `oc-pair://` link that
-    ///   does not decode is ``PairingLinkError/invalidJSON``), ``PairingLinkError/payloadTooLarge``,
-    ///   ``PairingLinkError/invalidGatewayURL``, ``PairingLinkError/setupCodeExpired``.
-    public static func decodeSetupCode(_ raw: String, now: Date = Date()) throws -> PairingRequest {
-        guard raw.utf8.count <= maxLength else { throw PairingLinkError.payloadTooLarge }
+    /// - Parameter raw: Untrusted text (QR payload or paste).
+    /// - Returns: The code's gateway URL; `SetupCodeInfo(gatewayURL: nil)` for an `oc-pair://` link that does not
+    ///   decode; `nil` when `raw` is not a setup code (callers then try other formats).
+    public static func setupCode(_ raw: String) -> SetupCodeInfo? {
+        guard raw.utf8.count <= maxLength else { return nil }
         var code = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         let explicit = code.lowercased().hasPrefix(setupCodeScheme)
         if explicit { code = String(code.dropFirst(setupCodeScheme.count)) }
-        guard !code.isEmpty,
-              code.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || "-_=".contains($0)) }),
+        guard code.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || "-_=".contains($0)) }),
               let json = base64URLDecode(code),
               let wire = try? JSONDecoder().decode(SetupCodeWire.self, from: json),
-              let bootstrap = wire.bootstrapToken?.trimmingCharacters(in: .whitespacesAndNewlines), !bootstrap.isEmpty
+              wire.hasBootstrapToken
         else {
-            throw explicit ? PairingLinkError.invalidJSON : PairingLinkError.notASetupCode
+            return explicit ? SetupCodeInfo(gatewayURL: nil) : nil
         }
-        guard let urlText = wire.url,
-              let gatewayURL = webSocketGatewayURL(from: urlText) ?? Self.gatewayURL(from: urlText)
-        else {
-            throw PairingLinkError.invalidGatewayURL
-        }
-        if let expires = wire.expiresAtMs, Double(expires) <= now.timeIntervalSince1970 * 1000 {
-            throw PairingLinkError.setupCodeExpired
-        }
-        return PairingRequest(gatewayURL: gatewayURL, token: nil, displayName: nil, bootstrapToken: bootstrap)
+        return SetupCodeInfo(gatewayURL: wire.url.flatMap { webSocketGatewayURL(from: $0) ?? gatewayURL(from: $0) })
     }
 
-    /// Maps a gateway WebSocket URL (`ws://` / `wss://`, as in setup codes) to the matching `http(s)` base URL.
+    /// User-facing explanation for a scanned or pasted setup code: what it is, why GhostCrab cannot use it, and what
+    /// to do instead.
+    ///
+    /// - Parameter info: The recognised code.
+    /// - Returns: One paragraph naming the gateway URL (when known), the gateway token and the approval command.
+    public static func setupCodeExplanation(_ info: SetupCodeInfo) -> String {
+        "This is an OpenClaw setup code (`openclaw qr`). Setup codes pair OpenClaw node apps; they cannot give "
+            + "GhostCrab operator access (over plain ws:// they grant no access at all). Enter "
+            + (info.gatewayURL?.absoluteString ?? "the gateway URL")
+            + " and the gateway token in Manual Entry, then approve this device on the gateway host with "
+            + "`openclaw devices approve <requestId>`."
+    }
+
+    /// Maps a gateway WebSocket URL (`ws://` / `wss://`) to the matching `http(s)` base URL.
     ///
     /// - Parameter raw: Untrusted URL text.
     /// - Returns: ``gatewayURL(from:)`` of the `http(s)` form, or `nil` when `raw` is not a `ws(s)` URL it accepts.
@@ -5329,113 +5342,25 @@ and before `// MARK: - Internals`:
 ```
 and next to `WireV1`:
 ```swift
-    /// `openclaw qr` setup-code payload.
-    private struct SetupCodeWire: Decodable, CustomStringConvertible {
+    /// The two setup-code fields GhostCrab reads. The token only proves the input is a setup code; it is not kept.
+    private struct SetupCodeWire: Decodable {
         let url: String?
-        let bootstrapToken: String?
-        let expiresAtMs: Int64?
+        let hasBootstrapToken: Bool
 
-        /// Redacts the bootstrap token.
-        var description: String {
-            "SetupCodeWire(url: \(url ?? "nil"), bootstrapToken: \(bootstrapToken == nil ? "nil" : "<redacted>"), "
-                + "expiresAtMs: \(expiresAtMs.map(String.init) ?? "nil"))"
+        private enum CodingKeys: String, CodingKey { case url, bootstrapToken }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            url = try container.decodeIfPresent(String.self, forKey: .url)
+            let token = try container.decodeIfPresent(String.self, forKey: .bootstrapToken)
+            hasBootstrapToken = !(token?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
         }
     }
 ```
 
-- [ ] **Step 4: Carry the bootstrap token through the hand-off**
+- [ ] **Step 4: Explain instead of pairing**
 
-In `PairingHandoff.swift`:
-
-In `PairedGateway`, add after `public let displayName: String?`:
-```swift
-    /// Setup-code bootstrap token, or `nil`. Sensitive: never log or persist it.
-    public let bootstrapToken: String?
-```
-replace its initializer with:
-```swift
-    /// - Parameters:
-    ///   - token: Bearer token, or `nil`.
-    ///   - displayName: Suggested profile name, or `nil`.
-    ///   - bootstrapToken: Setup-code bootstrap token, or `nil`.
-    public init(token: String?, displayName: String?, bootstrapToken: String? = nil) {
-        self.token = token
-        self.displayName = displayName
-        self.bootstrapToken = bootstrapToken
-    }
-```
-and its `description` / `customMirror` with:
-```swift
-    /// Redacted form: the tokens are replaced by a placeholder.
-    public var description: String {
-        "PairedGateway(token: \(token == nil ? "nil" : "<redacted>"), displayName: \(displayName ?? "nil"), "
-            + "bootstrapToken: \(bootstrapToken == nil ? "nil" : "<redacted>"))"
-    }
-
-    /// Same as ``description``.
-    public var debugDescription: String { description }
-
-    /// Mirror without the tokens, so `dump` stays redacted.
-    public var customMirror: Mirror {
-        Mirror(
-            self,
-            children: [
-                "token": token == nil ? "nil" : "<redacted>",
-                "displayName": displayName ?? "nil",
-                "bootstrapToken": bootstrapToken == nil ? "nil" : "<redacted>",
-            ],
-            displayStyle: .struct
-        )
-    }
-```
-In `PairingHandoff`, replace the two `stash` methods with:
-```swift
-    /// Stores what a decoded pairing link or setup code carries for its gateway URL.
-    /// Same rules as ``stash(token:displayName:bootstrapToken:for:)``.
-    ///
-    /// - Parameter request: The decoded pairing link or setup code.
-    public func stash(_ request: PairingRequest) {
-        stash(token: request.token, displayName: request.displayName, bootstrapToken: request.bootstrapToken, for: request.gatewayURL)
-    }
-
-    /// Stores `token`, `displayName` and `bootstrapToken` for the gateway at `url`, replacing any earlier stash.
-    /// With none of them there is nothing to hand over, so the earlier stash is cleared instead.
-    ///
-    /// - Parameters:
-    ///   - token: Bearer token decoded from the pairing payload. Sensitive: never log it.
-    ///   - displayName: Profile name suggested by the link, as decoded.
-    ///   - bootstrapToken: Setup-code bootstrap token. Sensitive: never log it.
-    ///   - url: Gateway base URL the pairing belongs to.
-    public func stash(token: String?, displayName: String? = nil, bootstrapToken: String? = nil, for url: URL) {
-        guard token != nil || displayName != nil || bootstrapToken != nil else {
-            pending = nil
-            return
-        }
-        pending = Pending(
-            url: url,
-            paired: PairedGateway(token: token, displayName: displayName, bootstrapToken: bootstrapToken),
-            stashedAt: now()
-        )
-    }
-```
-
-- [ ] **Step 5: QR scanner**
-
-In `QrScanViewModel.swift`, add after `private let pairingHandoff: PairingHandoff`:
-```swift
-    private let now: @MainActor () -> Date
-```
-replace the initializer with:
-```swift
-    /// - Parameters:
-    ///   - pairingHandoff: One-shot token hand-off shared with ``ManualEntryViewModel``.
-    ///   - now: Wall clock for setup-code expiry; injectable for tests.
-    public init(pairingHandoff: PairingHandoff, now: @escaping @MainActor () -> Date = { Date() }) {
-        self.pairingHandoff = pairingHandoff
-        self.now = now
-    }
-```
-and in `onCodeScanned(_:)` replace
+In `QrScanViewModel.swift`, in `onCodeScanned(_:)`, replace
 ```swift
         guard let url = PairingLink.gatewayURL(from: trimmed) else {
             error = "QR code doesn't contain a valid gateway URL"
@@ -5445,96 +5370,20 @@ and in `onCodeScanned(_:)` replace
 ```
 with
 ```swift
-        do {
-            let request = try PairingLink.decodeSetupCode(trimmed, now: now())
-            pairingHandoff.stash(request)
-            accept(request.gatewayURL)
-            return
-        } catch PairingLinkError.notASetupCode {
-            // Not a setup code: try a plain gateway URL below.
-        } catch {
-            self.error = "OpenClaw setup code rejected: \(error.localizedDescription)"
+        if let setupCode = PairingLink.setupCode(trimmed) {
+            // Its bootstrap token serves node clients only (ADR-0007): explain, never pair with it.
+            error = PairingLink.setupCodeExplanation(setupCode)
             return
         }
 
         guard let url = PairingLink.gatewayURL(from: trimmed) ?? PairingLink.webSocketGatewayURL(from: trimmed) else {
-            error = "QR code doesn't contain a gateway URL, ghostcrab://pair link or OpenClaw setup code"
+            error = "QR code doesn't contain a valid gateway URL"
             return
         }
         accept(url)
 ```
 
-- [ ] **Step 6: Manual Entry connects with the bootstrap token**
-
-In `ManualEntryViewModel.swift`:
-
-After `private let pairingHandoff: PairingHandoff` add:
-```swift
-    private let bootstrapConnector: (any GatewayBootstrapConnector)?
-    private let now: @MainActor () -> Date
-```
-After the `pairedName` property add:
-```swift
-
-    /// `true` while the form came from an `openclaw qr` setup code: Connect then uses its single-use bootstrap
-    /// token (``bootstrapToken``) and saves no gateway token. A hand edit of the address drops it.
-    public private(set) var fromSetupCode = false
-
-    /// The setup code's bootstrap token. In memory only; cleared after one connect.
-    @ObservationIgnored private var bootstrapToken: String?
-```
-Replace the initializer (as Task 16 left it) with:
-```swift
-    /// - Parameters:
-    ///   - connectionManager: Drives the connect flow.
-    ///   - profileRepository: Persists the profile + token after a successful connect.
-    ///   - onboardingRepository: Marked completed after a successful connect.
-    ///   - pairingHandoff: One-shot source of a token from QR / deep-link pairing.
-    ///   - bootstrapConnector: Connects with a setup code's bootstrap token; `nil` disables setup codes.
-    ///   - pairingRetryInterval: Delay between connects while awaiting device approval.
-    ///   - pairingTimeout: How long to wait for approval (upstream expires the request after 5 minutes).
-    ///   - now: Wall clock for setup-code expiry; injectable for tests.
-    public init(
-        connectionManager: any GatewayConnectionManager,
-        profileRepository: any ConnectionProfileRepository,
-        onboardingRepository: any OnboardingRepository,
-        pairingHandoff: PairingHandoff,
-        bootstrapConnector: (any GatewayBootstrapConnector)? = nil,
-        pairingRetryInterval: Duration = PairingApproval.retryInterval,
-        pairingTimeout: Duration = PairingApproval.timeout,
-        now: @escaping @MainActor () -> Date = { Date() }
-    ) {
-        self.connectionManager = connectionManager
-        self.profileRepository = profileRepository
-        self.onboardingRepository = onboardingRepository
-        self.pairingHandoff = pairingHandoff
-        self.bootstrapConnector = bootstrapConnector
-        self.pairingRetryInterval = pairingRetryInterval
-        self.pairingTimeout = pairingTimeout
-        self.now = now
-    }
-```
-
-Add next to `addressEditedByHand()`:
-```swift
-    private func setBootstrapToken(_ token: String?) {
-        bootstrapToken = token
-        fromSetupCode = token != nil
-    }
-```
-In `addressEditedByHand()`, add as the first line:
-```swift
-        setBootstrapToken(nil)
-```
-In `setPrefillURL(_:)`, after `self.pairedName = nil` add:
-```swift
-        setBootstrapToken(nil)
-```
-and inside `if let paired = pairingHandoff.takePairing(for: url) {`, after the name lines, add:
-```swift
-            setBootstrapToken(paired.bootstrapToken)
-```
-In `applyPastedLink()`, replace
+In `ManualEntryViewModel.swift`, in `applyPastedLink()`, replace
 ```swift
         } else if let url = PairingLink.gatewayURL(from: trimmed) {
             setPrefillURL(url)
@@ -5547,91 +5396,26 @@ with
 ```swift
         } else if let url = PairingLink.gatewayURL(from: trimmed) ?? PairingLink.webSocketGatewayURL(from: trimmed) {
             setPrefillURL(url)
+        } else if let setupCode = PairingLink.setupCode(trimmed) {
+            // Its bootstrap token serves node clients only (ADR-0007): explain, never pair with it.
+            rejectPaste(PairingLink.setupCodeExplanation(setupCode))
+            return
         } else {
-            do {
-                let request = try PairingLink.decodeSetupCode(trimmed, now: now())
-                pairingHandoff.stash(request)
-                setPrefillURL(request.gatewayURL)
-            } catch PairingLinkError.notASetupCode {
-                rejectPaste("Not an http(s) gateway URL, a ghostcrab://pair link or an OpenClaw setup code")
-                return
-            } catch {
-                rejectPaste("Setup code rejected: \(error.localizedDescription)")
-                return
-            }
+            rejectPaste("Not an http(s) gateway URL or a ghostcrab://pair link")
+            return
         }
 ```
-In `connect()`, after the `tokenValue` closure add:
-```swift
-        // Upstream order: a typed shared token wins over the setup code's bootstrap token.
-        let bootstrap = tokenValue == nil ? self.bootstrapToken : nil
-        let connector = self.bootstrapConnector
-```
-replace the retry closure body
-```swift
-                    try await self.connectionManager.connect(url: url, token: tokenValue)
-```
-with
-```swift
-                    if let bootstrap, let connector {
-                        try await connector.connect(url: url, bootstrapToken: bootstrap)
-                    } else {
-                        try await self.connectionManager.connect(url: url, token: tokenValue)
-                    }
-```
-and directly after `gatewayAccepted = true` add:
-```swift
-                // Single use: the gateway's device token takes over from here.
-                self.setBootstrapToken(nil)
-```
 
-In `ManualEntryScreen.swift`, replace the paste field's placeholder
-```swift
-                        TextField("Gateway URL or ghostcrab://pair link", text: $vm.pastedLink)
-```
-with
-```swift
-                        TextField("Gateway URL, ghostcrab://pair link or setup code", text: $vm.pastedLink)
-```
-and at the end of `Section("Authentication") { … }` replace
-```swift
-                        .buttonStyle(.plain)
-                    }
-                }
-```
-with
-```swift
-                        .buttonStyle(.plain)
-                    }
-                    if vm.fromSetupCode {
-                        Text("OpenClaw setup code: Connect uses its single-use bootstrap token. No gateway token is saved; the gateway's device token is used from then on.")
-                            .font(AppFont.body(12))
-                            .foregroundStyle(DesignTokens.Color.cyanPulse)
-                    }
-                }
-```
+- [ ] **Step 5: Run the tests** ⚠ must run on the Mac Mini (steve-mac-mini, Xcode)
 
-In `AppContainer.makeManualEntryVM()`, add `bootstrapConnector: connectionManagerImpl` after `pairingHandoff: self.pairingHandoff`:
-```swift
-        ManualEntryViewModel(
-            connectionManager: self.gateway,
-            profileRepository: self.profiles,
-            onboardingRepository: self.onboarding,
-            pairingHandoff: self.pairingHandoff,
-            bootstrapConnector: self.connectionManagerImpl
-        )
-```
+Run the test command with `-only-testing:GhostCrabTests`. Expected: PASS, including 9 new tests; the existing pairing-link, QR and paste tests pass unchanged.
 
-- [ ] **Step 7: Run the tests** ⚠ must run on the Mac Mini (steve-mac-mini, Xcode)
-
-Run the test command with `-only-testing:GhostCrabTests`. Expected: PASS, including 6 + 2 + 3 new tests and the two updated messages. `PairingHandoffTests` and `PairingDeepLinkTests` pass unchanged (the new parameters default to `nil`).
-
-- [ ] **Step 8: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git checkout -- ios/GhostCrab/App/BuildInfo.swift
-git add ios/GhostCrab/Domain/Util/PairingLink.swift ios/GhostCrab/UI/Navigation/PairingHandoff.swift ios/GhostCrab/UI/Connection/QrScanViewModel.swift ios/GhostCrab/UI/Connection/ManualEntryViewModel.swift ios/GhostCrab/UI/Connection/ManualEntryScreen.swift ios/GhostCrab/App/AppContainer.swift ios/GhostCrabTests/Domain/PairingLinkTests.swift ios/GhostCrabTests/UI/QrScanViewModelTests.swift ios/GhostCrabTests/UI/ManualEntryViewModelTests.swift
-git commit -m "feat(ios): accept openclaw qr setup codes and ws(s) URLs" -m "Setup codes (bare or oc-pair://) decode to the http(s) base URL plus a single-use bootstrap token kept in the in-memory hand-off; Manual Entry connects with auth.bootstrapToken and saves the profile without a token (ADR-0007)."
+git add ios/GhostCrab/Domain/Util/PairingLink.swift ios/GhostCrab/UI/Connection/QrScanViewModel.swift ios/GhostCrab/UI/Connection/ManualEntryViewModel.swift ios/GhostCrabTests/Domain/PairingLinkTests.swift ios/GhostCrabTests/UI/QrScanViewModelTests.swift ios/GhostCrabTests/UI/ManualEntryViewModelTests.swift
+git commit -m "feat(ios): explain openclaw qr setup codes, accept ws(s) URLs" -m "Setup-code bootstrap tokens authenticate only node clients (verified against 2026.10.3), so a scanned or pasted code shows what it is, its gateway URL and the token + devices approve path instead of connecting; the token is never decoded into a property (ADR-0007)."
 ```
 
 ---
@@ -6080,7 +5864,7 @@ git commit -m "refactor(ios): delete the speculative REST client paths" -m "Only
 
 **Files:**
 - Modify: `docs/QA_REAL_GATEWAY_2026-10.md` (append to §10, or create it if the Android pass has not run yet)
-- Possibly modify: `ios/GhostCrab/Data/Impl/ConfigWrites.swift`, `ios/GhostCrab/Data/Impl/InstalledSkillRepositoryImpl.swift`, `fixtures/gateway-protocol/2026.10.3/`
+- Possibly modify (only if the gateway release differs from 2026.10.3): `ios/GhostCrab/Data/Impl/ConfigWrites.swift`, `ios/GhostCrab/Data/Impl/InstalledSkillRepositoryImpl.swift`, `fixtures/gateway-protocol/`
 
 Needs the Mac Mini (simulator), an iPhone for the camera step, a Docker host on the same LAN, and a human. The gateway must see the app as a remote client, so point the app at the Docker host's LAN IP, not `127.0.0.1`.
 
@@ -6097,19 +5881,9 @@ docker inspect --format '{{index .Config.Labels "org.opencontainers.image.versio
 ```
 Record the version. If it is not `2026.10.3`, diff fresh frames against `fixtures/gateway-protocol/2026.10.3/` before going on (the Android plan's `scripts/mock-gateway/probe-real.mjs` prints them, tokens redacted).
 
-- [ ] **Step 2: Pin the frames M5 did not capture** ⚠ manual
+- [ ] **Step 2: Re-check the pinned behaviour on a different release** ⚠ manual, only if the version is not `2026.10.3`
 
-If the Android pass (its Task 26) already did this, reuse its results. Otherwise, with `scripts/mock-gateway/probe-real.mjs` from the Android plan:
-```bash
-cd scripts/mock-gateway
-node probe-real.mjs ws://<docker host LAN IP>:18789/ws '<token>' pair     # prints the requestId; then:
-docker exec openclaw-qa node openclaw.mjs devices approve <requestId>
-node probe-real.mjs ws://<docker host LAN IP>:18789/ws '<token>' stale-hash
-node probe-real.mjs ws://<docker host LAN IP>:18789/ws '<token>' skills
-```
-- If the stale-hash error's `code` / `details.code` / message do not contain "hash", update `ConfigWrites.mapRejection` and the `rejectionFrame` message in `ConfigRepositoryImplTests` to the real shape, save the frame as `fixtures/gateway-protocol/2026.10.3/err-config-stale-hash.json` (any token replaced with `dt-test-0001`) and assert on it.
-- If `skills.update` is rejected, hide the Disable menu item (Task 11 Step 5) and record why.
-- Note the `source` of a ClawHub-installed skill; if it is neither `openclaw-managed` nor contains `clawhub`, extend `SkillSource.from(statusSource:bundled:)` and its test.
+The frames this plan relies on were pinned against `2026.10.3` (M5 plus the 2026-10-15 verification run, ADR-0007). For another release, reuse the Android pass (its Task 26 Step 2) or run `scripts/mock-gateway/probe-real.mjs` (`pair`, `config`, `skills` with `INSTALL_SLUG=@steipete/weather`) and compare with `fixtures/gateway-protocol/2026.10.3/`. On any difference, add a `fixtures/gateway-protocol/<version>/` set (tokens replaced with `dt-test-0001`), adapt `ConfigWrites.mapRejection`, `SkillSource.from(statusSource:bundled:clawhub:)` or the mock, and record it.
 
 - [ ] **Step 3: Run the app against it** ⚠ manual (simulator on the Mac Mini, then a device)
 
@@ -6121,11 +5895,11 @@ node probe-real.mjs ws://<docker host LAN IP>:18789/ws '<token>' skills
 5. Config editor: change a hot-reloadable value (find one with `docker exec openclaw-qa node openclaw.mjs gateway call config.schema.lookup --params '{"path":"agents.defaults"}'`, `reloadKind: "hot"`), save, reload, change it back. Do **not** change `gateway.port` / `bind` on the live gateway.
 6. Concurrent edit: change the same value with `docker exec … gateway call config.patch` between load and save → the editor reloads with the concurrent-edit message.
 7. Models: empty list without a provider; with one configured, activating a model makes `docker exec openclaw-qa node openclaw.mjs models status` show it as default.
-8. Installed Skills: the gateway's skills listed, disabled ones marked; Disable one → `skills.status` shows it disabled.
+8. Installed Skills: the gateway's skills listed, disabled ones marked; Disable one → the row shows "· disabled" right after the write (the list is re-read after `config.changed`).
 9. Console.app filtered on the GhostCrab process: no token, device token or bootstrap token text for the whole session.
 10. `docker stop openclaw-qa` → the Dashboard leaves Connected (the session socket drop ends in `.error`).
-11. Device (camera): `docker exec openclaw-qa node openclaw.mjs qr --url ws://<docker host LAN IP>:18789/ws` → scan it → Manual Entry shows the setup-code hint; Connect → approval card → approve → Dashboard; the saved profile has no token. Then save a config value and record whether it works: upstream hands plain-LAN `ws://` setup codes a limited operator profile without `operator.admin` (`/app/docs/cli/qr.md`).
-12. Mac Catalyst: paste the same setup code (or an `oc-pair://` link) into Manual Entry's Pairing link field → same flow.
+11. Device (camera): `docker exec openclaw-qa node openclaw.mjs qr --url ws://<docker host LAN IP>:18789/ws` → scan it → the scanner explains that setup codes pair node apps, names `http://<docker host LAN IP>:18789` and points to the gateway token and `openclaw devices approve`; nothing connects, nothing is stored.
+12. Mac Catalyst: paste the same setup code (or an `oc-pair://` link) into Manual Entry's Pairing link field → the same explanation under the field; the form stays empty.
 13. Store screenshots (needs the protocol-4 mock from the Android plan's Task 25 on `main`, which also switches `ios-screenshots.yml` to `AUTO_APPROVE=1`): `gh workflow run ios-screenshots.yml`, then check the artifact: `06-dashboard` shows the gateway name and version from `hello-ok`, the AI screenshot is skipped (tile hidden), `10-skills` lists the mock's skills with Disable instead of Uninstall. Commit refreshed PNGs under `screenshots/store/ios/` only if they look right.
 
 - [ ] **Step 4: Record and commit**
@@ -6149,7 +5923,7 @@ git commit -m "docs: verify the iOS protocol alignment against the real gateway"
 
 In `ios/README.md`, replace the first paragraph of `## Pairing links and deep links` with:
 ```markdown
-A pairing link is `ghostcrab://pair?p=<base64url JSON>`; the v1 payload carries the gateway URL, an optional token and an optional name. GhostCrab also takes the setup code that `openclaw qr` prints (base64url JSON with a `ws(s)://` URL and a single-use bootstrap token, bare or as `oc-pair://<code>`) and plain `ws(s)://` URLs. Three ways in:
+A pairing link is `ghostcrab://pair?p=<base64url JSON>`; the v1 payload carries the gateway URL, an optional token and an optional name. GhostCrab also takes plain `ws(s)://` URLs. A setup code from `openclaw qr` (bare or `oc-pair://<code>`) is recognised and explained, not used: its bootstrap token serves OpenClaw node apps only and cannot authorize an operator client. Three ways in:
 ```
 and add after that section:
 ```markdown
@@ -6176,7 +5950,7 @@ In `CHANGELOG.md`, inside `### iOS` directly under its intro paragraph, add:
 - **Device pairing**: each install has a CryptoKit Ed25519 identity in the Keychain. A new device shows an approval card with the request id and `openclaw devices approve <id>` and retries every 5 s until approved. The gateway's device token is stored per gateway and reused.
 - **Auth detection** comes from the connect handshake (ADR-002 superseded); a wrong token fails with the URL and `AUTH_TOKEN_MISMATCH`.
 - **Config** uses `config.get` / `config.patch` with a `baseHash` guard; **models** come from `models.list` and activation sets `agents.defaults.model.primary`; **skills** use `skills.status` / `skills.install`, and Disable (`skills.update`) replaces uninstall, which OpenClaw does not have.
-- QR scan and the Pairing link field take `openclaw qr` setup codes (bare or `oc-pair://`) and `ws(s)://` URLs; the bootstrap token stays in memory.
+- QR scan and the Pairing link field take `ws(s)://` URLs. `openclaw qr` setup codes (bare or `oc-pair://`) are recognised and explained: they pair OpenClaw node apps and cannot authorize an operator client, so GhostCrab points to the gateway token and `openclaw devices approve` instead.
 - Scan screen tells Linux, Windows and Docker users to run `openclaw plugins enable bonjour`.
 
 #### Removed (protocol alignment)
@@ -6192,9 +5966,8 @@ In `docs/adr/0005-additive-repository-methods.md`, after the `feat/ios-finish` i
 
 Instances on `feat/protocol-alignment-ios` (ADR-0007, iOS):
 
-- `GatewayBootstrapConnector` (new protocol, implemented by `GatewayConnectionManagerImpl`)
 - `InstalledSkillRepository.setSkillEnabled(skillKey:enabled:)`
-- `InstalledSkill.disabled`, `PairingRequest.bootstrapToken`, `PairedGateway.bootstrapToken` (additive model fields with defaults)
+- `InstalledSkill.disabled` (additive model field with a default)
 ```
 
 - [ ] **Step 4: Implementation plan ledger**
@@ -6234,12 +6007,13 @@ Coverage of every M5 mismatch (`docs/QA_REAL_GATEWAY_2026-10.md` §2, §3, §8) 
 | `/config` + `PATCH` → `config.get` / `config.patch` + `baseHash` (#9) | 12 |
 | `/api/models/*` → `models.list` + `agents.defaults.model.primary` (#10) | 13 |
 | AI recommend has no upstream equivalent (#11) | 14 |
-| `openclaw qr` setup code and `ws(s)://` (#12) | 18 |
+| `openclaw qr` setup code and `ws(s)://` (#12): setup codes recognised and explained, never used (node-only tokens) | 18 |
 | Bonjour opt-in; version from `hello-ok`, not TXT (#13) | 19, 9 |
 | Mock gateway validates a contract that does not exist (#14) | Android plan Task 25 (shared `scripts/mock-gateway`); usable in Task 21 |
 | Bearer on HTTP; no credential may leave over HTTP | 9, 20 |
-| Unverified upstream behaviour (stale hash, `skills.update`, skill `source`, setup-code scopes) | 21 |
+| Behaviour pinned by the 2026-10-15 verification run: client-id/mode allow-list and platform pinning; stable `requestId`, 1008 after `PAIRING_REQUIRED`; node-only bootstrap tokens; `baseHash` errors, validation `issues`, `config.patch` success; `skills.update` + `config.changed`; ClawHub install entry | 1, 5, 8, 11, 12, 15, 18 |
+| A new gateway release | 21 (probe-real.mjs re-check) |
 
 Placeholder scan: the only `<…>` left are values a person supplies at run time (gateway token, LAN IP, request id, dates and the PR number in the ledger row).
 
-Type consistency checked across tasks: `GatewayRPCClient.request(_:params:timeout:)` / `request(_:timeout:)`, `GatewayErrorShape.toGatewayError(url:method:)`, `GatewayError.toSkillInstallError(slug:)`, `GatewayHandshake.perform(rpc:client:auth:identity:)`, `GatewayConnectAuth.select(sharedToken:stored:bootstrapToken:)`, `GatewayKey.of(_:)`, `DeviceTokenStoring.load(gatewayKey:)` / `save(_:gatewayKey:)` / `clear(gatewayKey:)`, `GatewayConnectionManagerImpl.requireSession()` / `grantedScopes()`, `GatewayBootstrapConnector.connect(url:bootstrapToken:)`, `InstalledSkillRepository.setSkillEnabled(skillKey:enabled:)`, `ConfigWrites.patchParams(_:baseHash:)` / `mapRejection(_:)`, `connectAwaitingApproval(wakeUp:onPrompt:interval:timeout:connect:)`, `PairingLink.decodeSetupCode(_:now:)` / `webSocketGatewayURL(from:)`, `PairingHandoff.stash(token:displayName:bootstrapToken:for:)`. Test helpers: `GatewayFixtures.text(_:)`, `[String: [String]].fixtures(_:)`, `ScriptedGatewayWebSocket(challenge:replies:closeAfterReplyTo:)`, `FixedSocketFactory`, `FixedIdentityProvider`, `InMemoryDeviceTokenStore`, `MockRESTFactory`, `sentParams(_:_:)`, `okReply`, `rejectionFrame(code:message:detailCode:)`, `startedRPC(_:endpoint:)`, `gatewayError(_:)`, `jsonObject(_:)`.
+Type consistency checked across tasks: `GatewayRPCClient.request(_:params:timeout:)` / `request(_:timeout:)`, `GatewayErrorShape.toGatewayError(url:method:)`, `GatewayError.toSkillInstallError(slug:)`, `GatewayHandshake.perform(rpc:client:auth:identity:)`, `GatewayConnectAuth.select(sharedToken:stored:)`, `GatewayClientInfo.current(bundle:)` / `iosClientID` / `iosPlatform`, `GatewayKey.of(_:)`, `DeviceTokenStoring.load(gatewayKey:)` / `save(_:gatewayKey:)` / `clear(gatewayKey:)`, `GatewayConnectionManagerImpl.requireSession()` / `grantedScopes()`, `InstalledSkillRepository.setSkillEnabled(skillKey:enabled:)`, `InstalledSkillRepositoryImpl.awaitConfigChanged(_:timeout:)`, `ConfigWrites.patchParams(_:baseHash:)` / `mapRejection(_:)`, `connectAwaitingApproval(wakeUp:onPrompt:interval:timeout:connect:)`, `PairingLink.setupCode(_:)` / `setupCodeExplanation(_:)` / `webSocketGatewayURL(from:)`, `SetupCodeInfo`. Test helpers: `GatewayFixtures.text(_:)`, `[String: [String]].fixtures(_:)`, `ScriptedGatewayWebSocket(challenge:replies:eventsBeforeReply:closeAfterReplyTo:)` (+ `sentRequest(_:)` / `sentRequests(_:)`), `FixedSocketFactory`, `FixedIdentityProvider`, `InMemoryDeviceTokenStore`, `MockRESTFactory`, `sentParams(_:_:)`, `okReply`, `rejectionFrame(code:message:detailCode:)`, `startedRPC(_:endpoint:)`, `gatewayError(_:)`, `jsonObject(_:)`.
