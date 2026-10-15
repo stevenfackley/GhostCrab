@@ -1,5 +1,6 @@
 package com.openclaw.ghostcrab.data.storage
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.SharedPreferences
 import androidx.security.crypto.EncryptedSharedPreferences
@@ -57,6 +58,8 @@ class DeviceIdentityStore(
         cached ?: withContext(ioDispatcher) { loadOrCreate() }.also { cached = it }
     }
 
+    // commit(), not apply() or KTX edit(): we need its synchronous result before handing out a new identity.
+    @SuppressLint("ApplySharedPref", "UseKtx")
     private fun loadOrCreate(): DeviceIdentity {
         readSeed()?.let { return DeviceIdentity.fromSeed(it) }
         val fresh = DeviceIdentity.generate()
@@ -65,7 +68,11 @@ class DeviceIdentityStore(
         return fresh
     }
 
-    /** The stored seed, or `null` when absent or unusable (an unusable entry is removed first). */
+    /**
+     * The stored seed, or `null` when absent or unusable (an unusable entry is removed first, with `commit()`
+     * so it is gone synchronously before a new seed is generated; same call style as [loadOrCreate]).
+     */
+    @SuppressLint("ApplySharedPref", "UseKtx")
     private fun readSeed(): ByteArray? {
         // Keystore loss or a corrupt value: recovery is a new identity (the gateway then shows a new pairing request).
         val seed = keystoreReadOrNull { prefs.getString(KEY_SEED, null)?.let { Base64.getDecoder().decode(it) } }

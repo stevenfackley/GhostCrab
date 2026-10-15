@@ -28,6 +28,11 @@ class DeviceTokenStoreTest {
         assertEquals("garbage", gatewayKeyOf(" garbage/ "))
     }
 
+    @Test fun `gateway keys ignore host case`() {
+        assertEquals(gatewayKeyOf("http://gw.local:18789"), gatewayKeyOf("http://GW.local:18789"))
+        assertEquals("https://gw.example:443", gatewayKeyOf("HTTPS://GW.Example/ws"))
+    }
+
     @Test fun `save then load round-trips`() = runTest {
         val store = store()
         store.saveDeviceToken("http://gw.local:18789", token)

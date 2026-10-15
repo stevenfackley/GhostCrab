@@ -2,6 +2,7 @@ package com.openclaw.ghostcrab.data.gateway
 
 import com.openclaw.ghostcrab.domain.util.GatewayUrl
 import kotlinx.serialization.Serializable
+import java.util.Locale
 
 /**
  * A device token the gateway issued in `hello-ok.auth.deviceToken`.
@@ -42,7 +43,10 @@ interface DeviceTokenStore {
 
 /**
  * @param url A gateway base URL as the user or a profile gave it.
- * @return The canonical `scheme://host:port` ([GatewayUrl]), or the trimmed input without trailing `/` when it
- *   does not parse.
+ * @return The canonical `scheme://host:port` ([GatewayUrl]) with the host lowercased (host names are
+ *   case-insensitive, so `GW.local` and `gw.local` share one token), or the trimmed input without trailing `/`
+ *   when it does not parse.
  */
-fun gatewayKeyOf(url: String): String = GatewayUrl.parse(url)?.toString() ?: url.trim().trimEnd('/')
+fun gatewayKeyOf(url: String): String =
+    GatewayUrl.parse(url)?.let { it.copy(host = it.host.lowercase(Locale.ROOT)).toString() }
+        ?: url.trim().trimEnd('/')
