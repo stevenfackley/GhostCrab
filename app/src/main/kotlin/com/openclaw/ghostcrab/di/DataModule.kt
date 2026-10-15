@@ -37,7 +37,6 @@ import kotlinx.coroutines.Dispatchers
 import org.koin.core.qualifier.named
 import org.koin.core.scope.Scope
 import org.koin.dsl.module
-import java.util.Locale
 
 /** Koin qualifier for the blocking-IO dispatcher. Inject it; never hard-code `Dispatchers.IO` in data classes. */
 val IoDispatcher = named("io")
@@ -50,7 +49,7 @@ val dataModule = module {
     single<DeviceTokenStore> { get<ConnectionProfileStore>() }
     // One instance per process: its mutex keeps two first-use calls from generating two identities.
     single<DeviceIdentityProvider> { DeviceIdentityStore(androidContext(), ioDispatcher = get(IoDispatcher)) }
-    single { androidClientInfo() }
+    single { ClientInfo.android(BuildConfig.VERSION_NAME) }
     single {
         GatewayConnectionManagerImpl(
             identityProvider = get(),
@@ -83,12 +82,3 @@ private fun Scope.liveWsFactory(): suspend () -> GatewayWsClient {
     val manager = get<GatewayConnectionManagerImpl>()
     return { manager.requireClient().openWebSocket() }
 }
-
-/** `connect.params.client` for this build (ADR-0007 decision 4: closed upstream id, honest version and name). */
-private fun androidClientInfo() = ClientInfo(
-    id = "openclaw-android",
-    version = BuildConfig.VERSION_NAME,
-    platform = "android",
-    displayName = "GhostCrab (Android)",
-    locale = Locale.getDefault().toLanguageTag(),
-)

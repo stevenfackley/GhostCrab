@@ -7,6 +7,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
+import java.util.Locale
 
 /**
  * `connect.params.client` (ADR-0007). [id] and [mode] must be values upstream's allow-lists accept (checked before
@@ -33,6 +34,29 @@ data class ClientInfo(
 ) {
     /** `connect.params.userAgent`. */
     val userAgent: String get() = "ghostcrab-$platform/$version"
+
+    companion object {
+        /** Upstream allow-listed id for the Android app; any other id is rejected before auth. */
+        const val ANDROID_CLIENT_ID = "openclaw-android"
+
+        /** Pinned at approval (case-insensitive): a different value re-triggers pairing. Never derive it. */
+        const val ANDROID_PLATFORM = "android"
+
+        /**
+         * GhostCrab's Android identity (ADR-0007 decision 4, verified 2026-10-15).
+         *
+         * @param version GhostCrab's version name (honest; not checked by the gateway).
+         * @param locale BCP-47 tag for `connect.params.locale`.
+         * @return The constant id / mode / platform with this build's version.
+         */
+        fun android(version: String, locale: String = Locale.getDefault().toLanguageTag()) = ClientInfo(
+            id = ANDROID_CLIENT_ID,
+            version = version,
+            platform = ANDROID_PLATFORM,
+            displayName = "GhostCrab (Android)",
+            locale = locale,
+        )
+    }
 }
 
 /** Credential for `connect.params.auth`. Every `toString` redacts the secret. */
