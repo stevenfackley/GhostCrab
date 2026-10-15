@@ -29,8 +29,9 @@ public final class ModelManagerViewModel {
     /// True while the initial load is in flight (before any models have been shown).
     public private(set) var isLoading: Bool = false
 
-    /// True when the gateway returned 404 on `/models`, meaning this build of
-    /// the gateway does not support the feature.
+    /// True when the gateway does not implement `models.list` (or a legacy
+    /// REST gateway answered 404): this build of the gateway does not support
+    /// the feature. Not an error.
     public private(set) var notSupported: Bool = false
 
     /// Last error surfaced to the user. Includes URL + status code + exception
@@ -60,6 +61,10 @@ public final class ModelManagerViewModel {
             let list = try await models.getModels()
             self.models_ = list
             self.notSupported = false
+            self.lastError = nil
+        } catch GatewayError.methodUnsupported {
+            self.notSupported = true
+            self.models_ = []
             self.lastError = nil
         } catch GatewayError.api(_, let statusCode, _) where statusCode == 404 {
             self.notSupported = true

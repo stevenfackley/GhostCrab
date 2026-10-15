@@ -52,7 +52,7 @@ public struct ModelManagerScreen: View {
             EmptyState(
                 icon: "questionmark.app.dashed",
                 title: "Not supported",
-                message: "This gateway version doesn't expose a /models API. Models must be configured server-side."
+                message: "This gateway version doesn't support models.list. Configure models on the gateway host."
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if vm.models_.isEmpty {

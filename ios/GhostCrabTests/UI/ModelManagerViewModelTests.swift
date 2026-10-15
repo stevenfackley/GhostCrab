@@ -51,6 +51,29 @@ struct ModelManagerViewModelTests {
         #expect(vm.pendingActivation == nil)
     }
 
+    @Test func aGatewayWithoutModelsListIsNotSupportedNotAnError() async {
+        let repo = FakeModelRepository(
+            models: [],
+            getModelsError: .methodUnsupported(url: "ws://192.168.1.20:18789/ws", method: "models.list")
+        )
+        let vm = ModelManagerViewModel(models: repo)
+        await vm.load()
+        #expect(vm.notSupported)
+        #expect(vm.lastError == nil)
+        #expect(vm.models_.isEmpty)
+    }
+
+    @Test func otherLoadFailuresAreErrorsNotUnsupported() async {
+        let repo = FakeModelRepository(
+            models: [],
+            getModelsError: .missingScope(url: "ws://192.168.1.20:18789/ws", method: "models.list", scope: "operator.read")
+        )
+        let vm = ModelManagerViewModel(models: repo)
+        await vm.load()
+        #expect(!vm.notSupported)
+        #expect(vm.lastError != nil)
+    }
+
     @Test func failedActivationKeepsTheErrorVisibleAfterReload() async throws {
         let (vm, repo) = await makeVM(
             setActiveError: .api(url: "http://192.168.1.20:18789/api/models/active", statusCode: 404)

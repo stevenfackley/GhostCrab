@@ -207,13 +207,16 @@ final class FakeOnboardingRepository: OnboardingRepository, @unchecked Sendable 
 final class FakeModelRepository: ModelRepository, @unchecked Sendable {
     private let lock = NSLock()
     private let setActiveError: GatewayError?
+    private let getModelsError: GatewayError?
     private var models: [ModelInfo]
     private var setActiveLog: [String] = []
     private var getModelsCalls = 0
 
-    init(models: [ModelInfo], setActiveError: GatewayError? = nil) {
+    /// - Parameter getModelsError: When set, every `getModels()` throws it.
+    init(models: [ModelInfo], setActiveError: GatewayError? = nil, getModelsError: GatewayError? = nil) {
         self.models = models
         self.setActiveError = setActiveError
+        self.getModelsError = getModelsError
     }
 
     static func model(_ id: String, active: Bool = false) -> ModelInfo {
@@ -224,10 +227,12 @@ final class FakeModelRepository: ModelRepository, @unchecked Sendable {
     var getModelsCount: Int { lock.withLock { getModelsCalls } }
 
     func getModels() async throws -> [ModelInfo] {
-        lock.withLock {
+        let snapshot: [ModelInfo] = lock.withLock {
             getModelsCalls += 1
             return models
         }
+        if let getModelsError { throw getModelsError }
+        return snapshot
     }
 
     func setActiveModel(modelId: String) async throws {
