@@ -35,30 +35,62 @@ internal fun configPatchParams(patch: JsonObject, baseHash: String?): JsonObject
 private val STALE_HASH_PREFIXES = listOf("config changed since last load", "config base hash required")
 
 /**
- * Maps a rejected `config.patch` onto the frozen `ConfigRepository` contract:
+ * Maps a rejected `config.patch` of one top-level [section] onto the frozen `ConfigRepository` contract:
  * - a stale, unknown or missing `baseHash` → 412-style [GatewayApiException] (callers reload);
- * - schema validation (`INVALID_REQUEST` with `details.issues[{path, message, allowedValues?}]`) →
- *   [ConfigValidationException] for the first issue, so the editor shows it inline on that field;
- * - any other `INVALID_REQUEST` (a JSON5 syntax error, array removal without `replacePaths`, issues without a
- *   path and message) → 422-style [GatewayApiException] carrying the server text;
+ * - schema validation with exactly one issue, inside [section] (`details.issues[{path, message}]` with a path
+ *   `<section>.…`) → [ConfigValidationException] for that path, so the editor can show it on the field;
+ * - any other `INVALID_REQUEST` → 422-style [GatewayApiException] whose body is the server text plus every issue it
+ *   does not already spell out. That covers issues outside [section] (`config.patch` validates the whole merged
+ *   config, so a key the user never touched can fail the write), several issues, a JSON5 syntax error and array
+ *   removal without `replacePaths`;
  * - anything else passes through.
+ *
+ * @param section The top-level key the write patched (e.g. `gateway`).
+ * @return The exception to throw.
+ */
+internal fun GatewayRpcException.toConfigWriteException(section: String): GatewayException =
+    mapConfigWrite(inlineScope = "$section.")
+
+/**
+ * Maps a rejected `config.patch` of the active model (`agents.defaults.model.primary`). No form field shows the
+ * value, so a validation failure is always a 422-style [GatewayApiException] listing every issue; a stale or
+ * missing `baseHash` is the same 412-style exception the config editor reloads on.
  *
  * @return The exception to throw.
  */
-internal fun GatewayRpcException.toConfigWriteException(): GatewayException = when {
+internal fun GatewayRpcException.toModelWriteException(): GatewayException = mapConfigWrite(inlineScope = null)
+
+/** @param inlineScope Path prefix whose single issue becomes a [ConfigValidationException]; `null` for none. */
+private fun GatewayRpcException.mapConfigWrite(inlineScope: String?): GatewayException = when {
     isStaleBaseHash() -> GatewayApiException(url, STATUS_PRECONDITION_FAILED, rpcMessage)
-    code == CODE_INVALID_REQUEST ->
-        firstIssue() ?: GatewayApiException(url, STATUS_UNPROCESSABLE, rpcMessage)
+    code == CODE_INVALID_REQUEST -> {
+        val issues = issues()
+        val only = issues.singleOrNull()
+        if (inlineScope != null && only?.path != null && only.path.startsWith(inlineScope)) {
+            ConfigValidationException(only.path, only.message)
+        } else {
+            GatewayApiException(url, STATUS_UNPROCESSABLE, withIssues(issues))
+        }
+    }
     else -> this
 }
 
 private fun GatewayRpcException.isStaleBaseHash(): Boolean =
     code == CODE_INVALID_REQUEST && STALE_HASH_PREFIXES.any { rpcMessage.startsWith(it) }
 
-/** `details.issues[0]` as a field error (e.g. `gateway.port` → `Too big: …`), or `null` without path and message. */
-private fun GatewayRpcException.firstIssue(): ConfigValidationException? {
-    val issue = (details?.get("issues") as? JsonArray)?.firstOrNull() as? JsonObject
-    val path = issue?.stringOrNull("path")?.takeIf { it.isNotBlank() }
-    val message = issue?.stringOrNull("message")?.takeIf { it.isNotBlank() }
-    return if (path != null && message != null) ConfigValidationException(path, message) else null
+/** One `details.issues[]` entry (e.g. `gateway.port` → `Too big: …`); the path is optional upstream. */
+private class ConfigIssue(val path: String?, val message: String) {
+    override fun toString(): String = path?.let { "$it: $message" } ?: message
 }
+
+/** `details.issues[]` entries that carry a message, in server order. */
+private fun GatewayRpcException.issues(): List<ConfigIssue> =
+    (details?.get("issues") as? JsonArray).orEmpty().filterIsInstance<JsonObject>().mapNotNull { issue ->
+        issue.stringOrNull("message")?.takeIf { it.isNotBlank() }?.let { message ->
+            ConfigIssue(issue.stringOrNull("path")?.takeIf { it.isNotBlank() }, message)
+        }
+    }
+
+/** The server message plus every issue it does not already spell out, `; `-separated. */
+private fun GatewayRpcException.withIssues(issues: List<ConfigIssue>): String =
+    (listOf(rpcMessage) + issues.map { it.toString() }.filterNot { it in rpcMessage }).joinToString("; ")

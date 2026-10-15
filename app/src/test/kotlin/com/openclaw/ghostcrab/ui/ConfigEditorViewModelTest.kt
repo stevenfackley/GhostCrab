@@ -13,16 +13,19 @@ import com.openclaw.ghostcrab.ui.config.ConfigEditorUiState
 import com.openclaw.ghostcrab.testutil.GatewayFixtures
 import com.openclaw.ghostcrab.testutil.ScriptedWsSession
 import com.openclaw.ghostcrab.ui.config.ConfigEditorViewModel
+import com.openclaw.ghostcrab.ui.config.sections.inlineErrorFieldsOf
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -347,6 +350,94 @@ class ConfigEditorViewModelTest {
         assertEquals("Too big: expected number to be <=65535 (maximum: 65535)", state.fieldErrors["gateway.port"])
         assertNull(state.saveError)
         assertEquals(mapOf("gateway" to edit), state.pendingChanges)
+        // Not silent: the typed gateway editor renders an error under gateway.port for this value.
+        assertTrue("gateway.port" in inlineErrorFieldsOf("gateway", edit))
+    }
+
+    /** A view model over the real repository, replaying the captured config frames; `config.patch` answers [patchReply]. */
+    private fun TestScope.vmOverFixtures(patchReply: String): ConfigEditorViewModel {
+        val session = ScriptedWsSession(
+            respond = { method, _ ->
+                when (method) {
+                    "config.get" -> GatewayFixtures.frame("res-config-get")
+                    "config.patch" -> GatewayFixtures.frame(patchReply)
+                    else -> null
+                }
+            },
+        )
+        val rpc = GatewayRpcClient.create(session, "ws://gw/ws", UnconfinedTestDispatcher(testScheduler))
+        return ConfigEditorViewModel(
+            connectionManager = FakeConfigConnectionManager(MutableStateFlow(connectedState)),
+            configRepository = ConfigRepositoryImpl { rpc },
+        )
+    }
+
+    @Test
+    fun `the captured rejection on a gateway section the typed editor cannot model is also a save error`() =
+        runTest(testDispatcher) {
+            val vm = vmOverFixtures("err-config-invalid")
+            advanceUntilIdle()
+            // An unknown auth mode: the editor falls back to raw JSON, so no field shows gateway.port.
+            val edit = Json.parseToJsonElement("""{"port":99999,"auth":{"mode":"oauth"}}""")
+
+            vm.editSection("gateway", edit)
+            vm.confirmSave("gateway")
+            advanceUntilIdle()
+
+            val state = vm.state.value as ConfigEditorUiState.Ready
+            assertEquals("Too big: expected number to be <=65535 (maximum: 65535)", state.fieldErrors["gateway.port"])
+            val saveError = state.saveError.orEmpty()
+            assertTrue(saveError.contains("gateway.port"), saveError)
+            assertTrue(saveError.contains("ConfigValidationException"), saveError)
+            assertEquals(mapOf("gateway" to edit), state.pendingChanges)
+        }
+
+    @Test
+    fun `a validation error on a raw JSON section is also a save error`() = runTest(testDispatcher) {
+        val repo = FakeConfigRepository(configToReturn = twoSections)
+        val (vm, _) = makeVm(initialConnection = connectedState, repo = repo)
+        advanceUntilIdle()
+        repo.updateError = ConfigValidationException("models.timeout_ms", "Too small")
+
+        vm.editSection("models", modelsEdit)
+        vm.confirmSave("models")
+        advanceUntilIdle()
+
+        val state = vm.state.value as ConfigEditorUiState.Ready
+        assertEquals("Too small", state.fieldErrors["models.timeout_ms"])
+        assertTrue(state.saveError.orEmpty().contains("models.timeout_ms"), state.saveError)
+    }
+
+    @Test
+    fun `a validation issue outside the saved section is an HTTP 422 save error naming it`() =
+        runTest(testDispatcher) {
+            // config.patch validates the whole merged config: saving `agents` can fail on gateway.port.
+            val vm = vmOverFixtures("err-config-invalid")
+            advanceUntilIdle()
+            val edit = Json.parseToJsonElement("""{"entries":{"main":{"name":"x"}}}""")
+
+            vm.editSection("agents", edit)
+            vm.confirmSave("agents")
+            advanceUntilIdle()
+
+            val state = vm.state.value as ConfigEditorUiState.Ready
+            val saveError = state.saveError.orEmpty()
+            assertTrue(saveError.contains("HTTP 422"), saveError)
+            assertTrue(saveError.contains("gateway.port: Too big"), saveError)
+            assertTrue(state.fieldErrors.isEmpty())
+            assertEquals(mapOf("agents" to edit), state.pendingChanges)
+        }
+
+    @Test
+    fun `only the gateway fields the typed editor shows count as inline`() {
+        val tokenMode = Json.parseToJsonElement("""{"port":1,"auth":{"mode":"token"}}""")
+        val passwordMode = Json.parseToJsonElement("""{"port":1,"auth":{"mode":"password"}}""")
+        assertEquals(
+            setOf("gateway.mode", "gateway.port", "gateway.bind", "gateway.auth.token"),
+            inlineErrorFieldsOf("gateway", tokenMode),
+        )
+        assertTrue("gateway.auth.token" !in inlineErrorFieldsOf("gateway", passwordMode))
+        assertTrue(inlineErrorFieldsOf("agents", tokenMode).isEmpty())
     }
 
     @Test

@@ -18,6 +18,8 @@ import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.addJsonObject
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
@@ -140,6 +142,54 @@ class ConfigRepositoryImplTest {
         val e = assertThrows<ConfigValidationException> { repo.updateConfig("gateway", patch) }
         assertEquals("gateway.port", e.field)
         assertEquals("Too big: expected number to be <=65535 (maximum: 65535)", e.reason)
+    }
+
+    @Test fun `a validation issue outside the patched section is HTTP-422 style with the server text`() = runTest {
+        // config.patch validates the whole merged config, so a key the patch never touched can fail it.
+        val socket = rpc(configSession(GatewayFixtures.frame("err-config-invalid")))
+        val e = assertThrows<GatewayApiException> {
+            ConfigRepositoryImpl { socket }.updateConfig("agents", JsonObject(emptyMap()))
+        }
+        assertEquals(422, e.statusCode)
+        assertEquals("invalid config: gateway.port: Too big: expected number to be <=65535 (maximum: 65535)", e.body)
+    }
+
+    @Test fun `a section name that is only a prefix of the issue path does not claim it`() = runTest {
+        val socket = rpc(configSession(GatewayFixtures.frame("err-config-invalid")))
+        val e = assertThrows<GatewayApiException> {
+            ConfigRepositoryImpl { socket }.updateConfig("gate", JsonObject(emptyMap()))
+        }
+        assertEquals(422, e.statusCode)
+    }
+
+    @Test fun `several validation issues are HTTP-422 style listing every one`() = runTest {
+        val twoIssues = buildJsonObject {
+            put("type", "res")
+            put("ok", false)
+            putJsonObject("error") {
+                put("code", "INVALID_REQUEST")
+                put("message", "invalid config: gateway.port: Too big")
+                putJsonObject("details") {
+                    put(
+                        "issues",
+                        buildJsonArray {
+                            addJsonObject { put("path", "gateway.port"); put("message", "Too big") }
+                            addJsonObject { put("path", "gateway.bind"); put("message", "Invalid option") }
+                            addJsonObject { put("message", "Unrecognized key: \"x\"") }
+                        },
+                    )
+                }
+            }
+        }
+        val socket = rpc(configSession(twoIssues))
+        val e = assertThrows<GatewayApiException> {
+            ConfigRepositoryImpl { socket }.updateConfig("gateway", JsonObject(emptyMap()))
+        }
+        assertEquals(422, e.statusCode)
+        assertEquals(
+            "invalid config: gateway.port: Too big; gateway.bind: Invalid option; Unrecognized key: \"x\"",
+            e.body,
+        )
     }
 
     @Test fun `an INVALID_REQUEST without issues is HTTP-422 style with the server text`() = runTest {

@@ -38,9 +38,11 @@ interface ConfigRepository {
      *
      * @param section Top-level section key to update (e.g. `"gateway"`).
      * @param value JSON merge-patch value for the section.
-     * @throws ConfigValidationException if the gateway's schema check rejects the value;
-     *   [ConfigValidationException.field] is the full config path of the first issue (e.g. `gateway.port`).
-     * @throws GatewayApiException 412 as above; 422 for any other rejected patch (the body is the gateway's text).
+     * @throws ConfigValidationException if the gateway's schema check reports exactly one issue and it lies inside
+     *   [section]; [ConfigValidationException.field] is its full config path (e.g. `gateway.port`).
+     * @throws GatewayApiException 412 as above; 422 for any other rejected patch, including issues outside [section]
+     *   (the gateway validates the whole merged config) or several issues (the body is the gateway's text plus
+     *   every issue).
      * @throws com.openclaw.ghostcrab.domain.exception.GatewayMissingScopeException without `operator.admin`.
      */
     suspend fun updateConfig(section: String, value: JsonElement)

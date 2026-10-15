@@ -140,7 +140,7 @@ class AIQuotaExceededException(
 /**
  * A config value failed client-side or server-side validation.
  *
- * @param field The config key that failed validation (e.g. `"gateway.http.port"`).
+ * @param field The config key that failed validation (e.g. `"gateway.port"`).
  * @param reason Human-readable reason for the failure.
  */
 class ConfigValidationException(

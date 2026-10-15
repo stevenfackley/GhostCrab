@@ -49,9 +49,10 @@ class ConfigRepositoryImpl(
      * @param section Top-level key, e.g. `gateway`.
      * @param value Merge-patch value for that section.
      * @throws com.openclaw.ghostcrab.domain.exception.ConfigValidationException when the gateway's schema check
-     *   rejects the value (`details.issues[0]`: its `path`, e.g. `gateway.port`, and `message`).
+     *   reports exactly one issue and it lies inside [section] (its `path`, e.g. `gateway.port`, and `message`).
      * @throws com.openclaw.ghostcrab.domain.exception.GatewayApiException 412 on a stale or missing hash, 422 on
-     *   any other rejected patch (the body is the server text, e.g. a JSON5 syntax error).
+     *   any other rejected patch: issues outside [section] or several issues (the body lists each one), a JSON5
+     *   syntax error (the body is the server text).
      * @throws com.openclaw.ghostcrab.domain.exception.GatewayMissingScopeException without `operator.admin`.
      * @throws com.openclaw.ghostcrab.domain.exception.GatewayNotConnectedException if no session is active.
      */
@@ -62,7 +63,7 @@ class ConfigRepositoryImpl(
         val result = try {
             rpc.request(METHOD_PATCH, params, CONFIG_PATCH_TIMEOUT_MS)
         } catch (e: GatewayRpcException) {
-            throw e.toConfigWriteException()
+            throw e.toConfigWriteException(section)
         }
         // 2026.10.3 answers {ok, path, hash, config, changedPaths, sentinel}; without a hash the next write re-reads.
         lastHash = CachedHash(rpc, (result as? JsonObject)?.stringOrNull("hash"))

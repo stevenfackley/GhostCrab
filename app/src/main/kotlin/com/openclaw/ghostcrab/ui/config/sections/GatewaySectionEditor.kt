@@ -24,6 +24,9 @@ import com.openclaw.ghostcrab.ui.theme.Spacing
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
 
+/** The top-level key [GatewaySectionEditor] edits. */
+private const val GATEWAY_SECTION = "gateway"
+
 /** Writes one leaf (path from the section root) into the section JSON. */
 private typealias SetLeaf = (path: List<String>, value: JsonElement) -> Unit
 
@@ -69,7 +72,7 @@ fun GatewaySectionEditor(
                 color = BrandTokens.colorAmberWarn,
             )
             Spacer(modifier = Modifier.height(Spacing.sm))
-            RawJsonSectionEditor(sectionKey = "gateway", sectionValue = sectionValue, onEdit = onEdit)
+            RawJsonSectionEditor(sectionKey = GATEWAY_SECTION, sectionValue = sectionValue, onEdit = onEdit)
         } else {
             GatewayListenerFields(section, fieldErrors, setLeaf, onFieldError)
             Spacer(modifier = Modifier.height(Spacing.md))
@@ -102,6 +105,7 @@ private fun GatewayListenerFields(
         onError = { err -> onFieldError(FIELD_PORT, err) },
         min = PORT_MIN,
         max = PORT_MAX,
+        error = fieldErrors[FIELD_PORT],
     )
     Spacer(modifier = Modifier.height(Spacing.sm))
     StringFieldRow(
@@ -139,7 +143,7 @@ private fun GatewayAuthFields(
             color = BrandTokens.colorAmberWarn,
         )
     }
-    if (auth.mode == AuthMode.Token || auth.mode == null) {
+    if (section.showsTokenField()) {
         Spacer(modifier = Modifier.height(Spacing.sm))
         StringFieldRow(
             label = stringResource(
@@ -159,3 +163,22 @@ private fun GatewayAuthFields(
         )
     }
 }
+
+/**
+ * Config paths the section editor for [sectionKey] shows an error under, given the value it would render. The
+ * config editor uses it to decide whether a gateway validation error is visible inline or must also be reported
+ * as a save error.
+ *
+ * @param sectionKey Top-level section key.
+ * @param sectionValue The section JSON the editor renders (pending edit or server value).
+ * @return Full config paths (e.g. `gateway.port`); empty for a raw JSON section and for a `gateway` section the
+ *   typed editor cannot model.
+ */
+fun inlineErrorFieldsOf(sectionKey: String, sectionValue: JsonElement): Set<String> {
+    if (sectionKey != GATEWAY_SECTION) return emptySet()
+    val section = sectionValue.toGatewaySectionOrNull() ?: return emptySet()
+    return setOf(FIELD_MODE, FIELD_PORT, FIELD_BIND) + listOfNotNull(FIELD_TOKEN.takeIf { section.showsTokenField() })
+}
+
+/** The token field is shown for `auth.mode` token and while the mode is unset (the gateway infers it). */
+private fun GatewaySection.showsTokenField(): Boolean = auth.mode == AuthMode.Token || auth.mode == null

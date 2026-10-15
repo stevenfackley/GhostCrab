@@ -31,7 +31,10 @@ import com.openclaw.ghostcrab.ui.theme.Spacing
  * @param min Minimum inclusive value (default [Int.MIN_VALUE]).
  * @param max Maximum inclusive value (default [Int.MAX_VALUE]).
  * @param modifier Applied to the outer [GlassSurface].
+ * @param error An error from outside the field (e.g. the gateway's schema check), shown while the typed text is
+ *   locally valid; the field's own range message takes precedence.
  */
+@Suppress("LongParameterList")
 @Composable
 fun IntFieldRow(
     label: String,
@@ -41,9 +44,11 @@ fun IntFieldRow(
     min: Int = Int.MIN_VALUE,
     max: Int = Int.MAX_VALUE,
     modifier: Modifier = Modifier,
+    error: String? = null,
 ) {
     var rawText by remember(value) { mutableStateOf(value.toString()) }
     var errorText by remember { mutableStateOf<String?>(null) }
+    val shownError = errorText ?: error
 
     GlassSurface(modifier = modifier.fillMaxWidth(), contentPadding = Spacing.sm) {
         Column(modifier = Modifier.padding(horizontal = Spacing.xs)) {
@@ -71,13 +76,13 @@ fun IntFieldRow(
                     }
                 },
                 label = { Text(label) },
-                isError = errorText != null,
+                isError = shownError != null,
                 textStyle = androidx.compose.ui.text.TextStyle(fontFamily = MonoFontFamily),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
-            errorText?.let { message ->
+            shownError?.let { message ->
                 Text(
                     text = message,
                     color = BrandTokens.colorCrimsonError,

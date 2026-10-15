@@ -35,7 +35,7 @@ sealed interface ConfigEditorUiState {
      *
      * @param config The authoritative config as returned by the gateway.
      * @param pendingChanges Section key → full edited [JsonElement]. Only sections with unsaved edits are present.
-     * @param fieldErrors Field path → error message (e.g. `"gateway.http.port"` → `"Must be 1–65535"`).
+     * @param fieldErrors Field path → error message (e.g. `"gateway.port"` → `"Must be 1–65535"`).
      * @param pendingSaveSection When non-null, the diff sheet is shown for this section key.
      * @param saveSuccess When `true`, show a success snackbar; call [com.openclaw.ghostcrab.ui.config.ConfigEditorViewModel.clearSaveSuccess] to dismiss.
      * @param concurrentEditSection When non-null, show a concurrent-edit warning dialog for this section.
