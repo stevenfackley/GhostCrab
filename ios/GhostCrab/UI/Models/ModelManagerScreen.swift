@@ -23,7 +23,7 @@ public struct ModelManagerScreen: View {
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbarColorScheme(.dark, for: .navigationBar)
         #endif
-        .task { await vm.load() }
+        .task { await vm.run() }
         .confirmationDialog(
             "Activate model?",
             isPresented: Binding(

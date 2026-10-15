@@ -27,6 +27,16 @@ public struct ConfigEditorScreen: View {
             content
                 .frame(maxWidth: 600)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                // On the content, not next to the conflict alert: one view presents one alert.
+                .alert(
+                    "Save failed",
+                    isPresented: saveErrorBinding,
+                    presenting: vm.saveError
+                ) { _ in
+                    Button("OK", role: .cancel) { vm.clearSaveError() }
+                } message: { message in
+                    Text(verbatim: message + "\n\nYour unsaved edits are kept.")
+                }
         }
         .navigationTitle("Configure Gateway")
         #if os(iOS)
@@ -233,6 +243,13 @@ public struct ConfigEditorScreen: View {
             return conflict
         }
         return nil
+    }
+
+    private var saveErrorBinding: Binding<Bool> {
+        Binding(
+            get: { vm.saveError != nil },
+            set: { isShown in if !isShown { vm.clearSaveError() } }
+        )
     }
 
     private var concurrentEditBinding: Binding<Bool> {

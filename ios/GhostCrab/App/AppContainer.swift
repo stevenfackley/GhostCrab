@@ -152,17 +152,19 @@ public final class AppContainer {
     }
 
     /// Config Editor ViewModel — depends on the config repository and the
-    /// gateway connection manager. Auto-loads when the gateway transitions to
-    /// `.connected` and resets to ``ConfigEditorUiState/disconnected`` on drop.
+    /// gateway connection manager. Loads once per gateway session (a silent
+    /// reconnect's new session included) and resets to
+    /// ``ConfigEditorUiState/disconnected`` on disconnect.
     public func makeConfigEditorVM() -> ConfigEditorViewModel {
         ConfigEditorViewModel(config: config, gateway: gateway)
     }
 
-    /// Installed Skills ViewModel — depends on the installed-skill repository.
+    /// Installed Skills ViewModel — depends on the installed-skill repository and
+    /// the gateway connection manager (a new session refreshes the list).
     /// Subscribes to ``InstalledSkillRepository/observeInstalled()`` on
     /// `start()` for live list updates.
     public func makeInstalledSkillsVM() -> InstalledSkillsViewModel {
-        InstalledSkillsViewModel(skills: skills)
+        InstalledSkillsViewModel(skills: skills, gateway: gateway)
     }
 
     /// Dashboard ViewModel — depends on the gateway connection manager (for
@@ -172,9 +174,10 @@ public final class AppContainer {
         DashboardViewModel(gateway: gateway, models: models, ai: ai)
     }
 
-    /// Model Manager ViewModel — depends on the model repository.
+    /// Model Manager ViewModel — depends on the model repository and the gateway
+    /// connection manager (a new session reloads the list).
     public func makeModelManagerVM() -> ModelManagerViewModel {
-        ModelManagerViewModel(models: models)
+        ModelManagerViewModel(models: models, gateway: gateway)
     }
 }
 

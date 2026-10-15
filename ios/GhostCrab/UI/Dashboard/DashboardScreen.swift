@@ -76,6 +76,10 @@ public struct DashboardScreen: View {
                 warningBanner(warning.userMessage)
             }
 
+            if let cause = vm.endCause {
+                endCauseBanner(cause)
+            }
+
             if let error = vm.lastError {
                 errorBanner(error)
             }
@@ -155,6 +159,7 @@ public struct DashboardScreen: View {
 
     @ViewBuilder
     private var activeModelCard: some View {
+        let unavailable = vm.unavailableReason(.models)
         Button {
             navigate(.modelManager)
         } label: {
@@ -165,9 +170,18 @@ public struct DashboardScreen: View {
                             .font(AppFont.bodyBold(15))
                             .foregroundStyle(DesignTokens.Color.textSecondary)
                         Spacer()
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 12, weight: .semibold))
+                        if unavailable == nil {
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(DesignTokens.Color.textSecondary)
+                        }
+                    }
+
+                    if let unavailable {
+                        Text(unavailable)
+                            .font(AppFont.body(13))
                             .foregroundStyle(DesignTokens.Color.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
 
                     if let model = vm.activeModel {
@@ -197,6 +211,7 @@ public struct DashboardScreen: View {
             }
         }
         .buttonStyle(.plain)
+        .disabled(unavailable != nil)
     }
 
     @ViewBuilder
@@ -238,7 +253,8 @@ public struct DashboardScreen: View {
                 title: "Config",
                 subtitle: "Edit gateway settings",
                 icon: "doc.text",
-                route: .configEditor
+                route: .configEditor,
+                unavailableReason: vm.unavailableReason(.config)
             )
         )
         entries.append(
@@ -246,7 +262,8 @@ public struct DashboardScreen: View {
                 title: "Skills",
                 subtitle: "Installed skills",
                 icon: "puzzlepiece.extension",
-                route: .installedSkills
+                route: .installedSkills,
+                unavailableReason: vm.unavailableReason(.skills)
             )
         )
         entries.append(
@@ -304,6 +321,7 @@ public struct DashboardScreen: View {
         return pairs
     }
 
+    /// A disabled tile (the session lacks the capability its screen needs) shows why instead of its subtitle.
     @ViewBuilder
     private func tileView(_ tile: DashboardTile) -> some View {
         Button {
@@ -313,27 +331,45 @@ public struct DashboardScreen: View {
                 HStack(spacing: DesignTokens.Spacing.md) {
                     Image(systemName: tile.icon)
                         .font(.system(size: 22, weight: .light))
-                        .foregroundStyle(DesignTokens.Color.cyanPrimary)
+                        .foregroundStyle(
+                            tile.unavailableReason == nil
+                                ? DesignTokens.Color.cyanPrimary
+                                : DesignTokens.Color.textDisabled
+                        )
                         .frame(width: 32)
                     VStack(alignment: .leading, spacing: DesignTokens.Spacing.xxs) {
                         Text(tile.title)
                             .font(AppFont.bodyBold(16))
-                            .foregroundStyle(DesignTokens.Color.textPrimary)
-                        Text(tile.subtitle)
-                            .font(AppFont.body(13))
-                            .foregroundStyle(DesignTokens.Color.textSecondary)
-                            .lineLimit(1)
+                            .foregroundStyle(
+                                tile.unavailableReason == nil
+                                    ? DesignTokens.Color.textPrimary
+                                    : DesignTokens.Color.textDisabled
+                            )
+                        if let reason = tile.unavailableReason {
+                            Text(reason)
+                                .font(AppFont.body(13))
+                                .foregroundStyle(DesignTokens.Color.textSecondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        } else {
+                            Text(tile.subtitle)
+                                .font(AppFont.body(13))
+                                .foregroundStyle(DesignTokens.Color.textSecondary)
+                                .lineLimit(1)
+                        }
                     }
                     Spacer(minLength: 0)
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(DesignTokens.Color.textSecondary)
+                    if tile.unavailableReason == nil {
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(DesignTokens.Color.textSecondary)
+                    }
                 }
                 .padding(DesignTokens.Spacing.md)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .buttonStyle(.plain)
+        .disabled(tile.unavailableReason != nil)
     }
 
     // MARK: - Warning and error banners
@@ -360,6 +396,53 @@ public struct DashboardScreen: View {
         .overlay(
             DesignTokens.Shape.small
                 .strokeBorder(DesignTokens.Color.amberWarn, lineWidth: 1)
+        )
+    }
+
+    /// Crimson notice for a session that ended (the socket dropped and the silent reconnect failed): the typed cause
+    /// with its URL, and Retry (connect again).
+    @ViewBuilder
+    private func endCauseBanner(_ cause: String) -> some View {
+        VStack(alignment: .leading, spacing: DesignTokens.Spacing.sm) {
+            HStack(alignment: .top, spacing: DesignTokens.Spacing.sm) {
+                Image(systemName: "exclamationmark.octagon.fill")
+                    .foregroundStyle(DesignTokens.Color.crimsonError)
+                    .font(.system(size: 16))
+                VStack(alignment: .leading, spacing: DesignTokens.Spacing.xxs) {
+                    Text("Connection lost")
+                        .font(AppFont.bodyBold(14))
+                        .foregroundStyle(DesignTokens.Color.textPrimary)
+                    Text(verbatim: cause)
+                        .font(AppFont.mono(12))
+                        .foregroundStyle(DesignTokens.Color.textPrimary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+            }
+            Button {
+                Task { await vm.retry() }
+            } label: {
+                if vm.isRetrying {
+                    ProgressView()
+                        .tint(DesignTokens.Color.cyanPrimary)
+                        .controlSize(.small)
+                } else {
+                    Text("Retry")
+                        .font(AppFont.bodyMedium(14))
+                        .foregroundStyle(DesignTokens.Color.cyanPrimary)
+                }
+            }
+            .disabled(vm.isRetrying)
+        }
+        .padding(.horizontal, DesignTokens.Spacing.md)
+        .padding(.vertical, DesignTokens.Spacing.sm)
+        .background(
+            DesignTokens.Shape.small
+                .fill(DesignTokens.Color.crimsonError.opacity(0.12))
+        )
+        .overlay(
+            DesignTokens.Shape.small
+                .strokeBorder(DesignTokens.Color.crimsonError, lineWidth: 1)
         )
     }
 
@@ -403,4 +486,6 @@ private struct DashboardTile: Identifiable, Hashable {
     let subtitle: String
     let icon: String
     let route: Route
+    /// Why the tile is disabled (``DashboardViewModel/unavailableReason(_:)``); `nil` when it opens its screen.
+    var unavailableReason: String? = nil
 }

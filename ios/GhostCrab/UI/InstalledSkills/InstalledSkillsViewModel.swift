@@ -8,6 +8,9 @@ import Observation
 /// each install's progress stream into a per-slug `progress` map. Removal
 /// (which disables the skill, `skills.update`) tracks its pending, confirm and
 /// in-flight state locally: the call reports no progress.
+///
+/// Every new gateway session (the silent reconnect's new session included) refreshes the list; the reconnecting state
+/// itself neither refreshes nor reports an error.
 @MainActor
 @Observable
 public final class InstalledSkillsViewModel {
@@ -43,6 +46,8 @@ public final class InstalledSkillsViewModel {
     // MARK: - Dependencies
 
     private let repo: any InstalledSkillRepository
+    /// Source of new sessions; `nil` refreshes only on ``start()`` and pull-to-refresh.
+    private let gateway: (any GatewayConnectionManager)?
 
     // MARK: - Background tasks
 
@@ -50,11 +55,17 @@ public final class InstalledSkillsViewModel {
     private var observeTask: Task<Void, Never>?
     @ObservationIgnored
     private var installTasks: [String: Task<Void, Never>] = [:]
+    /// Refreshes on every new session. Read-only outside the VM so tests can cancel and await it.
+    @ObservationIgnored private(set) var sessionTask: Task<Void, Never>?
 
     // MARK: - Init / lifecycle
 
-    public init(skills: any InstalledSkillRepository) {
+    /// - Parameters:
+    ///   - skills: The installed-skill repository.
+    ///   - gateway: Connection state source; a new session refreshes the list.
+    public init(skills: any InstalledSkillRepository, gateway: (any GatewayConnectionManager)? = nil) {
         self.repo = skills
+        self.gateway = gateway
     }
 
     /// Begin observing the live list and trigger an initial refresh. Call from
@@ -69,6 +80,18 @@ public final class InstalledSkillsViewModel {
             }
         }
         Task { await refresh() }
+        if let gateway {
+            let loadedFor = gateway.currentState
+            sessionTask = Task { [weak self] in
+                var sessions = SessionTracker()
+                sessions.markLoaded(loadedFor)
+                for await state in gateway.connectionStates() {
+                    if Task.isCancelled { break }
+                    guard let self else { break }
+                    if sessions.isNewSession(state) { await self.refresh() }
+                }
+            }
+        }
     }
 
     /// Cancel observation and all in-flight install tasks. Call from `.task`
@@ -76,12 +99,15 @@ public final class InstalledSkillsViewModel {
     public func stop() {
         observeTask?.cancel()
         observeTask = nil
+        sessionTask?.cancel()
+        sessionTask = nil
         for task in installTasks.values { task.cancel() }
         installTasks.removeAll()
     }
 
     deinit {
         observeTask?.cancel()
+        sessionTask?.cancel()
         for task in installTasks.values { task.cancel() }
     }
 

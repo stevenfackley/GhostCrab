@@ -201,6 +201,65 @@ struct ConfigEditorViewModelTests {
         #expect(showsNoConfigApi)
     }
 
+    @Test func aSaveThatFailsBecauseTheSessionDroppedKeepsEveryPendingEdit() async {
+        let endpoint = "ws://192.168.1.20:18789/ws"
+        let repo = RejectingConfigRepository(
+            config: OpenClawConfig(sections: [
+                "gateway": AnyCodable(["port": AnyCodable(18789)]),
+                "agents": AnyCodable(["note": AnyCodable("old")]),
+            ]),
+            error: .unreachable(url: endpoint)
+        )
+        let vm = ConfigEditorViewModel(config: repo, gateway: FakeGatewayConnectionManager())
+        vm.loadConfig()
+        await vm.loadTask?.value
+        vm.editSection("gateway", value: AnyCodable(["port": AnyCodable(18790)]))
+        vm.editSection("agents", value: AnyCodable(["note": AnyCodable("kept")]))
+
+        vm.confirmSave("gateway")
+        await vm.saveTask?.value
+
+        guard case .ready(_, let pending, _, let saveSection, let saveSuccess, let conflict) = vm.state else {
+            Issue.record("expected ready, got \(vm.state)")
+            return
+        }
+        #expect(pending["gateway"]?.objectValue?["port"]?.value as? Int == 18790)
+        #expect(pending["agents"]?.objectValue?["note"]?.value as? String == "kept")
+        #expect(!saveSuccess)
+        #expect(saveSection == nil)
+        #expect(conflict == nil)
+        #expect(vm.saveError?.hasPrefix("Save failed: ") == true)
+        #expect(vm.saveError?.contains(endpoint) == true)
+
+        vm.clearSaveError()
+        #expect(vm.saveError == nil)
+    }
+
+    @Test func aReconnectKeepsTheEditsAndTheNewSessionReloadsOnlyTheConfig() async {
+        let repo = FakeConfigRepository(config: OpenClawConfig(sections: ["gateway": AnyCodable(["port": AnyCodable(18789)])]))
+        let gateway = ScriptedConnectionManager(ScriptedConnectionManager.connected(generation: 1))
+        let vm = ConfigEditorViewModel(config: repo, gateway: gateway)
+        vm.start()
+        await waitUntil { repo.getConfigCount == 1 && gateway.subscriberCount == 1 }
+        await vm.loadTask?.value
+        vm.editSection("gateway", value: AnyCodable(["port": AnyCodable(18790)]))
+
+        gateway.emit(ScriptedConnectionManager.connected(generation: 1, reconnecting: true))
+        gateway.emit(ScriptedConnectionManager.connected(generation: 2))
+        await waitUntil { repo.getConfigCount >= 2 }
+        await vm.loadTask?.value
+
+        #expect(repo.getConfigCount == 2) // the reconnecting state loaded nothing
+        guard case .ready(let config, let pending, _, _, _, _) = vm.state else {
+            Issue.record("expected ready, got \(vm.state)")
+            return
+        }
+        #expect(config.sections["gateway"] != nil)
+        #expect(pending["gateway"]?.objectValue?["port"]?.value as? Int == 18790)
+        #expect(vm.saveError == nil)
+        vm.stop()
+    }
+
     @Test func cancelledLoadPublishesNoError() async {
         let vm = ConfigEditorViewModel(config: HangingConfigRepository(), gateway: FakeGatewayConnectionManager())
 

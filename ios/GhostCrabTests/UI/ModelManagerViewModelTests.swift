@@ -6,6 +6,25 @@ import Foundation
 @Suite("ModelManagerViewModel activation")
 struct ModelManagerViewModelTests {
 
+    @Test func onlyANewSessionReloadsTheList() async {
+        let repo = FakeModelRepository(models: [FakeModelRepository.model("m1", active: true)])
+        let gateway = ScriptedConnectionManager(ScriptedConnectionManager.connected(generation: 1))
+        let vm = ModelManagerViewModel(models: repo, gateway: gateway)
+        let run = Task { await vm.run() }
+        await waitUntil { repo.getModelsCount == 1 && gateway.subscriberCount == 1 }
+
+        gateway.emit(ScriptedConnectionManager.connected(generation: 1, reconnecting: true))
+        gateway.emit(ScriptedConnectionManager.connected(generation: 2))
+        await waitUntil { repo.getModelsCount >= 2 }
+        try? await Task.sleep(for: .milliseconds(50)) // room for a reload the reconnecting state should not start
+
+        #expect(repo.getModelsCount == 2)
+        #expect(vm.lastError == nil)
+        #expect(vm.models_.map(\.id) == ["m1"])
+        run.cancel()
+        await run.value
+    }
+
     private func makeVM(setActiveError: GatewayError? = nil) async -> (ModelManagerViewModel, FakeModelRepository) {
         let repo = FakeModelRepository(
             models: [FakeModelRepository.model("m1", active: true), FakeModelRepository.model("m2")],

@@ -1,4 +1,5 @@
 import Foundation
+import Testing
 @testable import GhostCrab
 
 // Hand-written fakes for the frozen `Domain/Repository` protocols.
@@ -25,6 +26,7 @@ final class FakeGatewayConnectionManager: GatewayConnectionManager, @unchecked S
     private var connectLog: [(url: String, token: String?)] = []
     private var probeLog: [String] = []
     private var disconnects = 0
+    private var sessions = 0
 
     /// - Parameters:
     ///   - connectError: When set, every `connect(url:token:)` throws it (after `failFirst` is used up).
@@ -80,13 +82,15 @@ final class FakeGatewayConnectionManager: GatewayConnectionManager, @unchecked S
             throw failure
         }
         lock.withLock {
+            sessions += 1
             state = .connected(
                 url: url,
                 displayName: "Fake Gateway",
                 version: "test",
                 authRequirement: token == nil ? AuthRequirement.none : AuthRequirement.token,
                 isHttps: url.lowercased().hasPrefix("https://"),
-                capabilities: []
+                capabilities: [],
+                sessionGeneration: sessions
             )
         }
     }
@@ -101,6 +105,129 @@ final class FakeGatewayConnectionManager: GatewayConnectionManager, @unchecked S
     func connectionWarnings() async -> [ConnectionWarning] {
         warnings
     }
+}
+
+// MARK: - ScriptedConnectionManager
+
+/// ``GatewayConnectionManager`` whose state the test publishes with ``emit(_:)``. Unlike
+/// ``FakeGatewayConnectionManager`` its streams stay open (each replays the current state first), so a ViewModel sees
+/// every transition, e.g. the silent reconnect's `reconnecting` state and the new session after it. A `connect`
+/// publishes the next session (or `.error` with `connectError`); `disconnect` publishes `.disconnected`.
+final class ScriptedConnectionManager: GatewayConnectionManager, @unchecked Sendable {
+    static let url = "http://192.168.1.20:18789"
+    static let allCapabilities = [GatewayHello.capabilityConfig, GatewayHello.capabilityModels, GatewayHello.capabilitySkills]
+
+    private let lock = NSLock()
+    private var state: GatewayConnection
+    private var continuations: [UUID: AsyncStream<GatewayConnection>.Continuation] = [:]
+    private var currentWarnings: [ConnectionWarning] = []
+    private var warningReads = 0
+    private var connectLog: [(url: String, token: String?)] = []
+    private var nextGeneration: Int
+    private let connectError: GatewayError?
+
+    /// - Parameters:
+    ///   - initial: The state replayed first.
+    ///   - connectError: When set, every `connect` publishes `.error(url, connectError)` and throws it.
+    init(_ initial: GatewayConnection = .disconnected, connectError: GatewayError? = nil) {
+        self.state = initial
+        self.connectError = connectError
+        self.nextGeneration = (initial.sessionGeneration ?? 0) + 1
+    }
+
+    /// A live session at ``url`` with token `shared-token`.
+    static func connected(
+        generation: Int,
+        reconnecting: Bool = false,
+        capabilities: [String] = allCapabilities
+    ) -> GatewayConnection {
+        .connected(
+            url: url,
+            displayName: "Basement",
+            version: "2026.10.3",
+            authRequirement: .token,
+            isHttps: false,
+            capabilities: capabilities,
+            tokenOrNull: "shared-token",
+            reconnecting: reconnecting,
+            sessionGeneration: generation
+        )
+    }
+
+    var currentState: GatewayConnection { lock.withLock { state } }
+    var subscriberCount: Int { lock.withLock { continuations.count } }
+    var warningReadCount: Int { lock.withLock { warningReads } }
+    var connectURLs: [String] { lock.withLock { connectLog.map { $0.url } } }
+    var connectTokens: [String?] { lock.withLock { connectLog.map { $0.token } } }
+
+    func setWarnings(_ warnings: [ConnectionWarning]) {
+        lock.withLock { currentWarnings = warnings }
+    }
+
+    /// Publishes `next` to every open stream.
+    func emit(_ next: GatewayConnection) {
+        let targets: [AsyncStream<GatewayConnection>.Continuation] = lock.withLock {
+            state = next
+            if let generation = next.sessionGeneration { nextGeneration = max(nextGeneration, generation + 1) }
+            return Array(continuations.values)
+        }
+        for continuation in targets { continuation.yield(next) }
+    }
+
+    func connectionStates() -> AsyncStream<GatewayConnection> {
+        AsyncStream { continuation in
+            let id = UUID()
+            let snapshot: GatewayConnection = lock.withLock {
+                continuations[id] = continuation
+                return state
+            }
+            continuation.onTermination = { [weak self] _ in self?.unregister(id) }
+            continuation.yield(snapshot)
+        }
+    }
+
+    private func unregister(_ id: UUID) {
+        _ = lock.withLock { continuations.removeValue(forKey: id) }
+    }
+
+    func probeAuth(url: String) async throws -> AuthRequirement { .token }
+
+    func connect(url: String, token: String?) async throws {
+        let generation: Int = lock.withLock {
+            connectLog.append((url: url, token: token))
+            return nextGeneration
+        }
+        if let connectError {
+            emit(.error(url: url, cause: connectError))
+            throw connectError
+        }
+        emit(Self.connected(generation: generation))
+    }
+
+    func disconnect() async {
+        emit(.disconnected)
+    }
+
+    func connectionWarnings() async -> [ConnectionWarning] {
+        lock.withLock {
+            warningReads += 1
+            return currentWarnings
+        }
+    }
+}
+
+/// Lets queued main-actor work run until `condition` holds: yields first, then sleeps 5 ms at a time, ~2 s at most.
+@MainActor
+func waitUntil(_ condition: @MainActor () -> Bool) async {
+    for attempt in 0..<500 {
+        if condition() { return }
+        if attempt < 100 {
+            await Task.yield()
+        } else {
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+    }
+    Issue.record("the condition never held")
 }
 
 // MARK: - ConnectionProfileRepository
@@ -348,14 +475,21 @@ final class FakeConfigRepository: ConfigRepository, @unchecked Sendable {
     private let lock = NSLock()
     private var config: OpenClawConfig
     private var updates: [String] = []
+    private var reads = 0
 
     init(config: OpenClawConfig) {
         self.config = config
     }
 
     var updatedSections: [String] { lock.withLock { updates } }
+    var getConfigCount: Int { lock.withLock { reads } }
 
-    func getConfig() async throws -> OpenClawConfig { lock.withLock { config } }
+    func getConfig() async throws -> OpenClawConfig {
+        lock.withLock {
+            reads += 1
+            return config
+        }
+    }
 
     func updateConfig(section: String, value: AnyCodable) async throws {
         lock.withLock {
