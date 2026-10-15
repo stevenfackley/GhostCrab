@@ -7,8 +7,28 @@ import kotlinx.coroutines.flow.flow
 
 /** Thin abstraction over a Ktor WS session — enables injecting a fake in tests. */
 interface WsSession {
+    /**
+     * Sends one text frame.
+     *
+     * @param text The frame's JSON text.
+     * @throws Exception the transport failure when the frame cannot be written (e.g. the socket already closed);
+     *   [com.openclaw.ghostcrab.data.gateway.GatewayRpcClient] maps it to `GatewayUnreachableException`.
+     */
     suspend fun send(text: String)
+
+    /**
+     * The server's text frames, in order; other frame types are skipped. Collect it once.
+     *
+     * @return A flow that completes when the socket closes (then read [closeReason]).
+     * @throws Exception when collected, the transport failure if the socket fails instead of closing.
+     */
     fun incoming(): Flow<String>
+
+    /**
+     * Closes the socket from the client side; [incoming] then completes.
+     *
+     * @throws Exception the transport failure while sending the close frame.
+     */
     suspend fun close()
 
     /**

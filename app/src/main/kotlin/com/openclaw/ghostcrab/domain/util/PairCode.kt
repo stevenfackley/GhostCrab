@@ -127,14 +127,16 @@ private fun decodeSetupCode(encoded: String): PairCodeResult.SetupCode? {
  * User-facing explanation for a scanned or pasted setup code (ADR-0007): what it is, why GhostCrab cannot use it,
  * and what to do instead.
  *
+ * Plain text (shown in a snackbar, which renders no Markdown): the approval command stands on its own last line.
+ *
  * @param url The gateway URL inside the code, when usable.
- * @return One paragraph naming the URL (when known), the gateway token and the approval command.
+ * @return One paragraph naming the URL (when known) and the gateway token, then a line with the approval command.
  */
 fun setupCodeExplanation(url: GatewayUrl?): String =
-    "This is an OpenClaw setup code (`openclaw qr`). Setup codes pair OpenClaw node apps; they cannot give " +
+    "This is an OpenClaw setup code (from openclaw qr). Setup codes pair OpenClaw node apps; they cannot give " +
         "GhostCrab operator access (over plain ws:// they grant no access at all). Open Manual Entry, enter " +
         (url?.let { "$it" } ?: "the gateway URL") + " and the gateway token, then approve this device on the " +
-        "gateway host with `openclaw devices approve <requestId>`."
+        "gateway host:\nopenclaw devices approve <requestId>"
 
 private fun decodeBundle(uri: String): PairCodeResult {
     val json = payloadJson(uri)

@@ -36,14 +36,18 @@ curl -X POST http://127.0.0.1:18790/__mock/setup-code
 | `FAIL_MODE` | *(none)* | `install-unavailable`: every `skills.install` fails like an unknown ClawHub slug |
 | `MOCK_DISPLAY_NAME` | `mock-gateway` | gateway host in `hello-ok` presence: the name the apps show (store screenshots use `Home Lab`) |
 | `MOCK_VERSION` | `2026.10.3-mock` | `hello-ok.server.version` |
+| `CONFIG_CHANGED_EARLY` | *(off)* | `1` sends `config.changed` *before* the `skills.update` / `config.patch` response, an ordering the real gateway also produces; clients must subscribe to events before sending the write. `createMockGateway({ configChangedEarly: true })` in tests |
 | `LEGACY_REST` | *(off)* | `1` serves the pre-ADR-0007 REST mock (`legacy-rest.mjs`, with its old `STATUS_AUTH` / `MOCK_HARDWARE` switches) for `ios-screenshots.yml` until the iOS plan's Task 20 removes it |
 
 Methods: `health`, `status`, `models.list`, `skills.status`, `skills.install`, `skills.update`, `config.get`,
 `config.patch` (`baseHash` required; `gateway.port` validated; `__OPENCLAW_REDACTED__` restores the secret).
 Anything else answers `INVALID_REQUEST unknown method: …`, as upstream. Writes (`config.patch`, `skills.update`)
-emit `config.changed` ~80 ms later, and `skills.status` reflects a `skills.update` only from then on, as upstream.
+emit `config.changed` ~80 ms later (before the response with `CONFIG_CHANGED_EARLY=1`), and `skills.status`
+reflects a `skills.update` only from then on, as upstream. The seeded config sets `agents.defaults.model.primary`
+to `anthropic/claude-sonnet-4-6`, so the apps show that model active.
 `client.id` must be `openclaw-android` or `openclaw-ios` and `client.mode` `ui` or `cli`; a paired device that
-changes `platform` must be approved again.
+changes `platform` must be approved again. A refused `connect` is followed by close `1008` with the error message as
+the reason; for `PAIRING_REQUIRED` the reason ends in ` (requestId: <id>)`, as upstream.
 
 ## Tests
 

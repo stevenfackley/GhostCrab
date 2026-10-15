@@ -83,7 +83,11 @@ test("pairing: one stable requestId until approved, then scopes and a reusable d
   const expected = fixture("err-pairing-required").error;
   assert.equal(first.error.code, expected.code);
   assert.deepEqual(keys(first.error.details), keys(expected.details));
-  assert.equal((await first.closed).code, 1008);
+  // Verified close frame: the message plus the pending request's id.
+  assert.deepEqual(await first.closed, {
+    code: 1008,
+    reason: `pairing required: device is not approved yet (requestId: ${first.error.details.requestId})`,
+  });
   const retry = await connect(url, { identity, auth: { token: TOKEN } });
   assert.equal(retry.error.details.requestId, first.error.details.requestId);
   await approve();
@@ -139,6 +143,9 @@ test("config.patch: verified error and success shapes, redacted secrets restored
   const s = await pairedSession();
   const first = (await s.request("config.get")).payload;
   assert.equal(first.parsed.gateway.auth.token, "__OPENCLAW_REDACTED__");
+  // Seeded like a real gateway, so the Models screen marks the ready model active.
+  assert.equal(first.parsed.agents.defaults.model.primary, "anthropic/claude-sonnet-4-6");
+  assert.equal((await s.request("status")).payload.sessions.defaults.model, "anthropic/claude-sonnet-4-6");
   const raw = JSON.stringify({ gateway: { port: 18790 } });
   assert.deepEqual((await s.request("config.patch", { raw, baseHash: "stale" })).error, fixture("err-config-stale-hash").error);
   assert.match((await s.request("config.patch", { raw })).error.message, /^config base hash required for gateway\.port; /);
@@ -153,6 +160,34 @@ test("config.patch: verified error and success shapes, redacted secrets restored
   assert.equal(next.hash, done.payload.hash);
   assert.notEqual(next.hash, first.hash);
   assert.equal(gateway.state.config.gateway.auth.token, TOKEN);
+  s.close();
+});
+
+test("configChangedEarly: config.changed precedes the write's response, as the real gateway sometimes sends it", async () => {
+  const early = createMockGateway({ autoApprove: true, configChangedEarly: true });
+  const { port } = await early.listen(0, "127.0.0.1");
+  try {
+    const s = await connect(`ws://127.0.0.1:${port}/ws`);
+    assert.ok(s.hello, JSON.stringify(s.error));
+    assert.equal((await s.request("skills.update", { skillKey: "browser-automation", enabled: false })).ok, true);
+    // Zero wait: the event must already be queued when the response arrives.
+    assert.ok(await s.nextEvent("config.changed", 0), "config.changed did not precede the skills.update response");
+    assert.equal((await skillNamed(s, "browser-automation")).disabled, true);
+    const { hash } = (await s.request("config.get")).payload;
+    const patch = await s.request("config.patch", { raw: JSON.stringify({ gateway: { port: 18791 } }), baseHash: hash });
+    assert.equal(patch.ok, true);
+    assert.ok(await s.nextEvent("config.changed", 0), "config.changed did not precede the config.patch response");
+    s.close();
+  } finally {
+    await early.close();
+  }
+});
+
+test("by default config.changed follows the write's response", async () => {
+  const s = await pairedSession();
+  assert.equal((await s.request("skills.update", { skillKey: "browser-automation", enabled: true })).ok, true);
+  assert.equal(await s.nextEvent("config.changed", 0), null);
+  assert.ok(await s.nextEvent("config.changed"));
   s.close();
 });
 

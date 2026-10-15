@@ -132,6 +132,12 @@ class PairCodeTest {
         assertTrue(text.contains("openclaw devices approve"))
     }
 
+    @Test fun `the explanation is plain text with the approve command on its own line`() {
+        val text = setupCodeExplanation(null)
+        assertFalse(text.contains('`'), text)
+        assertEquals("openclaw devices approve <requestId>", text.lines().last())
+    }
+
     @Test fun `base64 json without a bootstrap token is not a setup code`() {
         assertInstanceOf(PairCodeResult.Invalid::class.java, decodePairCode(encode("""{"url":"ws://h:1"}""")))
     }

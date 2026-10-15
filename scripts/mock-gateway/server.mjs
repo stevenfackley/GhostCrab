@@ -3,11 +3,12 @@
 // ghcr.io/openclaw/openclaw 2026.10.3 (docs/QA_REAL_GATEWAY_2026-10.md, docs/adr/0007-gateway-protocol-alignment.md).
 //   HTTP: /health, /ready (JSON); Control-UI-style HTML for other GETs; 404 text/plain for /api/* and other methods.
 //   WS (any path): connect.challenge -> signed connect -> hello-ok | PAIRING_REQUIRED, then req/res RPCs, and
-//   config.changed events ~80 ms after writes.
+//   config.changed events ~80 ms after writes (or before the write's response with CONFIG_CHANGED_EARLY=1).
 //   Mock-only routes (never on a real gateway): POST /__mock/devices/approve, POST /__mock/setup-code.
 // Env: PORT (18790), HOST (0.0.0.0), TOKEN (shared token; unset = auth mode none), SCOPES (granted subset),
 //      AUTO_APPROVE=1 (approve new devices at once), FAIL_MODE (comma list: install-unavailable),
 //      MOCK_DISPLAY_NAME (presence host = the app's gateway name), MOCK_VERSION (server.version),
+//      CONFIG_CHANGED_EARLY=1 (config.changed before the write's response, an ordering the real gateway also shows),
 //      LEGACY_REST=1 (serve the pre-ADR-0007 REST mock in legacy-rest.mjs instead; ios-screenshots.yml only,
 //      until the iOS plan's Task 20 removes it).
 import http from "node:http";
@@ -51,6 +52,7 @@ export function createMockGateway({
   failModes = [],
   displayName = "mock-gateway",
   version = MOCK_VERSION,
+  configChangedEarly = false,
 } = {}) {
   const fail = new Set(failModes);
   const state = {
@@ -58,7 +60,8 @@ export function createMockGateway({
     pending: new Map(), // deviceId -> { requestId, scopes, platform }
     config: {
       gateway: { mode: "local", port: 18789, bind: "lan", auth: token ? { mode: "token", token } : { mode: "none" } },
-      agents: { entries: { main: {} } },
+      // A real gateway's config names a primary model; the ready one below, so apps show it active.
+      agents: { defaults: { model: { primary: "anthropic/claude-sonnet-4-6" } }, entries: { main: {} } },
     },
     models: [
       { id: "claude-sonnet-4-6", name: "Claude Sonnet 4.6", provider: "anthropic", available: true, input: ["text", "image"], reasoning: true },
@@ -82,6 +85,18 @@ export function createMockGateway({
     timer.unref?.();
     timers.add(timer);
     return timer;
+  };
+  /**
+   * After a write: applies [catchUp] (what the next read reflects) and emits config.changed, ~80 ms later by
+   * default, or at once with configChangedEarly, i.e. before the caller sends the write's response.
+   */
+  const afterWrite = (catchUp = () => {}) => {
+    const changed = () => {
+      catchUp();
+      broadcastConfigChanged();
+    };
+    if (configChangedEarly) changed();
+    else later(changed);
   };
 
   const server = http.createServer((req, res) => handleHttp(req, res));
@@ -156,7 +171,7 @@ export function createMockGateway({
         const result = authenticate(frame.params ?? {}, nonce, ts);
         if (result.error) {
           send({ type: "res", id: frame.id, ok: false, error: result.error });
-          return ws.close(1008, result.error.message.slice(0, 120));
+          return ws.close(1008, closeReason(result.error));
         }
         session = result.session;
         clearTimeout(deadline);
@@ -175,6 +190,11 @@ export function createMockGateway({
     }
   }
 
+  /** Verified: the close reason is the error message, plus ` (requestId: …)` for a pairing request. */
+  const closeReason = (error) => {
+    const requestId = error.details?.code === "PAIRING_REQUIRED" ? error.details.requestId : null;
+    return `${error.message}${requestId ? ` (requestId: ${requestId})` : ""}`.slice(0, 123);
+  };
   const reject = (code, message, details) => ({ error: { code, message, ...(details ? { details } : {}) } });
   const rejectAuth = (detail, message, authReason, recommendedNextStep) =>
     reject("INVALID_REQUEST", message, { code: detail, authReason, canRetryWithDeviceToken: false, recommendedNextStep });
@@ -325,10 +345,9 @@ export function createMockGateway({
     const entries = state.config.skills?.entries ?? {};
     state.config.skills = { ...state.config.skills, entries: { ...entries, [skillKey]: { ...entries[skillKey], enabled } } };
     revision += 1;
-    later(() => {
+    afterWrite(() => {
       const skill = state.skills.find((entry) => entry.skillKey === skillKey);
       if (skill) skill.disabled = !enabled;
-      broadcastConfigChanged();
     });
     return ok({ ok: true, skillKey, config: { enabled } });
   }
@@ -369,7 +388,7 @@ export function createMockGateway({
     }
     state.config = next;
     revision += 1;
-    later(() => broadcastConfigChanged());
+    afterWrite();
     return ok({
       ok: true,
       path: CONFIG_PATH,
@@ -423,6 +442,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       failModes: (process.env.FAIL_MODE || "").split(",").map((s) => s.trim()).filter(Boolean),
       displayName: process.env.MOCK_DISPLAY_NAME || "mock-gateway",
       version: process.env.MOCK_VERSION || MOCK_VERSION,
+      configChangedEarly: process.env.CONFIG_CHANGED_EARLY === "1",
     });
     const address = await gateway.listen(Number(process.env.PORT || 18790), process.env.HOST || "0.0.0.0");
     console.log(`mock OpenClaw gateway (protocol ${PROTOCOL}) on ${address.address}:${address.port}`);
