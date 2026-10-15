@@ -12,6 +12,12 @@ struct GatewayRPCClientTests {
         var description: String { "the client never sent \(method)" }
     }
 
+    /// The error a child task's request ended with.
+    private actor ErrorRecorder {
+        private(set) var error: (any Error)?
+        func record(_ error: any Error) { self.error = error }
+    }
+
     private func client(_ socket: ScriptedGatewayWebSocket, timeout: Duration = .seconds(5)) async -> GatewayRPCClient {
         let rpc = GatewayRPCClient(socket: socket, endpoint: "ws://test/ws", defaultTimeout: timeout)
         await rpc.start()
@@ -205,10 +211,32 @@ struct GatewayRPCClientTests {
     }
 
     @Test func anOuterTimeoutPropagatesAsItselfNotAsAGatewayTimeout() async throws {
-        let rpc = await client(try ScriptedGatewayWebSocket(), timeout: .seconds(5))
+        let socket = try ScriptedGatewayWebSocket() // never answers `health`
+        let rpc = await client(socket, timeout: .seconds(5))
+        let requestOutcome = ErrorRecorder()
         await #expect(throws: OuterTimeout.self) {
-            try await withOuterTimeout(.milliseconds(50)) { try await rpc.request("health") }
+            try await withThrowingTaskGroup(of: Void.self) { group in
+                group.addTask {
+                    do {
+                        _ = try await rpc.request("health")
+                    } catch {
+                        await requestOutcome.record(error)
+                        throw error
+                    }
+                }
+                group.addTask {
+                    // The caller's own deadline fires only once the request is in flight, so its cancellation must
+                    // go through the request's cancellation handler.
+                    _ = try await sentId(socket, "health")
+                    throw OuterTimeout()
+                }
+                defer { group.cancelAll() }
+                while try await group.next() != nil {}
+            }
         }
+        // The group waited for the request child: its own error is the cancellation, well before its 5 s timeout.
+        let requestError = await requestOutcome.error
+        #expect(requestError is CancellationError, "the request ended with \(String(describing: requestError))")
         #expect(await rpc.pendingRequestCount == 0)
     }
 

@@ -49,6 +49,15 @@ struct GatewayConnectionManagerImplTests {
         return false
     }
 
+    /// Waits (up to ~3 s) until the manager has left `.connected`, e.g. after its session socket dropped.
+    private func waitUntilNotConnected(_ manager: GatewayConnectionManagerImpl) async throws {
+        for _ in 0..<300 {
+            if !Self.isConnected(manager.currentState) { return }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        Issue.record("the manager stayed connected")
+    }
+
     // MARK: connect
 
     @Test func sharedTokenConnectSignsTheHandshakeAndLandsConnected() async throws {
@@ -227,6 +236,29 @@ struct GatewayConnectionManagerImplTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
+    func aNewConnectReplacesTheLiveSessionAndClosesItsSocketOnce() async throws {
+        let old = try ScriptedGatewayWebSocket(replies: try .fixtures(["connect": "hello-ok-paired"]))
+        let replacement = try ScriptedGatewayWebSocket(replies: try .fixtures(["connect": "hello-ok-paired", "health": "res-health"]))
+        let (manager, url) = makeManager([old, replacement])
+        try await manager.connect(url: url, token: "shared-token")
+        #expect(Self.isConnected(manager.currentState))
+
+        try await manager.connect(url: url, token: "shared-token")
+        #expect(Self.isConnected(manager.currentState))
+        #expect(await old.closeCount == 1)
+        #expect(await replacement.closeCount == 0)
+        // The replacement is the live session; the old socket's end does not knock it over.
+        _ = try await manager.requireSession().request("health")
+        #expect(await replacement.sentMethods() == ["connect", "health"])
+        #expect(await old.sentMethods() == ["connect"])
+        #expect(Self.isConnected(manager.currentState))
+
+        await manager.disconnect()
+        #expect(await old.closeCount == 1)
+        #expect(await replacement.closeCount == 1)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
     func aDisconnectSupersedesTheConnectInFlight() async throws {
         let stuck = try ScriptedGatewayWebSocket()
         let (manager, url) = makeManager(stuck)
@@ -300,9 +332,7 @@ struct GatewayConnectionManagerImplTests {
         let (manager, url) = makeManager(socket)
         try await manager.connect(url: url, token: "shared-token")
         await socket.drop()
-        while Self.isConnected(manager.currentState) {
-            await Task.yield()
-        }
+        try await waitUntilNotConnected(manager)
         guard case .error(_, .unreachable) = manager.currentState else {
             Issue.record("expected error(unreachable), got \(manager.currentState)")
             return
@@ -319,9 +349,7 @@ struct GatewayConnectionManagerImplTests {
         let (manager, url) = makeManager(socket)
         try await manager.connect(url: url, token: "shared-token")
         await socket.drop(closeCode: 1008, reason: "device removed")
-        while Self.isConnected(manager.currentState) {
-            await Task.yield()
-        }
+        try await waitUntilNotConnected(manager)
         guard case .error(_, .connectionClosed(_, 1008, "device removed")) = manager.currentState else {
             Issue.record("expected error(connectionClosed 1008), got \(manager.currentState)")
             return
