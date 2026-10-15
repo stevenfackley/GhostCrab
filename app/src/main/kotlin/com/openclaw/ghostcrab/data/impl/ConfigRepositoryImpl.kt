@@ -1,67 +1,77 @@
 package com.openclaw.ghostcrab.data.impl
 
-import com.openclaw.ghostcrab.data.api.OpenClawApiClient
+import com.openclaw.ghostcrab.data.gateway.GatewayRpcClient
+import com.openclaw.ghostcrab.data.gateway.stringOrNull
+import com.openclaw.ghostcrab.domain.exception.GatewayProtocolException
+import com.openclaw.ghostcrab.domain.exception.GatewayRpcException
 import com.openclaw.ghostcrab.domain.model.OpenClawConfig
 import com.openclaw.ghostcrab.domain.repository.ConfigRepository
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+
+private const val METHOD_GET = "config.get"
+private const val METHOD_PATCH = "config.patch"
 
 /**
- * Production [ConfigRepository] backed by [GatewayConnectionManagerImpl].
+ * [ConfigRepository] over the live session socket (ADR-0007). [getConfig] reads `config.get` (`parsed` sections,
+ * `hash` as the ETag); [updateConfig] sends `config.patch {raw: {"<section>": value}, baseHash}`.
  *
- * Caches the ETag of the most recent read **or write** so the next [updateConfig] sends a current
- * `If-Match`. The cache is bound to the session client that produced it: after a reconnect the old
- * tag is never sent. When a write response carries no ETag the cache becomes `null` (the pre-write
- * tag is stale by definition and would only earn a 412).
+ * The cached hash is bound to the socket that produced it, so a reconnect never sends a stale one; without a
+ * cached hash a write reads `config.get` first. The hash a write returns is the next `baseHash`; a write answer
+ * without one clears the cache (the pre-write hash is stale by definition). Reads and writes run one at a time
+ * under [mutex] held across the request, so the cache always comes from the request that completed last: a slow
+ * read overlapping a write cannot replace the write's newer hash with its own.
  *
- * Concurrency: reads and writes run one at a time under a [Mutex] held across the network call, so
- * the cached tag always comes from the request that completed last. Without it, a slow read that
- * overlaps a write could land after the write and replace the write's newer tag with its own stale one.
- *
- * @param connectionManager Concrete manager used to obtain the active [OpenClawApiClient].
+ * @param session Returns the live session's socket; throws `GatewayNotConnectedException` while disconnected.
  */
 class ConfigRepositoryImpl(
-    private val connectionManager: GatewayConnectionManagerImpl,
+    private val session: () -> GatewayRpcClient,
 ) : ConfigRepository {
 
-    private class CachedEtag(val client: OpenClawApiClient, val etag: String?)
+    private class CachedHash(val rpc: GatewayRpcClient, val hash: String?)
 
     private val mutex = Mutex()
 
     /** Guarded by [mutex]. */
-    private var lastEtag: CachedEtag? = null
+    private var lastHash: CachedHash? = null
 
     /**
-     * Fetches the full config from the gateway and caches the returned ETag for this session.
-     * Waits for any in-flight [getConfig] / [updateConfig] on this repository to finish first.
-     *
-     * @return [OpenClawConfig] with all sections and the latest ETag.
-     * @throws com.openclaw.ghostcrab.domain.exception.GatewayException on any gateway failure.
+     * @return The authored config (`parsed`, secrets redacted by the gateway) and its `hash`.
+     * @throws GatewayProtocolException if the payload is not an object.
+     * @throws com.openclaw.ghostcrab.domain.exception.GatewayMissingScopeException without `operator.admin`.
      * @throws com.openclaw.ghostcrab.domain.exception.GatewayNotConnectedException if no session is active.
      */
-    override suspend fun getConfig(): OpenClawConfig = mutex.withLock {
-        val client = connectionManager.requireClient()
-        val (sections, etag) = client.getConfig()
-        lastEtag = CachedEtag(client, etag)
-        OpenClawConfig(sections = sections, etag = etag)
-    }
+    override suspend fun getConfig(): OpenClawConfig = mutex.withLock { fetch(session()) }
 
     /**
-     * Sends a JSON merge-patch for [section] with the current session's cached ETag, then caches the
-     * ETag returned by the write. Waits for any in-flight [getConfig] / [updateConfig] on this
-     * repository to finish first.
-     *
-     * @param section Top-level config section key.
-     * @param value JSON merge-patch value.
-     * @throws com.openclaw.ghostcrab.domain.exception.GatewayApiException on HTTP error, including 412.
-     * @throws com.openclaw.ghostcrab.domain.exception.ConfigValidationException on server-side validation failure.
+     * @param section Top-level key, e.g. `gateway`.
+     * @param value Merge-patch value for that section.
+     * @throws com.openclaw.ghostcrab.domain.exception.GatewayApiException 412 on a stale or missing hash, 422 on a
+     *   rejected value (the body is the server text, naming the first failing path).
+     * @throws com.openclaw.ghostcrab.domain.exception.GatewayMissingScopeException without `operator.admin`.
      * @throws com.openclaw.ghostcrab.domain.exception.GatewayNotConnectedException if no session is active.
      */
     override suspend fun updateConfig(section: String, value: JsonElement): Unit = mutex.withLock {
-        val client = connectionManager.requireClient()
-        val cached = lastEtag?.takeIf { it.client === client }?.etag
-        val newEtag = client.updateConfig(section, value, cached)
-        lastEtag = CachedEtag(client, newEtag)
+        val rpc = session()
+        val baseHash = lastHash?.takeIf { it.rpc === rpc }?.hash ?: fetch(rpc).etag
+        val params = configPatchParams(JsonObject(mapOf(section to value)), baseHash)
+        val result = try {
+            rpc.request(METHOD_PATCH, params, CONFIG_PATCH_TIMEOUT_MS)
+        } catch (e: GatewayRpcException) {
+            throw e.toConfigWriteException()
+        }
+        // 2026.10.3 answers {ok, path, hash, config, changedPaths, sentinel}; without a hash the next write re-reads.
+        lastHash = CachedHash(rpc, (result as? JsonObject)?.stringOrNull("hash"))
+    }
+
+    private suspend fun fetch(rpc: GatewayRpcClient): OpenClawConfig {
+        val payload = rpc.request(METHOD_GET) as? JsonObject
+            ?: throw GatewayProtocolException(rpc.endpoint, "config.get returned a non-object payload")
+        val sections = payload["parsed"] as? JsonObject ?: payload["config"] as? JsonObject ?: JsonObject(emptyMap())
+        val hash = payload.stringOrNull("hash")
+        lastHash = CachedHash(rpc, hash)
+        return OpenClawConfig(sections = sections, etag = hash)
     }
 }

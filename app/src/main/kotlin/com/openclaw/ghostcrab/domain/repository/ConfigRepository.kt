@@ -6,7 +6,8 @@ import com.openclaw.ghostcrab.domain.model.OpenClawConfig
 import kotlinx.serialization.json.JsonElement
 
 /**
- * Reads and writes the OpenClaw Gateway's `openclaw.json` configuration.
+ * Reads and writes the OpenClaw Gateway's `openclaw.json` configuration
+ * (ADR-0007: `config.get` / `config.patch` with a `baseHash` conflict guard over the session socket).
  *
  * Optimistic UI is **forbidden** — the gateway is the source of truth.
  * After every [updateConfig], callers must call [getConfig] to reconcile.

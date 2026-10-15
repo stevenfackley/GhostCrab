@@ -61,7 +61,7 @@ val dataModule = module {
     }
     single<GatewayConnectionManager> { get<GatewayConnectionManagerImpl>() }
     single<GatewayHealthChecker> { get<GatewayConnectionManagerImpl>() }
-    single<ConfigRepository> { ConfigRepositoryImpl(get<GatewayConnectionManagerImpl>()) }
+    single<ConfigRepository> { ConfigRepositoryImpl(session = liveSession()) }
     single<ModelRepository> { ModelRepositoryImpl(get<GatewayConnectionManagerImpl>()) }
     single<AIRecommendationService> { AIRecommendationServiceImpl(get<GatewayConnectionManagerImpl>()) }
     single<DiscoveryService> { NsdDiscoveryServiceImpl(androidContext()) }
