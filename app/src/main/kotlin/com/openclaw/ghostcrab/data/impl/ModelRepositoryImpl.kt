@@ -108,10 +108,10 @@ private fun activeRefOf(primary: String?, entries: List<JsonObject>): String? {
 }
 
 /** One `models.list` entry as a [ModelInfo]; `null` without `id` or `provider`. Active when its ref is [activeRef]. */
-@Suppress("ReturnCount")
 private fun JsonObject.toModelInfo(activeRef: String?): ModelInfo? {
-    val id = stringOrNull("id") ?: return null
-    val provider = stringOrNull("provider") ?: return null
+    val id = stringOrNull("id")
+    val provider = stringOrNull("provider")
+    if (id == null || provider == null) return null
     val ref = modelRef(provider, id)
     val available = (this["available"] as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull
     val reasoning = (this["reasoning"] as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull == true

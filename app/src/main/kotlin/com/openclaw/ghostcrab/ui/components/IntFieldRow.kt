@@ -34,6 +34,7 @@ import com.openclaw.ghostcrab.ui.theme.Spacing
  * @param error An error from outside the field (e.g. the gateway's schema check), shown while the typed text is
  *   locally valid; the field's own range message takes precedence.
  */
+// Compose convention: one flat parameter per field option, the optional ones defaulted, instead of a config object.
 @Suppress("LongParameterList")
 @Composable
 fun IntFieldRow(

@@ -60,9 +60,9 @@ CI runs them in the `mock-gateway` job of `.github/workflows/ci.yml`.
 ## Probing a real gateway
 
 `node probe-real.mjs ws://<host>:18789/ws <token> [pair|no-token|config|skills]` connects with a persistent device
-identity (`.probe-identity.json`, gitignored) and prints frames with device tokens redacted. Run it when a new
-gateway release ships, to re-check what the fixtures pin (`baseHash` errors, `skills.update` and the
-`config.changed` timing, ClawHub skill entries).
+identity (`.probe-identity.json`, gitignored) and prints frames with every token and password redacted
+(`lib/redact.mjs`). Run it when a new gateway release ships, to re-check what the fixtures pin (`baseHash` errors,
+`skills.update` and the `config.changed` timing, ClawHub skill entries).
 
 ## Not covered
 

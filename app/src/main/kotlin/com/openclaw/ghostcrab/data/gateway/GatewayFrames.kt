@@ -134,10 +134,10 @@ object GatewayFrameCodec {
         }
     }
 
-    @Suppress("ReturnCount")
     private fun decodeResponse(obj: JsonObject): GatewayFrame.Response? {
-        val id = obj.stringOrNull("id") ?: return null
-        val ok = obj.strictBooleanOrNull("ok") ?: return null
+        val id = obj.stringOrNull("id")
+        val ok = obj.strictBooleanOrNull("ok")
+        if (id == null || ok == null) return null
         val error = (obj["error"] as? JsonObject)?.let(::decodeError)
         return GatewayFrame.Response(id, ok, obj["payload"], error)
     }

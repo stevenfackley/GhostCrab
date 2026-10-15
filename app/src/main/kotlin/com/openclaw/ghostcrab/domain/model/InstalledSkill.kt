@@ -12,7 +12,8 @@ enum class SkillSource { ClawHub, Local, Unknown }
  *   otherwise (bundled skills have none).
  * @param source Where it came from.
  * @param installedAt Epoch seconds from `clawhub.installedAt` for ClawHub installs; 0 when unknown.
- * @param disabled `true` when `skills.entries.<key>.enabled` is false on the gateway.
+ * @param disabled Additive (v1.1, ADR-0007): `true` when `skills.entries.<key>.enabled` is false on the gateway.
+ *   Defaults to `false`, so v1.0 constructions and serialized values stay valid.
  */
 @Serializable
 data class InstalledSkill(

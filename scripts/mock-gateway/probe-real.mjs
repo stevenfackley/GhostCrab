@@ -11,6 +11,9 @@
 import fs from "node:fs";
 import { connect } from "./lib/client.mjs";
 import { newIdentity } from "./lib/device.mjs";
+import { redactedJson } from "./lib/redact.mjs";
+// Every value printed goes through here: an auto-approving gateway puts a device token in hello-ok.auth.
+const print = (label, value) => console.log(label, redactedJson(value));
 const [url, token, scenario = "pair"] = process.argv.slice(2);
 if (!url || !token) {
   console.error("usage: node probe-real.mjs <ws-url> <shared-token> [pair|no-token|config|skills]");
@@ -18,14 +21,13 @@ if (!url || !token) {
 }
 if (scenario === "no-token") {
   const probe = await connect(url, { identity: newIdentity() });
-  console.log("credential-less connect, new device:", JSON.stringify(probe.hello ? probe.hello.auth : probe.error));
+  print("credential-less connect, new device:", probe.hello ? probe.hello.auth : probe.error);
   probe.close();
   process.exit(0);
 }
 const identityFile = new URL("./.probe-identity.json", import.meta.url); // holds a private key: gitignored
 const identity = fs.existsSync(identityFile) ? JSON.parse(fs.readFileSync(identityFile, "utf8")) : newIdentity();
 fs.writeFileSync(identityFile, JSON.stringify(identity), { mode: 0o600 });
-const print = (label, value) => console.log(label, JSON.stringify(value, (key, v) => (key === "deviceToken" ? "<redacted>" : v)));
 const session = await connect(url, { identity, auth: { token } });
 if (!session.hello) {
   print("connect error:", session.error);
