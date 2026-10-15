@@ -198,3 +198,93 @@ class GatewayNotConnectedException :
     GatewayException("No active gateway connection. Reconnect and try again.") {
     override val isRetryable: Boolean = false
 }
+
+/**
+ * A gateway RPC answered `ok:false` with a code this client has no more specific type for (ADR-0007).
+ *
+ * @param url The gateway WebSocket endpoint.
+ * @param method The RPC method.
+ * @param code Top-level error code (e.g. `UNAVAILABLE`, `INVALID_REQUEST`).
+ * @param detailCode `error.details.code`, when the server sent one.
+ * @param rpcMessage The server's message, verbatim.
+ * @param retryable The server's `retryable` hint.
+ */
+class GatewayRpcException(
+    val url: String,
+    val method: String,
+    val code: String,
+    val detailCode: String?,
+    val rpcMessage: String,
+    retryable: Boolean,
+) : GatewayException("Gateway RPC $method failed at $url: $code${detailCode?.let { "/$it" } ?: ""} — $rpcMessage") {
+    override val isRetryable: Boolean = retryable
+}
+
+/**
+ * The gateway does not implement [method] (`INVALID_REQUEST unknown method: …`). The feature is unsupported
+ * on this gateway; retrying cannot help.
+ *
+ * @param url The gateway WebSocket endpoint.
+ * @param method The RPC method the gateway does not know.
+ */
+class GatewayMethodUnsupportedException(
+    val url: String,
+    val method: String,
+) : GatewayException("Gateway at $url does not support '$method' (INVALID_REQUEST unknown method)") {
+    override val isRetryable: Boolean = false
+}
+
+/**
+ * The connection lacks the operator scope [method] needs (`FORBIDDEN` / `MISSING_SCOPE`). Approve this device
+ * with that scope on the gateway host.
+ *
+ * @param url The gateway WebSocket endpoint.
+ * @param method The refused RPC method.
+ * @param missingScope The scope the gateway reported, e.g. `operator.admin`.
+ */
+class GatewayMissingScopeException(
+    val url: String,
+    val method: String,
+    val missingScope: String,
+) : GatewayException("Gateway at $url refused '$method': missing scope $missingScope (FORBIDDEN/MISSING_SCOPE)") {
+    override val isRetryable: Boolean = false
+}
+
+/**
+ * The gateway knows this device but its owner has not approved it yet (`NOT_PAIRED` / `PAIRING_REQUIRED`).
+ * Retryable: the same connect succeeds once `openclaw devices approve <requestId>` ran on the gateway host.
+ *
+ * @param url The gateway WebSocket endpoint.
+ * @param requestId The pending pairing request, when the gateway sent one.
+ * @param reason `not-paired`, `scope-upgrade`, `role-upgrade` or `metadata-upgrade`.
+ * @param requestedScopes The scopes this device asked for.
+ */
+class GatewayPairingRequiredException(
+    val url: String,
+    val requestId: String?,
+    val reason: String,
+    val requestedScopes: List<String>,
+) : GatewayException(
+    "Gateway at $url needs this device approved ($reason). On the gateway host run: " +
+        (requestId?.let { "openclaw devices approve $it" } ?: "openclaw devices list"),
+) {
+    override val isRetryable: Boolean = true
+}
+
+/**
+ * The gateway rejected the `connect` handshake's credential or device proof (`error.details.code` starting
+ * with `AUTH_` or `DEVICE_`, e.g. `AUTH_TOKEN_MISMATCH`, `AUTH_TOKEN_MISSING`, `DEVICE_IDENTITY_REQUIRED`).
+ *
+ * @param url The gateway WebSocket endpoint.
+ * @param detailCode The structured code.
+ * @param rpcMessage The server's message, verbatim.
+ * @param recommendedNextStep Upstream recovery hint (`update_auth_credentials`, `wait_then_retry`, …), if any.
+ */
+class GatewayConnectAuthException(
+    val url: String,
+    val detailCode: String,
+    val rpcMessage: String,
+    val recommendedNextStep: String?,
+) : GatewayException("Gateway at $url rejected the connect handshake: $detailCode — $rpcMessage") {
+    override val isRetryable: Boolean = false
+}
