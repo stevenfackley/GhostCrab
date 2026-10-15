@@ -1,44 +1,23 @@
 package com.openclaw.ghostcrab.data.impl
 
-import com.openclaw.ghostcrab.data.ws.GatewayWsClient
 import com.openclaw.ghostcrab.domain.repository.ScopeProbe
 import com.openclaw.ghostcrab.domain.repository.ScopeProbeResult
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.withContext
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 
 /**
- * WS-backed [ScopeProbe]. Each probe opens its own session via [wsFactory] and closes it
- * before returning, so repeated probes never accumulate open sockets.
+ * [ScopeProbe] over `hello-ok.auth.scopes` of the live session (ADR-0007). The gateway has no `auth.whoami`;
+ * the scopes the connect handshake granted are the socket's live authority. No network call.
  *
- * @param wsFactory Suspending factory that opens a fresh [GatewayWsClient].
+ * @param scopes Returns the live session's granted scopes, or `null` while disconnected.
  */
 class ScopeProbeImpl(
-    private val wsFactory: suspend () -> GatewayWsClient,
+    private val scopes: () -> Set<String>?,
 ) : ScopeProbe {
 
-    @Suppress("TooGenericExceptionCaught")
-    override suspend fun probe(): ScopeProbeResult = try {
-        val ws = wsFactory()
-        try {
-            val res = ws.request("auth.whoami", params = null).jsonObject
-            val scopes = res["scopes"]?.jsonArray
-                ?.mapNotNull { it.jsonPrimitive.content }
-                ?.toSet()
-                ?: emptySet()
-            ScopeProbeResult.Known(scopes)
-        } finally {
-            withContext(NonCancellable) { ws.close() }
-        }
-    } catch (e: CancellationException) {
-        throw e
-    } catch (e: GatewayWsClient.WsRpcException) {
-        if (e.code == -32601) ScopeProbeResult.UnknownOldGateway
-        else ScopeProbeResult.Failed(cause = "${e.code}: ${e.message} (${e::class.java.simpleName})")
-    } catch (e: Exception) {
-        ScopeProbeResult.Failed(cause = "${e.message ?: "unknown"} (${e::class.java.simpleName})")
-    }
+    /**
+     * @return [ScopeProbeResult.Known] with the granted scopes (possibly empty), or [ScopeProbeResult.Failed]
+     *   while no session is active. Never [ScopeProbeResult.UnknownOldGateway]. Never throws.
+     */
+    override suspend fun probe(): ScopeProbeResult =
+        scopes()?.let { ScopeProbeResult.Known(it) }
+            ?: ScopeProbeResult.Failed(cause = "No active gateway session (GatewayNotConnectedException)")
 }

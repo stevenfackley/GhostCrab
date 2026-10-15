@@ -1,11 +1,10 @@
 package com.openclaw.ghostcrab.domain.repository
 
 /**
- * Runs `auth.whoami` over WebSocket to learn what scopes the current token carries.
+ * Reports which operator scopes the current gateway session holds.
  *
- * Treats "unknown" (old gateways without the method) as a distinct state so callers
- * can fall back to the Phase-4 copy-paste install instructions instead of showing a
- * misleading "scope missing" error.
+ * ADR-0007: the scopes come from `hello-ok.auth.scopes` of the connect handshake (upstream has no
+ * `auth.whoami`). [ScopeProbeResult.UnknownOldGateway] is no longer produced; it stays for source compatibility.
  */
 interface ScopeProbe {
     /** @return result; never throws. */

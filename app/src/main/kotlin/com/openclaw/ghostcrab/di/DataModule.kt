@@ -70,7 +70,7 @@ val dataModule = module {
 
     if (com.openclaw.ghostcrab.BuildConfig.SKILLS_INSTALL_ENABLED) {
         single<InstalledSkillRepository> { InstalledSkillRepositoryImpl(wsFactory = liveWsFactory()) }
-        single<ScopeProbe> { ScopeProbeImpl(wsFactory = liveWsFactory()) }
+        single<ScopeProbe> { ScopeProbeImpl(scopes = get<GatewayConnectionManagerImpl>()::grantedScopes) }
     }
 }
 
