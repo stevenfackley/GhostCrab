@@ -15,9 +15,6 @@ public struct PairingPrompt: Equatable, Sendable {
     /// has to be approved again. Empty when there is nothing to explain.
     public let warnings: [ConnectionWarning]
 
-    /// Longest request id kept; real ids are UUIDs.
-    private static let maxRequestIdLength = 128
-
     /// - Parameters:
     ///   - url: The gateway endpoint that asked for the approval.
     ///   - requestId: The pending request. Dropped (`nil`, so the prompt falls back to `openclaw devices list`)
@@ -35,7 +32,7 @@ public struct PairingPrompt: Equatable, Sendable {
         warnings: [ConnectionWarning] = []
     ) {
         self.url = url
-        self.requestId = requestId.flatMap { Self.isShellSafe($0) ? $0 : nil }
+        self.requestId = PairingCommand.shellSafeRequestId(requestId)
         self.reason = reason
         self.requestedScopes = requestedScopes
         self.warnings = warnings
@@ -51,19 +48,13 @@ public struct PairingPrompt: Equatable, Sendable {
     /// The exact command for the gateway host: `openclaw devices approve <requestId>`, or `openclaw devices list`
     /// when the gateway sent no usable request id.
     public var approveCommand: String {
-        requestId.map { "openclaw devices approve \($0)" } ?? "openclaw devices list"
+        PairingCommand.approve(requestId: requestId)
     }
 
     /// - Parameter warnings: What explains the request.
     /// - Returns: This prompt with `warnings` instead of its own.
     public func with(warnings: [ConnectionWarning]) -> PairingPrompt {
         PairingPrompt(url: url, requestId: requestId, reason: reason, requestedScopes: requestedScopes, warnings: warnings)
-    }
-
-    private static func isShellSafe(_ id: String) -> Bool {
-        guard let first = id.first, first.isASCII, first.isLetter || first.isNumber else { return false }
-        return id.count <= maxRequestIdLength
-            && id.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || "-_.:".contains($0)) }
     }
 }
 
@@ -96,7 +87,7 @@ public final class PairingWakeUp {
     let clock: any Clock<Duration>
     private var wakeRequested = false
     /// The suspended ``wait(_:)``, if any.
-    private var waiter: CheckedContinuation<Void, Never>?
+    private var waiter: CheckedContinuation<Void, any Error>?
     /// Ends ``waiter`` once its interval has passed on ``clock``.
     private var timer: Task<Void, Never>?
     /// Identifies the latest wait, so a late timer or cancellation from an earlier one never ends it.
@@ -119,20 +110,22 @@ public final class PairingWakeUp {
         wakeRequested = false
     }
 
-    /// Sleeps on ``clock`` for `interval`, or until ``fireNow()``.
+    /// Sleeps on ``clock`` for `interval`, or until ``fireNow()``. A wait still suspended when the next one starts
+    /// (its run was cancelled and a new run started before the cancellation handler's main-actor hop) is resumed as
+    /// cancelled first, so it is never left suspended.
     ///
-    /// - Throws: `CancellationError` when the calling task is cancelled.
+    /// - Throws: `CancellationError` when the calling task is cancelled, or when a newer wait replaced this one.
     func wait(_ interval: Duration) async throws {
         defer { wakeRequested = false }
         if !wakeRequested {
             waitID &+= 1
             let id = waitID
             let clock = self.clock
-            await withTaskCancellationHandler {
-                await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-                    waiter = continuation
+            try await withTaskCancellationHandler {
+                try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+                    replaceWaiter(with: continuation)
                     timer = Task { @MainActor in
-                        // Cancelled only by end(_:), which has already resumed the wait.
+                        // Cancelled only by end(_:) or replaceWaiter(with:), which have already resumed the wait.
                         do { try await clock.sleep(for: interval) } catch { return }
                         self.end(id)
                     }
@@ -142,6 +135,17 @@ public final class PairingWakeUp {
             }
         }
         try Task.checkCancellation()
+    }
+
+    /// Makes `continuation` the suspended wait; an earlier one still suspended ends with `CancellationError`.
+    private func replaceWaiter(with continuation: CheckedContinuation<Void, any Error>) {
+        if let stale = waiter {
+            waiter = nil
+            timer?.cancel()
+            timer = nil
+            stale.resume(throwing: CancellationError())
+        }
+        waiter = continuation
     }
 
     /// Resumes wait `id` if it is still the one suspended, and stops its timer.

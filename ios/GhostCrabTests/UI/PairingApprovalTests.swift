@@ -160,6 +160,22 @@ struct PairingApprovalTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
+    func aWaitReplacedBeforeItsCancellationLandedEndsAsCancelled() async {
+        let clock = TestClock()
+        let wakeUp = PairingWakeUp(clock: clock)
+        let first = Task { try await wakeUp.wait(.seconds(60)) }
+        await clock.waitForSleepers() // the first wait is suspended
+
+        let second = Task { try await wakeUp.wait(.seconds(60)) }
+
+        await #expect(throws: CancellationError.self) { try await first.value }
+        await clock.waitForSleepers() // only the second wait's timer
+        #expect(clock.sleeperCount == 1)
+        wakeUp.fireNow()
+        await #expect(throws: Never.self) { try await second.value }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
     func cancellingEndsTheWait() async {
         let clock = TestClock()
         let attempts = Attempts(failures: .max)

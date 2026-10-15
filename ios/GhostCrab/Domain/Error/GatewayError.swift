@@ -233,7 +233,8 @@ extension GatewayError: LocalizedError {
         case let .missingScope(url, method, scope):
             return "Gateway at \(url) refused '\(method)': missing scope \(scope) (FORBIDDEN/MISSING_SCOPE)"
         case let .pairingRequired(url, requestId, reason, _):
-            let command = requestId.map { "openclaw devices approve \($0)" } ?? "openclaw devices list"
+            // Same shell-safe filter as the approval card: the gateway's id is pasted into a shell on its host.
+            let command = PairingCommand.approve(requestId: requestId)
             return "Gateway at \(url) needs this device approved (\(reason)). On the gateway host run: \(command)"
         case let .connectRejected(url, detailCode, message, _, _, _):
             return "Gateway at \(url) rejected the connect handshake: \(detailCode) \u{2014} \(message)"

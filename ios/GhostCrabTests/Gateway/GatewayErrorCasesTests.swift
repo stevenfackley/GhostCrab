@@ -18,6 +18,15 @@ struct GatewayErrorCasesTests {
         #expect(error.errorDescription?.contains("openclaw devices list") == true)
     }
 
+    @Test(arguments: ["req;rm -rf ~", "$(id)", "--help", "req 9", String(repeating: "a", count: 129)])
+    func pairingRequiredNeverPutsAnUnsafeRequestIdInTheCommand(requestId: String) {
+        let error = GatewayError.pairingRequired(url: url, requestId: requestId, reason: "not-paired", requestedScopes: [])
+        let message = error.errorDescription ?? ""
+        #expect(message.hasSuffix("On the gateway host run: openclaw devices list"))
+        #expect(!message.contains(requestId))
+        #expect(!message.contains("approve"))
+    }
+
     @Test func connectRejectedNamesUrlAndCode() {
         let error = GatewayError.connectRejected(url: url, detailCode: "AUTH_TOKEN_MISMATCH", message: "token mismatch", recommendedNextStep: nil)
         #expect(!error.isRetryable)
