@@ -31,13 +31,14 @@ Both apps share the same `Domain/Repository/` contract surface — frozen v1.0 i
 ## Features
 
 - **Auto-discovery** — finds OpenClaw gateways on your local Wi-Fi via mDNS (no IP hunting required)
-- **Manual connect** — enter any URL + optional bearer token for remote access
+- **Manual connect** — enter any `http(s)://` or `ws(s)://` URL + optional gateway token for remote access; a new phone is approved once on the gateway host with `openclaw devices approve <id>`
 - **Pairing** — scan a `ghostcrab://pair` QR code or open a `ghostcrab://pair` link to prefill the connect form (you still tap Connect)
 - **Config editor** — form-based editor for `openclaw.json` with typed fields, validation, and a diff-before-save sheet
 - **Dashboard** — live gateway health, active model, version, and capability readout
 - **Model manager** — view all configured models, swap the active one
-- **AI recommendations** — ask the gateway's built-in AI CLI for configuration suggestions (security-affecting changes need explicit confirmation; secrets are redacted before anything is sent)
-- **Secure storage** — bearer tokens encrypted with AES-256-GCM via Android Keystore; never logged
+- **Skills** — list, install and disable skills (`skills.status` / `skills.install` / `skills.update`)
+- **AI recommendations** — hidden for now: OpenClaw has no recommendation API (ADR-0007)
+- **Secure storage** — gateway and device tokens, and the device's Ed25519 key, encrypted with AES-256-GCM via Android Keystore; never logged
 - **Security banners** — explicit amber/crimson warnings for HTTP and no-auth connections; no silent risks
 - **Onboarding walkthrough** — step-by-step guide to install, start, and connect to your first gateway
 
@@ -119,7 +120,7 @@ Domain interfaces are the v1.0 API surface and are **frozen** — implementation
 ## Privacy
 
 - No analytics, no ads, no cloud backend
-- Connection profiles stored locally via DataStore; bearer tokens stored in EncryptedSharedPreferences (AES-256-GCM, Android Keystore)
+- Connection profiles stored locally via DataStore; gateway/device tokens stored in EncryptedSharedPreferences (AES-256-GCM, Android Keystore)
 - Nothing is sent to the developer
 - `Authorization` headers are stripped from all HTTP logs — verify with `adb logcat | grep -i bearer`
 
@@ -139,7 +140,7 @@ See [`docs/PRIVACY_POLICY.md`](docs/PRIVACY_POLICY.md) for the full policy.
 | 5 | Onboarding walkthrough | ✅ Done |
 | 6 | Config editor (forms over `openclaw.json`) | ✅ Done |
 | 7 | Model manager | ✅ Done |
-| 8 | AI recommendations (gateway-proxied) | ✅ Done |
+| 8 | AI recommendations (gateway-proxied) | ⏸ Disabled: no upstream API (ADR-0007) |
 | 9 | Settings, profile management, about | ✅ Done |
 | 10 | Hardening, release | ✅ Done |
 | 11 | QR connect, splash | ✅ Done |

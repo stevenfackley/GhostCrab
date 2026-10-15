@@ -42,9 +42,10 @@ Package root: `app/src/main/kotlin/com/openclaw/ghostcrab/`
 | `domain/repository/` | Frozen interfaces — do **not** change signatures without a documented ADR |
 | `domain/util/` | Pure helpers: `ConfigSensitivity` (secret/security-affecting path classification + redaction), `JsonPatch` (`withLeaf`, merge-patch building), `suspendRunCatching`, `GatewayUrl` (IPv6-safe URL parsing), `PairCode` (`ghostcrab://pair` decoding), `TokenUtils` |
 | `data/api/` | `OpenClawApiClient` (Ktor): the `GET /health` probe and the control-plane WebSocket upgrade only; no credential is ever sent over HTTP (ADR-0007) |
+| `data/gateway/` | Protocol-4 control plane (ADR-0007): `GatewayFrames` codec, `GatewayRpcClient` (string-id correlation, events, challenge), `DeviceIdentity` (Ed25519 via Tink), `DeviceAuthPayload` (v3 signature), `GatewayHandshake` / `GatewayHello` (`hello-ok`), `DeviceTokenStore`, typed `GatewayErrors` |
 | `data/discovery/` | `NsdDiscoveryServiceImpl` |
 | `data/ws/` | `WsSession` / `KtorWsSession`: the raw socket seam that `data/gateway/GatewayRpcClient` (protocol-4 `req`/`res`/`event` frames) wraps |
-| `data/storage/` | `ConnectionProfileStore` (DataStore metadata + EncryptedSharedPreferences tokens) |
+| `data/storage/` | `ConnectionProfileStore` (DataStore metadata + EncryptedSharedPreferences profile and per-gateway device tokens), `DeviceIdentityStore` (encrypted Ed25519 seed) |
 | `data/impl/` | Repository implementations |
 | `ui/theme/` | `BrandTokens`, `Color`, `Type`, `Shape`, `Spacing`, `GhostCrabTheme` |
 | `ui/components/` | Shared composables: `GlassSurface`, `SecurityBanner`, `ObserveAsEvents`, `IntFieldRow`, etc. |
@@ -63,11 +64,11 @@ Package root: `app/src/main/kotlin/com/openclaw/ghostcrab/`
 - **Secrets**: Never in source. Use `local.properties` / `BuildConfig`. Tokens stored in `EncryptedSharedPreferences` (AES256_GCM_SPEC).
 - **Logging**: Strip `Authorization` headers from Ktor logs. Verify with `adb logcat | grep -i bearer`.
 - **No work in `GhostCrab (1)/` folder.** Canonical workspace is `GhostCrab/`.
-- **Upstream gateway quirk**: `ghcr.io/openclaw/openclaw:latest` serves **HTML** at `/status` and `/config`; only `/health` and `/ready` return JSON. Connect flow tolerates non-JSON — don't assume JSON responses in new code paths.
+- **Gateway protocol (ADR-0007)**: the real gateway (`ghcr.io/openclaw/openclaw`, protocol 4) is WebSocket-only for control: `connect.challenge` → Ed25519-signed `connect` (`client.id` `openclaw-android`, `client.mode` `ui`) → `hello-ok` (granted scopes gate capabilities), then `req`/`res` RPCs (`health`, `config.get`/`config.patch` with `baseHash`, `models.list`, `skills.status`/`skills.install`/`skills.update`). HTTP has only `/health` and `/ready` as JSON; `/status` and `/config` are the Control UI's HTML (200 for any token, so `/status` cannot probe auth) and `/api/*` is 404. New remote devices need `openclaw devices approve <requestId>` (`PAIRING_REQUIRED`, then 1008 close and reconnect poll). `openclaw qr` setup codes are node-role bootstrap tokens: parse-and-explain only. Frames captured from 2026.10.3 live in `fixtures/gateway-protocol/` — test against them, never against a guessed shape.
 - **suspendRunCatching, not runCatching**: never wrap suspend calls in `runCatching` or `catch (_: Exception)`; use `suspendRunCatching` so `CancellationException` is rethrown.
 - **toUserMessage() is the only error renderer**: UI shows errors via `toUserMessage()` (URL + HTTP status + exception class); no ad-hoc `e.message` strings.
 - **Pairing**: `ghostcrab://pair` links (deep link via `MainActivity`, or QR scan) prefill ManualEntry; they never auto-connect and the token is never persisted by the handoff.
-- **BuildConfig fields**: `AI_PRO_ENABLED` (Boolean — gates AI recommendations and the `ai_recommendation` route), `GIT_SHA` (baked in at build, shown on About screen).
+- **BuildConfig fields**: `AI_PRO_ENABLED` (Boolean, `false`: OpenClaw has no recommendation API, ADR-0007; gates the AI route and Dashboard action), `SKILLS_INSTALL_ENABLED` (true in debug only), `GIT_SHA` (baked in at build, shown on About screen).
 
 ## Brand / Theme Rules
 
