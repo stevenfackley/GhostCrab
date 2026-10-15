@@ -166,7 +166,7 @@ private struct WelcomeStepView: View {
                 .font(AppFont.bodyBlack(40))
                 .foregroundStyle(DesignTokens.Color.cyanPrimary)
 
-            Text("The native Android client for OpenClaw Gateway. Securely manage your gateway from your phone.")
+            Text("The native client for OpenClaw Gateway. Securely manage your gateway from your iPhone, iPad, or Mac.")
                 .font(AppFont.body(15))
                 .foregroundStyle(DesignTokens.Color.textSecondary)
                 .multilineTextAlignment(.center)
