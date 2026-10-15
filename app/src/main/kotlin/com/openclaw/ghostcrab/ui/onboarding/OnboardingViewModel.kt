@@ -85,12 +85,21 @@ public class OnboardingViewModel(
                 OnboardingStep.Completed -> OnboardingStep.FindOnNetwork
             }
         }
+        if (next == OnboardingStep.Completed) {
+            complete()
+            return
+        }
         _step.value = next
         repository.saveStep(next)
     }
 
+    /**
+     * Persists completion before emitting [OnboardingStep.Completed]: the screen navigates to the
+     * picker on that emission, and the picker's first-run check reads the stored flag. Emitting
+     * first raced the write and bounced the user back into onboarding.
+     */
     private suspend fun complete() {
-        _step.value = OnboardingStep.Completed
         repository.markCompleted()
+        _step.value = OnboardingStep.Completed
     }
 }

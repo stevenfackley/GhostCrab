@@ -84,7 +84,26 @@ class OnboardingViewModelTest {
         assertEquals(OnboardingStep.Completed, vm.step.value)
     }
 
+    @Test
+    fun `next() from FindOnNetwork marks onboarding completed before emitting Completed`() = runTest {
+        val vm = makeVm(savedStep = OnboardingStep.FindOnNetwork)
+        fakeRepo.stepProvider = { vm.step.value }
+        vm.next()
+        assertTrue(fakeRepo.completedCalled)
+        assertEquals(OnboardingStep.FindOnNetwork, fakeRepo.stepSeenByMarkCompleted)
+        assertEquals(OnboardingStep.Completed, vm.step.value)
+    }
+
     // ── Skip / complete ───────────────────────────────────────────────────────
+
+    @Test
+    fun `skip() persists completion before emitting Completed`() = runTest {
+        val vm = makeVm()
+        fakeRepo.stepProvider = { vm.step.value }
+        vm.skip()
+        assertEquals(OnboardingStep.Welcome, fakeRepo.stepSeenByMarkCompleted)
+        assertEquals(OnboardingStep.Completed, vm.step.value)
+    }
 
     @Test
     fun `skip() emits Completed and calls markCompleted`() = runTest {
@@ -137,6 +156,10 @@ private class FakeOnboardingRepository(
 
     var completedCalled = false
 
+    /** Read inside [markCompleted] to record which step the ViewModel showed while persisting. */
+    var stepProvider: (() -> OnboardingStep)? = null
+    var stepSeenByMarkCompleted: OnboardingStep? = null
+
     override suspend fun isCompleted(): Boolean = completed
 
     override suspend fun saveStep(step: OnboardingStep) {
@@ -146,6 +169,7 @@ private class FakeOnboardingRepository(
     override suspend fun getSavedStep(): OnboardingStep = savedStep
 
     override suspend fun markCompleted() {
+        stepSeenByMarkCompleted = stepProvider?.invoke()
         completed = true
         completedCalled = true
     }
