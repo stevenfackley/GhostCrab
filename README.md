@@ -24,7 +24,7 @@ It is not a consumer AI chat app. It is a configuration and administration clien
 | iOS / iPadOS | 18.0 | Swift 6 + SwiftUI — `ios/` | TestFlight → App Store |
 | macOS (Catalyst) | 14.0 Sonoma | shared with iOS via Catalyst | TestFlight (Mac) |
 
-Both apps share the same `Domain/Repository/` contract surface — frozen v1.0 interfaces, same screen-by-screen feature parity. See [`docs/superpowers/specs/2026-05-28-ios-app-design.md`](docs/superpowers/specs/2026-05-28-ios-app-design.md).
+Both apps share the same `Domain/Repository/` contract surface — frozen v1.0 interfaces, same screen-by-screen feature parity — and both speak the gateway's WebSocket protocol 4 (ADR-0007; real-gateway and device verification is pending). See [`docs/superpowers/specs/2026-05-28-ios-app-design.md`](docs/superpowers/specs/2026-05-28-ios-app-design.md).
 
 ---
 
@@ -36,9 +36,9 @@ Both apps share the same `Domain/Repository/` contract surface — frozen v1.0 i
 - **Config editor** — form-based editor for `openclaw.json` with typed fields, validation, and a diff-before-save sheet
 - **Dashboard** — live gateway health, active model, version, and capability readout; Configure and Models appear only when the session's scopes allow them
 - **Model manager** — view all configured models, swap the active one
-- **Skills** — list, install and disable skills (`skills.status` / `skills.install` / `skills.update`); debug builds only for now (`SKILLS_INSTALL_ENABLED` is off in release), and offered only when the session's scopes allow it
-- **AI recommendations** — hidden for now: OpenClaw has no recommendation API (ADR-0007)
-- **Secure storage** — gateway and device tokens, and the device's Ed25519 key, encrypted with AES-256-GCM via Android Keystore; never logged
+- **Skills** — list, install and disable skills (`skills.status` / `skills.install` / `skills.update`); on Android debug builds only for now (`SKILLS_INSTALL_ENABLED` is off in release), and offered only when the session's scopes allow it
+- **AI recommendations** — unavailable for now: OpenClaw has no recommendation API (ADR-0007). Android hides the screen; iOS shows it with the explanation
+- **Secure storage** — gateway and device tokens, and the device's Ed25519 key, are encrypted with AES-256-GCM via Android Keystore on Android and kept in the Keychain (this device only) on iOS; never logged
 - **Security banners** — explicit amber/crimson warnings for HTTP and no-auth connections; no silent risks
 - **Onboarding walkthrough** — step-by-step guide to install, start, and connect to your first gateway
 
@@ -49,6 +49,8 @@ Both apps share the same `Domain/Repository/` contract surface — frozen v1.0 i
 | | |
 |---|---|
 | Android | 8.0+ (API 26) |
+| iOS / iPadOS | 18.0+ |
+| macOS (Catalyst) | 14.0+ (Sonoma) |
 | Gateway | OpenClaw Gateway — reachable from your device (LAN or URL) |
 
 ---

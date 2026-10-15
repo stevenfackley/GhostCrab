@@ -23,7 +23,7 @@ The Android app (`feat/protocol-alignment-android`, ADR-0007) now speaks the rea
 
 - `ws(s)://` gateway URLs in QR codes. `openclaw qr` setup codes (bare or `oc-pair://`) are recognised and explained: they pair OpenClaw node apps and cannot authorize an operator client, so the scanner points to the gateway token and `openclaw devices approve` instead.
 - Copy telling Linux, Windows and Docker users to run `openclaw plugins enable bonjour`.
-- `scripts/mock-gateway/server.mjs` now speaks protocol 4 (`AUTO_APPROVE=1` skips pairing for emulator screenshots) and has conformance tests in CI. The old REST mock is `legacy-rest.mjs` behind `LEGACY_REST=1`, kept only for `ios-screenshots.yml` until the iOS plan lands.
+- `scripts/mock-gateway/server.mjs` now speaks protocol 4 (`AUTO_APPROVE=1` skips pairing for emulator screenshots) and has conformance tests in CI. The old REST mock (`legacy-rest.mjs`, `LEGACY_REST=1`) is gone: `ios-screenshots.yml` now runs this mock with `AUTO_APPROVE=1`.
 - Real-gateway 2026.10.3 protocol fixtures in `fixtures/gateway-protocol/`.
 - `scripts/mock-gateway/probe-real.mjs` re-checks a real gateway; every token and password in its output is redacted.
 
@@ -34,7 +34,24 @@ The Android app (`feat/protocol-alignment-android`, ADR-0007) now speaks the rea
 
 ### iOS
 
-The iOS / Mac Catalyst app (`ios/`) has not shipped a build yet. These changes come from `feat/ios-finish` (PR #127).
+The iOS / Mac Catalyst app (`ios/`) has not shipped a build yet. These changes come from `feat/ios-finish` (PR #127) and `feat/protocol-alignment-ios` (ADR-0007, PR #134). The protocol alignment is code-complete (452 unit tests at `26c98c5`); its real-gateway and device verification (plan Task 21) is pending: not yet run against a real gateway/device.
+
+#### Changed (protocol alignment, ADR-0007)
+
+- **Speaks the real OpenClaw gateway protocol**: iOS had no WebSocket client, so this is the first one. One control-plane socket per session (`connect.challenge` -> Ed25519-signed `connect` -> `hello-ok`, `req`/`res`/`event` frames with string ids and codes). Only `GET /health` is still HTTP, and no credential is sent over HTTP. The client identifies as `openclaw-ios`, mode `ui`, platform `ios` (also on Mac Catalyst), because the gateway allow-lists the id and mode and pins the platform at approval.
+- **Device pairing**: each install has a CryptoKit Ed25519 identity in the Keychain (its own service, this device only; it survives "Clear all saved gateways"). A new device shows an approval card with the request id and `openclaw devices approve <id>` on Manual Entry and on the gateway picker, and retries every 5 s for up to 5 minutes (stable request id, Check now, Cancel). The gateway's device token is stored per gateway in the Keychain and reused.
+- **Connection warnings** on the dashboard: this device's identity was replaced (every gateway asks for approval again), or the device token could not be stored in the Keychain.
+- **Auth detection** comes from the connect handshake (ADR-002 superseded); a wrong token fails with the URL and `AUTH_TOKEN_MISMATCH`. Scopes come from `hello-ok`.
+- **Config** uses `config.get` / `config.patch` with a `baseHash` guard; after a conflict the pending edit survives the reload so "Force overwrite" can resend it, and a successful save keeps the other sections' pending edits. **Models** come from `models.list` and activation sets `agents.defaults.model.primary`; a primary the catalogue lacks shows an amber banner instead of a fake active row. **Skills** use `skills.status` / `skills.install`, and Disable (`skills.update`) replaces uninstall, which OpenClaw does not have.
+- QR scan and the Pairing link field take `ws(s)://` URLs. `openclaw qr` setup codes (bare or `oc-pair://`) are recognised and explained: they pair OpenClaw node apps and cannot authorize an operator client, so GhostCrab points to the gateway token and `openclaw devices approve`; the bootstrap token is never kept.
+- Scan screen tells Linux, Windows and Docker users to run `openclaw plugins enable bonjour`.
+- `ios-screenshots.yml` runs the protocol-4 `scripts/mock-gateway` with `AUTO_APPROVE=1`.
+- Additive protocol members (ADR-0005): `InstalledSkillRepository.setSkillEnabled`, `InstalledSkill.disabled`, `GatewayConnectionManager.connectionWarnings()` + `ConnectionWarning`, `ModelRepository.getModelCatalogue()` + `ModelCatalogue`. `ModelRepository.getModels()` now returns at most one active model instead of exactly one.
+
+#### Removed (protocol alignment)
+
+- AI Recommendations report unavailable: OpenClaw has no recommendation API. The install button and the Installed Skills call-to-action are gone.
+- The speculative REST client paths (`/status`, `/config`, `/api/models/*`, `/api/ai/recommend`, `/api/skills/*`, `/api/auth/whoami`) with their DTOs (`StatusResponse`, `ModelDTO`, the AI recommendation DTOs), the typed `Domain/Model/Config/` sections and `OpenClawAPIClientDecodingTests`. The `Fixed` entry below about undecodable `/status`, `/models`, `/config` and `/api/skills` JSON no longer applies.
 
 #### Added
 
