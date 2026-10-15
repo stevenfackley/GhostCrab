@@ -14,8 +14,9 @@ const val PAIRING_TIMEOUT_MS: Long = 5 * 60_000L
 
 /** Shown when no approval arrived before the pending request expired. */
 const val PAIRING_TIMEOUT_MESSAGE: String =
-    "Device approval not received within 5 minutes; the pending request expired. On the gateway host run " +
-        "`openclaw devices list`, approve this device, then connect again (PAIRING_REQUIRED)."
+    "Device approval not received within 5 minutes; the pending request expired. On the gateway host run:\n" +
+        "openclaw devices list\n" +
+        "approve this device, then connect again (PAIRING_REQUIRED)."
 
 /**
  * What the gateway owner must do to approve this device (ADR-0007 decision 7).
