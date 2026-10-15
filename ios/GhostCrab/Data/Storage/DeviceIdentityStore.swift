@@ -25,11 +25,13 @@ extension DeviceIdentityProviding {
 /// "Clear all saved gateways" keeps the identity and the gateways' pairing records stay valid (ADR-0007).
 ///
 /// Recovery, as on Android (`DeviceIdentityStore.kt`): a failed Keychain read is retried once after
-/// ``readRetryDelay`` (Keychain errors are often transient). A read that still fails because the device is locked
-/// (`errSecInteractionNotAllowed`) throws: the seed is intact, so replacing it would orphan every pairing for a
-/// temporary condition. Any other unreadable or unusable seed (undecodable item, bad base64, wrong length) is removed
-/// and a new identity generated; ``regenerated`` turns `true` and a type-name-only warning is logged. That is the
-/// only recovery a lost seed allows: every gateway then shows a new pairing request for this device.
+/// ``readRetryDelay`` (Keychain errors are often transient). Only a seed that is provably unusable (an item the
+/// Keychain cannot decode, `errSecDecode`; bad base64; wrong length) is removed and a new identity generated; once the
+/// new seed is stored ``regenerated`` turns `true` and a type-name-only warning is logged. That is the only recovery a
+/// lost seed allows: every gateway then shows a new pairing request for this device. A read that still fails for any
+/// other reason (locked device `errSecInteractionNotAllowed`, `errSecNotAvailable`, `errSecAuthFailed`, a missing
+/// entitlement) throws: the seed may well be intact, so replacing it would orphan every pairing for a temporary
+/// condition.
 ///
 /// Concurrent first-use calls share one load, so they can never generate two identities. Temporary seed copies are
 /// zeroed after use (the base64 text the Keychain API exchanges is a Swift `String` and cannot be).
@@ -50,6 +52,8 @@ public actor DeviceIdentityStore: DeviceIdentityProviding {
     private let retryDelay: Duration
     private var cached: DeviceIdentity?
     private var loading: Task<DeviceIdentity, any Error>?
+    /// An unusable seed was found; survives a failed store so the replacement that finally lands is still reported.
+    private var replacingUnusableSeed = false
 
     public private(set) var regenerated = false
 
@@ -100,13 +104,14 @@ public actor DeviceIdentityStore: DeviceIdentityProviding {
         } catch {
             throw GatewayError.deviceCredentialStorage(operation: "store the device identity", underlying: Self.sendable(error))
         }
+        if replacingUnusableSeed { regenerated = true }
         return fresh
     }
 
     /// One read, plus one retry after ``readRetryDelay`` when it throws.
     ///
-    /// - Throws: ``GatewayError/deviceCredentialStorage(operation:underlying:)`` when both reads fail because the
-    ///   device is locked.
+    /// - Throws: ``GatewayError/deviceCredentialStorage(operation:underlying:)`` when both reads fail for any reason
+    ///   other than an undecodable item (`errSecDecode`).
     private func readSeed() async throws -> StoredSeed {
         var failure: (any Error)?
         for attempt in 0..<2 {
@@ -119,15 +124,16 @@ public actor DeviceIdentityStore: DeviceIdentityProviding {
                 failure = error
             }
         }
-        if let keychainError = failure as? KeychainError, keychainError == .unexpectedStatus(errSecInteractionNotAllowed) {
-            throw GatewayError.deviceCredentialStorage(operation: "read the device identity", underlying: Self.sendable(failure))
+        if let keychainError = failure as? KeychainError, keychainError == .unexpectedStatus(errSecDecode) {
+            return .unusable(reason: "KeychainError errSecDecode")
         }
-        return .unusable(reason: failure.map { "\(type(of: $0))" } ?? "unknown")
+        throw GatewayError.deviceCredentialStorage(operation: "read the device identity", underlying: Self.sendable(failure))
     }
 
     /// Removes the unusable item (best effort: ``Keychain/setToken(_:for:)`` overwrites it anyway) and records why.
+    /// ``regenerated`` turns `true` only once the new seed is stored.
     private func replaceUnusableSeed(reason: String) {
-        regenerated = true
+        replacingUnusableSeed = true
         Self.log.warning("Device identity unreadable (\(reason)); generating a new one. Gateways will ask to pair again.")
         try? secrets.deleteToken(for: Self.account)
     }

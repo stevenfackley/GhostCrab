@@ -3,22 +3,37 @@ import Security
 import Testing
 @testable import GhostCrab
 
-/// ``TokenStoring`` whose first `failingReads` reads throw `status`, then behave.
+/// ``TokenStoring`` whose first `failingReads` reads throw `status`, then behave; writes are refused while
+/// ``refusingWrites`` is `true`.
 private final class FlakyTokenStore: TokenStoring, @unchecked Sendable {
     private let lock = NSLock()
     private var tokens: [String: String]
     private var failingReads: Int
     private let status: OSStatus
+    private var refusesWrites: Bool
 
-    init(tokens: [String: String], failingReads: Int, status: OSStatus) {
+    init(tokens: [String: String], failingReads: Int, status: OSStatus, refusingWrites: Bool = false) {
         self.tokens = tokens
         self.failingReads = failingReads
         self.status = status
+        self.refusesWrites = refusingWrites
     }
 
     var stored: [String: String] { lock.withLock { tokens } }
 
-    func setToken(_ token: String, for profileId: String) throws { lock.withLock { tokens[profileId] = token } }
+    var refusingWrites: Bool {
+        get { lock.withLock { refusesWrites } }
+        set { lock.withLock { refusesWrites = newValue } }
+    }
+
+    func setToken(_ token: String, for profileId: String) throws {
+        let refused: Bool = lock.withLock {
+            guard !refusesWrites else { return true }
+            tokens[profileId] = token
+            return false
+        }
+        if refused { throw KeychainError.unexpectedStatus(errSecNotAvailable) }
+    }
 
     func getToken(for profileId: String) throws -> String? {
         let fail: Bool = lock.withLock {
@@ -101,6 +116,39 @@ struct DeviceStoresTests {
         #expect(await store.regenerated == false)
         // The device was unlocked: the next call reads the same identity.
         #expect(try await store.identity().deviceId == original.deviceId)
+    }
+
+    @Test func anUnavailableKeychainThrowsAndKeepsTheSeed() async throws {
+        let original = DeviceIdentity.generate()
+        let seed = original.seedBase64ForStorage()
+        let secrets = FlakyTokenStore(tokens: [DeviceIdentityStore.account: seed], failingReads: 2, status: errSecNotAvailable)
+        let store = DeviceIdentityStore(secrets: secrets, retryDelay: .zero)
+        guard case .deviceCredentialStorage(let operation, _)? = await gatewayError({ _ = try await store.identity() }) else {
+            Issue.record("expected deviceCredentialStorage")
+            return
+        }
+        #expect(operation == "read the device identity")
+        #expect(secrets.stored[DeviceIdentityStore.account] == seed)
+        #expect(await store.regenerated == false)
+        // The Keychain recovered: the next call reads the same identity.
+        #expect(try await store.identity().deviceId == original.deviceId)
+    }
+
+    @Test func regeneratedIsReportedOnlyOnceTheNewSeedIsStored() async throws {
+        let secrets = FlakyTokenStore(tokens: [DeviceIdentityStore.account: Data(count: 5).base64EncodedString()],
+                                      failingReads: 0, status: errSecSuccess, refusingWrites: true)
+        let store = DeviceIdentityStore(secrets: secrets, retryDelay: .zero)
+        guard case .deviceCredentialStorage(let operation, _)? = await gatewayError({ _ = try await store.identity() }) else {
+            Issue.record("expected deviceCredentialStorage")
+            return
+        }
+        #expect(operation == "store the device identity")
+        #expect(await store.regenerated == false)
+        // Storage recovered: the replacement lands now and is still reported, though the unusable item is gone.
+        secrets.refusingWrites = false
+        let identity = try await store.identity()
+        #expect(secrets.stored[DeviceIdentityStore.account] == identity.seedBase64ForStorage())
+        #expect(await store.regenerated)
     }
 
     @Test func aNewIdentityThatCannotBeStoredIsAStorageError() async throws {
