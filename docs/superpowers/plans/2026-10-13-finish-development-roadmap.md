@@ -6,6 +6,8 @@ Master list of what is left before GhostCrab is "finished" (Android on Play, iOS
 |---|---|
 | [`2026-10-13-android-fixes-and-refactor.md`](2026-10-13-android-fixes-and-refactor.md) (42 tasks) | M1, M2, cheap parts of M3 + M6 |
 | [`2026-10-13-ios-finish.md`](2026-10-13-ios-finish.md) (25 tasks) | M4 |
+| [`2026-10-15-protocol-alignment-android.md`](2026-10-15-protocol-alignment-android.md) (27 tasks) | M7, Android |
+| [`2026-10-15-protocol-alignment-ios.md`](2026-10-15-protocol-alignment-ios.md) (22 tasks) | M7, iOS |
 
 Sources: audit reports of 2026-10-13 (`02-android-audit` = Android, `03-ios-audit` = iOS, `01-docs-state` = docs), `docs/IMPLEMENTATION_PLAN.md`, `docs/HANDOFF.md`, specs under `docs/superpowers/specs/`. Baseline on `main` @ 70a3ce8: 249 unit tests green, detekt clean, lint 0 errors / 63 warnings.
 
@@ -13,7 +15,7 @@ Legend: size **S** ≤ ½ day, **M** ≤ 2 days, **L** > 2 days. **⚠ manual** 
 
 ## Execution order
 
-1. **M1** first (one PR). 2. **M2** (one or two PRs). 3. **M3-cheap + M6-docs** (one PR) → cut **v0.2.0**. 4. **M4** in parallel with 2–3 on the Mac Mini. 5. **M5** before any store submission; its outcome may reopen M3. 6. **M6-release** last.
+1. **M1** first (one PR). 2. **M2** (one or two PRs). 3. **M3-cheap + M6-docs** (one PR) → cut **v0.2.0**. 4. **M4** in parallel with 2–3 on the Mac Mini. 5. **M5** before any store submission; its outcome may reopen M3. 6. **M7** (protocol alignment, decided by M5): develop the Android and iOS plans in parallel, but **merge the Android PR first**. Its Task 25 rewrites `scripts/mock-gateway` to protocol 4 and keeps today's REST mock behind `LEGACY_REST=1` for `ios-screenshots.yml`, whose iOS app still speaks REST; the iOS plan's Task 20 then switches that workflow to the protocol-4 mock and deletes the legacy mode. Whichever plan runs first creates `fixtures/gateway-protocol/2026.10.3/` (Task 1 of each). 7. **M6-release** last, after M7: no store build ships the speculative protocol.
 
 ## M1 — Android P1 bug fixes
 
@@ -61,10 +63,10 @@ Legend: size **S** ≤ ½ day, **M** ≤ 2 days, **L** > 2 days. **⚠ manual** 
 | 3.2 | `ghostcrab://pair` deep link (manifest + `MainActivity`) — prefill only, no auto-connect | same spec | S | B34 (⚠ manual: `adb` device check) |
 | 3.3 | Upstream gateway `GET /pair` route (PR to `ghcr.io/openclaw/openclaw`) | same spec | M | ⚠ manual (external repo) |
 | 3.4 | Retire `docker/tunnel-qr` + rewrite `docs/TUNNEL_SETUP.md` once 3.3 lands | same spec | S | — |
-| 3.5 | Phase 12 on-device QA of the Skills screen against `scripts/mock-gateway` (:18790); then decide flipping `SKILLS_INSTALL_ENABLED` for release | `IMPLEMENTATION_PLAN` ledger row 12 | S | ⚠ manual (device) |
-| 3.6 | **DECISION:** ClawHub catalog browser (`ClawHubCatalogClient`). Spec is Draft with an unresolved ClawHub endpoint. Recommendation: defer until M5 confirms the real `skills.*` protocol; otherwise it is built on a guess twice. | phase-12 spec | L | — |
+| 3.5 | Superseded by M7: the Skills screen moves to `skills.status` / `skills.install` / `skills.update` (Android Tasks 13–14, iOS Task 11), and its on-device QA is part of 7.3 against the real gateway. Decide flipping `SKILLS_INSTALL_ENABLED` for release after 7.3. | `IMPLEMENTATION_PLAN` ledger row 12 | S | → 7.3 |
+| 3.6 | **DECISION:** ClawHub catalog browser (`ClawHubCatalogClient`). No longer blocked: M5 and the 2026-10-15 run confirmed the protocol, `skills.search {query, limit}` → `{results: [{displayName, canonicalUrl, …}]}` and `skills.install {source: "clawhub", slug: "@owner/key"}` (ADR-0007). Plan it after M7 so it builds on the aligned RPC client. | phase-12 spec | L | — |
 | 3.7 | **DECISION:** UI rework (connected shell, bottom nav, Overview/Config workspace, shared primitives) | `PROJECT_REVIEW_UI_PLAN.md` | L | — |
-| 3.8 | ADR-005 "onboarding never executes privileged actions" (reserved, never written) | `IMPLEMENTATION_PLAN` §7 | S | — |
+| 3.8 | Onboarding ADR "onboarding never executes privileged actions" (reserved as ADR-005, never written; 0005–0007 are now taken, so it gets the next free number) | `IMPLEMENTATION_PLAN` §7 | S | — |
 
 ## M4 — iOS finish
 
@@ -98,7 +100,20 @@ Phases 6/7/8/12 were built against a speculative REST + WS API; upstream exposes
 - [ ] Kill the gateway: Dashboard goes Degraded in < 60 s; note that it does not recover (M2 2.19).
 - [ ] `adb logcat | grep -i bearer` is empty for a full session; Xcode console likewise.
 - [ ] Phase 6/7 acceptance from `PROJECT_REVIEW_UI_PLAN.md`: port round-trip, port 99999 error, raw JSON round-trip, concurrent-edit reload, model swap visible on Dashboard.
-- [ ] **Outcome:** ADR-0007 "Gateway protocol alignment" (0005 is reserved, 0006 is the iOS ATS ADR) — adapt clients to the real WS protocol vs. upstream REST PR. Update README/CLAUDE.md feature claims to match what actually works.
+- [x] **Outcome:** ADR-0007 "Gateway protocol alignment" (ADR numbers: 0005 = additive repository methods, 0006 = iOS ATS, 0007 = this) — decided: adapt the clients to the real WS protocol, no upstream REST PR. README/CLAUDE.md feature claims are corrected with the M7 work (7.4).
+
+**M5 result (2026-10-14, PR #129 merged, `docs/QA_REAL_GATEWAY_2026-10.md`):** server side done against `ghcr.io/openclaw/openclaw` 2026.10.3 (WS protocol 4); the device items stay open and move into the M7 manual tasks. Neither client works against the real gateway: `/status` and `/config` are the Control UI's HTML and every `/api/*` route is 404, so the auth probe always says none and a wrong token connects; the control plane is a WebSocket with `connect.challenge` → Ed25519-signed `connect` → `hello-ok`, mandatory device pairing for any scope, `req`/`res` frames with string ids and codes, and `skills.status` / `config.get` / `config.patch` / `models.list` instead of the methods the clients call. **Decision:** [ADR-0007](../../adr/0007-gateway-protocol-alignment.md), adapt both clients to the real protocol (supersedes ADR-002, amends ADR-004); no upstream REST PR. Work is M7. A verification run on 2026-10-15 against the same image pinned what M5 left open (ADR-0007 "Verification"): `client.id`/`client.mode` are server allow-lists and `platform` is pinned at approval, the pairing `requestId` is stable and only reconnecting reveals an approval, setup-code tokens serve node clients only, and the `config.patch` / `skills.update` / `skills.install` shapes are pinned (they become fixtures in Task 1 of each M7 plan). Still assumed, not captured: a never-seen device without a credential gets `AUTH_TOKEN_MISSING` before `PAIRING_REQUIRED`; 7.3 checks it (`probe-real.mjs no-token`).
+
+## M7 — Protocol alignment (ADR-0007)
+
+Both clients move to the real gateway protocol: frame codec and RPC client, Ed25519 device identity, `connect` handshake with device tokens, pairing-approval UX, `config.get`/`config.patch` with `baseHash`, `models.list` + `agents.defaults.model.primary`, `skills.status`/`install`/`update` (Disable replaces uninstall), AI recommendations honestly unsupported, `openclaw qr` setup codes recognised and explained (their tokens serve node clients only), Bonjour copy, deletion of the speculative REST/JSON-RPC code. Tests replay frames captured from 2026.10.3 (`fixtures/gateway-protocol/2026.10.3/`, shared by both platforms and the mock).
+
+| # | Item | Plan | Size | Status |
+|---|---|---|---|---|
+| 7.1 | Android protocol alignment, incl. `scripts/mock-gateway` rewritten to protocol 4 with conformance tests in CI | [`2026-10-15-protocol-alignment-android.md`](2026-10-15-protocol-alignment-android.md) | L | Open |
+| 7.2 | iOS / Mac Catalyst protocol alignment (first WebSocket client on iOS) | [`2026-10-15-protocol-alignment-ios.md`](2026-10-15-protocol-alignment-ios.md) | L | Open |
+| 7.3 | ⚠ manual: real-gateway and device pass for both apps; closes the open M5 device items (the protocol unknowns were pinned on 2026-10-15; `probe-real.mjs` re-checks them only for a new gateway release) | Android Task 26, iOS Task 21 | M | Open |
+| 7.4 | README / CLAUDE.md / CHANGELOG feature claims match the aligned clients | Android Task 27, iOS Task 22 | S | Open |
 
 ## M6 — Docs & release
 
