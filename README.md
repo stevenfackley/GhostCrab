@@ -119,10 +119,10 @@ Domain interfaces are the v1.0 API surface and are **frozen** — implementation
 
 ## Privacy
 
-- No analytics, no ads, no cloud backend
+- No analytics of its own, no ads, no cloud backend. The Android QR scanner uses Google ML Kit, which sends Google its own diagnostics and a per-installation id; see [docs/PRIVACY_POLICY.md](docs/PRIVACY_POLICY.md)
 - Connection profiles stored locally via DataStore; gateway/device tokens stored in EncryptedSharedPreferences (AES-256-GCM, Android Keystore)
 - Nothing is sent to the developer
-- `Authorization` headers are stripped from all HTTP logs — verify with `adb logcat | grep -i bearer`
+- Gateway and device tokens are redacted from crash reports and logs — verify with `adb logcat | grep -i -E 'bearer|token'`
 
 See [`docs/PRIVACY_POLICY.md`](docs/PRIVACY_POLICY.md) for the full policy.
 
