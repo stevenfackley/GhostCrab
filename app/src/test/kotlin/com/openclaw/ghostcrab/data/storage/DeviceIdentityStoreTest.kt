@@ -82,8 +82,11 @@ class DeviceIdentityStoreTest {
             opens++
             if (opens == 1) throw KeyStoreException("keystore busy") else prefs
         }
+        val before = testScheduler.currentTime
         assertEquals(RFC8032_DEVICE_ID, store.identity().deviceId)
         assertEquals(2, opens)
+        // The retry waits briefly: a Keystore that is busy right now (just after boot) often recovers.
+        assertEquals(DeviceIdentityStore.KEYSTORE_RETRY_DELAY_MS, testScheduler.currentTime - before)
         assertFalse(store.regenerated.value)
         verify(exactly = 0) { context.deleteSharedPreferences(any()) }
     }

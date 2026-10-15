@@ -8,14 +8,20 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.longOrNull
 
-/** Dashboard capability key: `config.get` + `config.patch` are available. */
+/** Dashboard capability key: `config.get` + `config.patch` are available and the socket holds `operator.admin`. */
 const val CAPABILITY_CONFIG = "config"
 
-/** Dashboard capability key: `models.list` is available. */
+/** Dashboard capability key: `models.list` is available and the socket holds `operator.read`. */
 const val CAPABILITY_MODELS = "models"
 
-/** Dashboard capability key: `skills.status` is available. */
+/** Dashboard capability key: `skills.status` is available and the socket holds `operator.read`. */
 const val CAPABILITY_SKILLS = "skills"
+
+/** Scope for read methods (`status`, `models.list`, `skills.status`; ADR-0007). */
+const val SCOPE_OPERATOR_READ = "operator.read"
+
+/** Scope for `config.*` and `skills.install` (ADR-0007). */
+const val SCOPE_OPERATOR_ADMIN = "operator.admin"
 
 /**
  * `connect.challenge` payload.
@@ -90,13 +96,21 @@ fun HelloOk.toAuthRequirement(token: String?): AuthRequirement = when (gatewayAu
 }
 
 /**
+ * What this socket can actually do: a method the gateway offers counts only when the granted scopes allow it, so a
+ * token-only socket (`scopes: []`) advertises nothing and the UI never offers a screen whose calls would fail with
+ * `missing scope`. Scope per ADR-0007: `config` needs `operator.admin`, `models` and `skills` need
+ * `operator.read` (taken literally; `operator.admin` alone is not assumed to cover read).
+ *
  * @param methods `hello-ok.features.methods`.
- * @return The GhostCrab capability keys these methods support, in a stable order.
+ * @param scopes `hello-ok.auth.scopes`.
+ * @return The GhostCrab capability keys, in a stable order.
  */
-fun gatewayCapabilities(methods: Set<String>): List<String> = buildList {
-    if ("config.get" in methods && "config.patch" in methods) add(CAPABILITY_CONFIG)
-    if ("models.list" in methods) add(CAPABILITY_MODELS)
-    if ("skills.status" in methods) add(CAPABILITY_SKILLS)
+fun gatewayCapabilities(methods: Set<String>, scopes: Set<String>): List<String> = buildList {
+    val admin = SCOPE_OPERATOR_ADMIN in scopes
+    val read = SCOPE_OPERATOR_READ in scopes
+    if (admin && "config.get" in methods && "config.patch" in methods) add(CAPABILITY_CONFIG)
+    if (read && "models.list" in methods) add(CAPABILITY_MODELS)
+    if (read && "skills.status" in methods) add(CAPABILITY_SKILLS)
 }
 
 /**

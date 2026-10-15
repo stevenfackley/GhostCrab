@@ -203,6 +203,26 @@ class GatewayRpcClientTest {
         assertEquals(emptyList<GatewayFrame.Event>(), rpc.events.toList())
     }
 
+    @Test fun `awaitClosed reports why the socket ended`() = runTest {
+        val refused = silent()
+        val byGateway = client(refused)
+        val waiting = async { byGateway.awaitClosed() }
+        runCurrent()
+        assertFalse(waiting.isCompleted)
+        refused.drop(closeCode = 1008, closeReason = "pairing required")
+        val closed = waiting.await() as GatewayConnectionClosedException
+        assertEquals("pairing required", closed.closeReason)
+
+        val dropped = silent()
+        val byTransport = client(dropped)
+        dropped.drop()
+        assertInstanceOf(GatewayUnreachableException::class.java, byTransport.awaitClosed())
+
+        val byClient = client(silent())
+        byClient.close()
+        assertInstanceOf(GatewayNotConnectedException::class.java, byClient.awaitClosed())
+    }
+
     @Test fun `the challenge payload carries the captured nonce`() = runTest {
         val challenge = client(silent()).awaitChallenge().payload as JsonObject
         assertEquals("71d63897-7ebd-44e8-a27a-20ac1598b846", challenge["nonce"]?.jsonPrimitive?.content)

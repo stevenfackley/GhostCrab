@@ -48,6 +48,7 @@ class GatewayRpcClient private constructor(
     private val pending = ConcurrentHashMap<String, CompletableDeferred<GatewayFrame.Response>>()
     private val challenge = CompletableDeferred<GatewayFrame.Event>()
     private val closedCause = AtomicReference<GatewayException?>(null)
+    private val ended = CompletableDeferred<GatewayException>()
 
     /** Server events; `null` marks the end of the socket. Never suspends the reader: the oldest are dropped. */
     private val eventBus = MutableSharedFlow<GatewayFrame.Event?>(
@@ -106,7 +107,16 @@ class GatewayRpcClient private constructor(
         pending.values.forEach { it.completeExceptionally(effective) }
         pending.clear()
         eventBus.tryEmit(null)
+        ended.complete(effective)
     }
+
+    /**
+     * Suspends until the socket has ended, whoever ended it.
+     *
+     * @return Why it ended: [GatewayConnectionClosedException] for a gateway policy close (1008, with its reason),
+     *   [GatewayUnreachableException] for a drop or any other close, [GatewayNotConnectedException] after [close].
+     */
+    suspend fun awaitClosed(): GatewayException = ended.await()
 
     private fun dispatch(raw: String) {
         when (val frame = GatewayFrameCodec.decode(raw)) {

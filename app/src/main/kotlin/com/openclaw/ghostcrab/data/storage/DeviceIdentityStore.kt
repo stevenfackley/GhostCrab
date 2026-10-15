@@ -11,6 +11,7 @@ import com.openclaw.ghostcrab.data.gateway.DeviceIdentityProvider
 import com.openclaw.ghostcrab.domain.exception.DeviceCredentialStorageException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -40,10 +41,11 @@ internal fun openIdentityPrefs(context: Context): SharedPreferences {
  * Persists this install's Ed25519 seed (ADR-0007) in its own encrypted file, separate from the token file, so
  * "Clear all saved gateways" keeps the identity and the gateways' pairing records stay valid.
  *
- * Recovery from Keystore loss: a file that will not open is retried once (Keystore errors are often transient),
- * then deleted and recreated; an unreadable seed (cannot be decrypted, bad Base64, wrong length) is removed. Either
- * way a new identity is generated, [regenerated] turns `true` and a class-name-only warning is logged: every
- * gateway then shows a new pairing request for this phone. That is the only recovery a lost key allows.
+ * Recovery from Keystore loss: a file that will not open is retried once after [KEYSTORE_RETRY_DELAY_MS] (Keystore
+ * errors are often transient), then deleted and recreated; an unreadable seed (cannot be decrypted, bad Base64, wrong
+ * length) is removed. Either way a new identity is generated, [regenerated] turns `true` and a class-name-only
+ * warning is logged: every gateway then shows a new pairing request for this phone. That is the only recovery a lost
+ * key allows.
  *
  * Temporary seed copies are zeroed after use. Use one instance per process (a Koin `single`): the [Mutex] that
  * keeps two first-use calls from generating two identities is per instance.
@@ -79,7 +81,7 @@ class DeviceIdentityStore(
         cached ?: withContext(ioDispatcher) { loadOrCreate() }.also { cached = it }
     }
 
-    private fun loadOrCreate(): DeviceIdentity {
+    private suspend fun loadOrCreate(): DeviceIdentity {
         val prefs = openedPrefs ?: openWithRecovery().also { openedPrefs = it }
         val stored = readSeed(prefs)
         return if (stored != null) {
@@ -93,11 +95,14 @@ class DeviceIdentityStore(
         }
     }
 
-    private fun openWithRecovery(): SharedPreferences {
+    private suspend fun openWithRecovery(): SharedPreferences {
         var failure: Exception? = null
         val opened = keystoreReadOrNull(onFailure = { failure = it }) { prefsFactory(context) }
-            // One retry: Keystore errors are often transient.
-            ?: keystoreReadOrNull(onFailure = { failure = it }) { prefsFactory(context) }
+            // One retry after a short pause: Keystore errors are often transient (e.g. right after boot).
+            ?: run {
+                delay(KEYSTORE_RETRY_DELAY_MS)
+                keystoreReadOrNull(onFailure = { failure = it }) { prefsFactory(context) }
+            }
         // prefsFactory never returns null, so a null here always carries its failure.
         return opened ?: recreate(checkNotNull(failure))
     }
@@ -157,5 +162,8 @@ class DeviceIdentityStore(
     internal companion object {
         /** Preference key of the base64 seed. */
         const val KEY_SEED = "ed25519_seed_v1"
+
+        /** Pause before the single retry of a failed open of the identity file. */
+        const val KEYSTORE_RETRY_DELAY_MS = 250L
     }
 }

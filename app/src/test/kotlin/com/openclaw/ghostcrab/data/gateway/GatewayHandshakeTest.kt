@@ -135,8 +135,22 @@ class GatewayHandshakeTest {
         assertEquals(AuthRequirement.None, silent.toAuthRequirement(null))
         assertEquals(
             listOf(CAPABILITY_CONFIG, CAPABILITY_MODELS, CAPABILITY_SKILLS),
-            gatewayCapabilities(hello.methods),
+            gatewayCapabilities(hello.methods, hello.scopes),
         )
+    }
+
+    @Test fun `capabilities follow the granted scopes, not just the method list`() {
+        val methods = GatewayHandshake.parseHello(
+            "ws://gw/ws",
+            GatewayFixtures.frame("hello-ok-noscope").getValue("payload"),
+        ).methods
+        assertEquals(emptyList<String>(), gatewayCapabilities(methods, emptySet()))
+        assertEquals(
+            listOf(CAPABILITY_MODELS, CAPABILITY_SKILLS),
+            gatewayCapabilities(methods, setOf("operator.read", "operator.write")),
+        )
+        assertEquals(listOf(CAPABILITY_CONFIG), gatewayCapabilities(methods, setOf("operator.admin")))
+        assertEquals(emptyList<String>(), gatewayCapabilities(setOf("health"), OPERATOR_SCOPES.toSet()))
     }
 
     @Test fun `credential selection follows upstream order without setup-code tokens`() {

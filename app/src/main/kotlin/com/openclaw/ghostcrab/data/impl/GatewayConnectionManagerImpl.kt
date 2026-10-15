@@ -30,8 +30,10 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -54,6 +56,10 @@ private val CREDENTIAL_MISSING_CODES = setOf("AUTH_TOKEN_MISSING", "AUTH_PASSWOR
  * Production [GatewayConnectionManager] (ADR-0007): `GET /health`, then one control-plane WebSocket per session
  * opened with a signed `connect`. Repositories call RPCs on [requireSession]. Thread-safe via [mutex].
  *
+ * The live socket is watched: when it ends (gateway restart, Wi-Fi change, Doze, a 1008 close) the manager makes
+ * one silent reconnect with this gateway's stored device token (the shared token when none is stored); if that
+ * fails, or the reconnected socket ends too, the state becomes [GatewayConnection.Error] with the typed end cause.
+ *
  * A caller's timeout or cancellation always propagates as cancellation (the state returns to
  * [GatewayConnection.Disconnected]); it is never turned into a gateway error.
  *
@@ -62,9 +68,10 @@ private val CREDENTIAL_MISSING_CODES = setOf("AUTH_TOKEN_MISSING", "AUTH_PASSWOR
  * @param clientInfo `connect.params.client`.
  * @param clientFactory Builds the REST client used for `/health` and to open the socket. Injectable for tests.
  * @param settingsRepository Source of the cleartext-to-public-IP opt-in.
- * @param ioDispatcher Blocking work and the socket reader loop; injected via the Koin IoDispatcher qualifier.
+ * @param ioDispatcher Blocking work, the socket reader loop and the socket watcher; injected via the Koin
+ *   IoDispatcher qualifier.
  */
-@Suppress("TooManyFunctions") // one session lifecycle: connect, probe, health, teardown helpers
+@Suppress("TooManyFunctions") // one session lifecycle: connect, probe, health, watch, reconnect, teardown helpers
 class GatewayConnectionManagerImpl(
     private val identityProvider: DeviceIdentityProvider,
     private val deviceTokens: DeviceTokenStore,
@@ -74,8 +81,11 @@ class GatewayConnectionManagerImpl(
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : GatewayConnectionManager, GatewayHealthChecker {
 
-    /** The live session: REST client (health, teardown), control-plane socket, and the hello that opened it. */
-    private class ActiveSession(val client: OpenClawApiClient, val rpc: GatewayRpcClient, val hello: HelloOk)
+    /** What a connect attempt has opened so far, so every failure path can release it. */
+    private class Opening {
+        var client: OpenClawApiClient? = null
+        var rpc: GatewayRpcClient? = null
+    }
 
     private val _connectionState = MutableStateFlow<GatewayConnection>(GatewayConnection.Disconnected)
     override val connectionState: StateFlow<GatewayConnection> = _connectionState.asStateFlow()
@@ -83,6 +93,15 @@ class GatewayConnectionManagerImpl(
     // Written under [mutex] on the IO dispatcher, read lock-free by repositories on any thread.
     @Volatile private var active: ActiveSession? = null
     private val mutex = Mutex()
+
+    /** App-lifetime work: the cleartext-setting collector and the socket watchers. */
+    private val scope = CoroutineScope(SupervisorJob() + ioDispatcher)
+
+    /** Watches [active]'s socket; [connect] and [disconnect] cancel it before they take [mutex]. */
+    @Volatile private var watcher: Job? = null
+
+    /** Gateways that accepted this run's regenerated identity (a `hello-ok`); guarded by [mutex]. */
+    private val reapprovedGateways = mutableSetOf<String>()
 
     /** Live copy of the user's cleartext opt-in; every request's interceptor reads it. */
     private val allowCleartext = AtomicBoolean(false)
@@ -92,7 +111,7 @@ class GatewayConnectionManagerImpl(
 
     init {
         // App-lifetime singleton: keep the opt-in current so a Settings change applies to the live session.
-        CoroutineScope(SupervisorJob() + ioDispatcher).launch { cleartextSetting.collect { allowCleartext.set(it) } }
+        scope.launch { cleartextSetting.collect { allowCleartext.set(it) } }
     }
 
     /** Reads the current opt-in before building clients, so the first request never races the collector. */
@@ -119,50 +138,127 @@ class GatewayConnectionManagerImpl(
         } catch (ignored: GatewayPairingRequiredException) {
             AuthRequirement.None
         } finally {
+            // A probe socket's close failure changes nothing about the answer; both sides are closed regardless.
             release(client, rpc)
         }
     }
 
-    /** Emits Connecting, then Connected or Error (and rethrows). Cancellation ends in Disconnected. */
+    /**
+     * Emits Connecting, then Connected or Error (and rethrows). Cancellation ends in Disconnected. Replaces any live
+     * session (its watcher is stopped first, so a silent reconnect in progress cannot delay this connect).
+     *
+     * @throws GatewayPairingRequiredException while this device awaits approval on the gateway.
+     * @throws GatewayConnectAuthException if the gateway rejects the credential or the device proof.
+     * @throws DeviceCredentialStorageException if the device identity cannot be read or created.
+     * @throws GatewayException subtype for transport or protocol failures.
+     */
     override suspend fun connect(url: String, token: String?): Unit = withContext(ioDispatcher) {
+        watcher?.cancelAndJoin()
         mutex.withLock {
-            closeActive()
             _connectionState.value = GatewayConnection.Connecting(url)
-            val key = gatewayKeyOf(url)
-            // Held outside the try so every failure path can release what was opened so far.
-            var client: OpenClawApiClient? = null
-            var rpc: GatewayRpcClient? = null
+            val opening = Opening()
             try {
-                primeCleartextSetting()
-                val rest = clientFactory.unauthenticated(url, allowCleartext::get).also { client = it }
-                rest.health() // reachability + cleartext policy, before any credential is sent
-                val identity = identityProvider.identity()
-                val stored = deviceTokens.loadDeviceToken(key)?.takeIf { it.deviceId == identity.deviceId }
-                val socket = openRpc(rest).also { rpc = it }
-                val hello = GatewayHandshake.perform(socket, clientInfo, selectConnectAuth(token, stored), identity)
-                val tokenWarning = rememberDeviceToken(key, identity, hello, stored)
-                active = ActiveSession(rest, socket, hello)
-                _connectionState.value = connectedState(url, hello, token, warnings(tokenWarning))
+                closeActive()
+                activate(openSession(url, token, opening, reconnecting = false))
             } catch (e: GatewayConnectAuthException) {
-                if (e.detailCode == DEVICE_TOKEN_MISMATCH) forgetDeviceToken(key, e)
-                fail(url, e, client, rpc)
+                forgetRevokedDeviceToken(url, e)
+                fail(url, e, opening)
                 throw e
             } catch (e: GatewayException) {
-                fail(url, e, client, rpc)
+                fail(url, e, opening)
                 throw e
             } catch (e: CancellationException) {
                 // The caller went away or its own timeout fired: release, end Disconnected, keep it cancellation.
-                release(client, rpc)
+                release(opening.client, opening.rpc)?.let(e::addSuppressed)
                 _connectionState.value = GatewayConnection.Disconnected
                 throw e
             } catch (@Suppress("TooGenericExceptionCaught") e: Exception) {
                 // Unclassified (a URL the engine rejects, a client bug): not connectivity; never stuck Connecting.
                 val detail = e::class.java.simpleName + (e.message?.let { ": $it" } ?: "")
                 val wrapped = GatewayProtocolException(url, detail, e)
-                fail(url, wrapped, client, rpc)
+                fail(url, wrapped, opening)
                 throw wrapped
             }
         }
+    }
+
+    /**
+     * `/health`, socket, signed `connect`, device-token bookkeeping. Under [mutex].
+     *
+     * @param opening Records what was opened, for the caller to release on failure.
+     * @param reconnecting `true` for the silent reconnect: the stored device token goes first, the shared token is
+     *   the fallback; such a session is not reconnected again.
+     * @return The session, not yet [activate]d.
+     */
+    private suspend fun openSession(
+        url: String,
+        token: String?,
+        opening: Opening,
+        reconnecting: Boolean,
+    ): ActiveSession {
+        primeCleartextSetting()
+        val rest = clientFactory.unauthenticated(url, allowCleartext::get).also { opening.client = it }
+        rest.health() // reachability + cleartext policy, before any credential is sent
+        val key = gatewayKeyOf(url)
+        val identity = identityProvider.identity()
+        val stored = deviceTokens.loadDeviceToken(key)?.takeIf { it.deviceId == identity.deviceId }
+        val socket = openRpc(rest).also { opening.rpc = it }
+        val sharedToken = token.takeUnless { reconnecting && stored != null }
+        val auth = selectConnectAuth(sharedToken, stored)
+        val hello = GatewayHandshake.perform(socket, clientInfo, auth, identity)
+        if (identityProvider.regenerated.value) reapprovedGateways += key
+        val tokenWarning = rememberDeviceToken(key, identity, hello, stored)
+        return ActiveSession(url, token, rest, socket, hello, !reconnecting, warnings(key, tokenWarning))
+    }
+
+    /** Makes [session] the live one, publishes Connected and starts watching its socket. Under [mutex]. */
+    private fun activate(session: ActiveSession) {
+        active = session
+        _connectionState.value = connectedState(session)
+        watcher = scope.launch { watch(session) }
+    }
+
+    /** Waits for [session]'s socket to end; acts only if it is still the live session (not closed on purpose). */
+    private suspend fun watch(session: ActiveSession) {
+        val cause = session.rpc.awaitClosed()
+        mutex.withLock { if (active === session) onSocketLost(session, cause) }
+    }
+
+    /** Under [mutex]: the live socket ended with [cause]. One silent reconnect, else Error. */
+    private suspend fun onSocketLost(lost: ActiveSession, cause: GatewayException) {
+        active = null
+        release(lost.client, lost.rpc)?.let(cause::addSuppressed)
+        if (lost.mayReconnect && reconnectQuietly(lost, cause)) return
+        _connectionState.value = GatewayConnection.Error(lost.url, cause, warnings(gatewayKeyOf(lost.url)))
+    }
+
+    /**
+     * The single silent reconnect. Any failure (credential storage included) is attached to [cause] and ends the
+     * attempt: it is never retried here.
+     *
+     * @return `true` when the reconnected session is live.
+     */
+    private suspend fun reconnectQuietly(lost: ActiveSession, cause: GatewayException): Boolean {
+        val opening = Opening()
+        return try {
+            activate(openSession(lost.url, lost.token, opening, reconnecting = true))
+            true
+        } catch (e: CancellationException) {
+            release(opening.client, opening.rpc)?.let(e::addSuppressed)
+            throw e
+        } catch (e: GatewayConnectAuthException) {
+            forgetRevokedDeviceToken(lost.url, e)
+            abandonReconnect(cause, e, opening)
+        } catch (@Suppress("TooGenericExceptionCaught") e: Exception) {
+            abandonReconnect(cause, e, opening)
+        }
+    }
+
+    /** Releases what the failed reconnect opened and attaches [failure] to [cause]. @return `false`. */
+    private suspend fun abandonReconnect(cause: GatewayException, failure: Exception, opening: Opening): Boolean {
+        release(opening.client, opening.rpc)?.let(failure::addSuppressed)
+        cause.addSuppressed(failure)
+        return false
     }
 
     private suspend fun openRpc(client: OpenClawApiClient): GatewayRpcClient =
@@ -191,39 +287,66 @@ class GatewayConnectionManagerImpl(
         }
     }
 
-    /** Forgets a device token the gateway rejected; a storage failure stays attached to [rejection]. */
-    private suspend fun forgetDeviceToken(key: String, rejection: GatewayException) {
+    /** Forgets a device token the gateway revoked; a storage failure stays attached to [rejection]. */
+    private suspend fun forgetRevokedDeviceToken(url: String, rejection: GatewayConnectAuthException) {
+        if (rejection.detailCode != DEVICE_TOKEN_MISMATCH) return
         try {
-            deviceTokens.clearDeviceToken(key)
+            deviceTokens.clearDeviceToken(gatewayKeyOf(url))
         } catch (e: DeviceCredentialStorageException) {
             // The rejection is what the caller must see; the stale token is ignored again on the next attempt.
             rejection.addSuppressed(e)
         }
     }
 
-    /** @return [extra] plus [ConnectionWarning.DeviceIdentityRegenerated] when the identity was replaced. */
-    private fun warnings(vararg extra: ConnectionWarning?): List<ConnectionWarning> = buildList {
-        if (identityProvider.regenerated.value) add(ConnectionWarning.DeviceIdentityRegenerated)
+    /**
+     * @return [extra] plus [ConnectionWarning.DeviceIdentityRegenerated] while the identity was replaced in this run
+     *   and the gateway behind [key] has not accepted the new one yet.
+     */
+    private fun warnings(key: String, vararg extra: ConnectionWarning?): List<ConnectionWarning> = buildList {
+        if (identityProvider.regenerated.value && key !in reapprovedGateways) {
+            add(ConnectionWarning.DeviceIdentityRegenerated)
+        }
         extra.filterNotNullTo(this)
     }
 
-    private suspend fun release(client: OpenClawApiClient?, rpc: GatewayRpcClient?) {
-        withContext(NonCancellable) { rpc?.close() }
-        client?.close()
+    /**
+     * Closes the socket (under [NonCancellable]) and the REST client, each even when the other fails. Never throws.
+     *
+     * @return The close failure, for the caller to attach to the error it reports, or `null`. Callers that end a
+     *   session on purpose (disconnect, replacing it, the auth probe) have no error to attach it to and ignore it:
+     *   both sides are closed either way.
+     */
+    private suspend fun release(client: OpenClawApiClient?, rpc: GatewayRpcClient?): Exception? {
+        var failure: Exception? = null
+        withContext(NonCancellable) {
+            try {
+                rpc?.close()
+            } catch (@Suppress("TooGenericExceptionCaught") e: Exception) {
+                failure = e
+            }
+        }
+        try {
+            client?.close()
+        } catch (@Suppress("TooGenericExceptionCaught") e: Exception) {
+            failure?.addSuppressed(e) ?: run { failure = e }
+        }
+        return failure
     }
 
+    /** Ends the live session on purpose. [active] is cleared first, so it is cleared whatever the close does. */
     private suspend fun closeActive() {
-        active?.let { release(it.client, it.rpc) }
+        val previous = active ?: return
         active = null
+        release(previous.client, previous.rpc)
     }
 
-    private suspend fun fail(url: String, cause: GatewayException, client: OpenClawApiClient?, rpc: GatewayRpcClient?) {
-        release(client, rpc)
-        closeActive()
-        _connectionState.value = GatewayConnection.Error(url, cause, warnings())
+    private suspend fun fail(url: String, cause: GatewayException, opening: Opening) {
+        release(opening.client, opening.rpc)?.let(cause::addSuppressed)
+        _connectionState.value = GatewayConnection.Error(url, cause, warnings(gatewayKeyOf(url)))
     }
 
     override suspend fun disconnect() {
+        watcher?.cancelAndJoin()
         mutex.withLock {
             closeActive()
             _connectionState.value = GatewayConnection.Disconnected
@@ -251,21 +374,36 @@ class GatewayConnectionManagerImpl(
     fun requireClient(): OpenClawApiClient = active?.client ?: throw GatewayNotConnectedException()
 }
 
-private fun connectedState(
-    url: String,
-    hello: HelloOk,
-    token: String?,
-    warnings: List<ConnectionWarning>,
-) = GatewayConnection.Connected(
-    url = url,
-    displayName = hello.gatewayHost ?: DEFAULT_DISPLAY_NAME,
-    version = hello.serverVersion,
-    authRequirement = hello.toAuthRequirement(token),
-    isHttps = url.startsWith("https://", ignoreCase = true),
-    capabilities = gatewayCapabilities(hello.methods),
+/**
+ * The live session of [GatewayConnectionManagerImpl].
+ *
+ * @param token The shared token the user connected with (also in [GatewayConnection.Connected.tokenOrNull]).
+ * @param mayReconnect Whether losing this socket may trigger the silent reconnect: `true` for a session the user
+ *   opened, `false` for the reconnected one, so a gateway that keeps dropping the socket never loops.
+ * @param warnings The [GatewayConnection.Connected.warnings] of this session.
+ */
+@Suppress("LongParameterList") // a plain holder of what one connect produced
+private class ActiveSession(
+    val url: String,
+    val token: String?,
+    val client: OpenClawApiClient,
+    val rpc: GatewayRpcClient,
+    val hello: HelloOk,
+    val mayReconnect: Boolean,
+    val warnings: List<ConnectionWarning>,
+)
+
+/** Capabilities come from the methods the gateway offers AND the scopes this socket holds (ADR-0007). */
+private fun connectedState(session: ActiveSession) = GatewayConnection.Connected(
+    url = session.url,
+    displayName = session.hello.gatewayHost ?: DEFAULT_DISPLAY_NAME,
+    version = session.hello.serverVersion,
+    authRequirement = session.hello.toAuthRequirement(session.token),
+    isHttps = session.url.startsWith("https://", ignoreCase = true),
+    capabilities = gatewayCapabilities(session.hello.methods, session.hello.scopes),
     hardwareInfo = null,
-    tokenOrNull = token,
-    warnings = warnings,
+    tokenOrNull = session.token,
+    warnings = session.warnings,
 )
 
 // ── Fail-safe default settings (no cleartext to public IPs) ──────────────────

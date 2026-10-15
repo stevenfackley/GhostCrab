@@ -56,6 +56,10 @@ interface GatewayConnectionManager {
      * @throws GatewayUnreachableException if the host is not reachable.
      * @throws com.openclaw.ghostcrab.domain.exception.GatewayConnectAuthException if the gateway rejects the
      *   credential or the device proof.
+     * @throws com.openclaw.ghostcrab.domain.exception.GatewayPairingRequiredException while this device awaits
+     *   approval on the gateway (`openclaw devices approve <requestId>`).
+     * @throws com.openclaw.ghostcrab.domain.exception.DeviceCredentialStorageException if this phone's encrypted
+     *   storage cannot read or create the device identity.
      * @throws GatewayTimeoutException if the connection times out.
      */
     suspend fun connect(url: String, token: String? = null)

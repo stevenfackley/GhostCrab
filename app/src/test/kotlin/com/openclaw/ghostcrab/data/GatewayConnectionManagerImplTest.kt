@@ -13,6 +13,7 @@ import com.openclaw.ghostcrab.data.impl.OpenClawApiClientFactory
 import com.openclaw.ghostcrab.data.ws.WsSession
 import com.openclaw.ghostcrab.domain.exception.DeviceCredentialStorageException
 import com.openclaw.ghostcrab.domain.exception.GatewayConnectAuthException
+import com.openclaw.ghostcrab.domain.exception.GatewayConnectionClosedException
 import com.openclaw.ghostcrab.domain.exception.GatewayNotConnectedException
 import com.openclaw.ghostcrab.domain.exception.GatewayPairingRequiredException
 import com.openclaw.ghostcrab.domain.exception.GatewayProtocolException
@@ -45,6 +46,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
@@ -69,6 +71,7 @@ import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
+import java.io.IOException
 import java.security.GeneralSecurityException
 import kotlin.coroutines.CoroutineContext
 
@@ -381,6 +384,161 @@ class GatewayConnectionManagerImplTest {
         assertThrows<GatewayNotConnectedException> { m.requireSession() }
     }
 
+    @Test fun `a scope-less hello advertises no capabilities`() = runTest {
+        val m = manager(ScriptedWsSession(respond = fixtures("connect" to "hello-ok-noscope")))
+        m.connect(url, "shared-token")
+        assertEquals(emptyList<String>(), (m.connectionState.value as GatewayConnection.Connected).capabilities)
+    }
+
+    @Test fun `a hello-ok with the regenerated identity clears the warning for that gateway`() = runTest {
+        val regenerated = object : DeviceIdentityProvider {
+            override suspend fun identity(): DeviceIdentity = fixedIdentity
+            override val regenerated: StateFlow<Boolean> = MutableStateFlow(true)
+        }
+        val accepted = ScriptedWsSession(respond = fixtures("connect" to "hello-ok-paired"))
+        val m = manager(accepted, identity = regenerated)
+        m.connect(url, "shared-token")
+        assertTrue((m.connectionState.value as GatewayConnection.Connected).warnings.isEmpty())
+
+        val refused = ScriptedWsSession(
+            closeAfterReplyTo = setOf("connect"),
+            respond = fixtures("connect" to "err-token-mismatch"),
+        )
+        coEvery { rest.openWsSession() } returns refused
+        assertThrows<GatewayConnectAuthException> { m.connect(url, "wrong") }
+        assertTrue((m.connectionState.value as GatewayConnection.Error).warnings.isEmpty())
+
+        // Another gateway has not seen the new identity yet: its pairing request still needs the explanation.
+        val other = "http://192.168.1.51:18789"
+        val pairing = ScriptedWsSession(
+            closeAfterReplyTo = setOf("connect"),
+            respond = fixtures("connect" to "err-pairing-required"),
+        )
+        every { factory.unauthenticated(other, any()) } returns restClient(pairing, "ws://192.168.1.51:18789/ws")
+        assertThrows<GatewayPairingRequiredException> { m.connect(other, "shared-token") }
+        val state = m.connectionState.value as GatewayConnection.Error
+        assertEquals(listOf(ConnectionWarning.DeviceIdentityRegenerated), state.warnings)
+    }
+
+    @Test fun `a socket that fails to close still lands in Error and closes the REST client`() = runTest {
+        val refusing = ScriptedWsSession(
+            closeAfterReplyTo = setOf("connect"),
+            respond = fixtures("connect" to "err-pairing-required"),
+        )
+        val m = manager(FailingCloseSession(refusing))
+
+        val e = assertThrows<GatewayPairingRequiredException> { m.connect(url, "shared-token") }
+
+        assertInstanceOf(IOException::class.java, e.suppressed.single())
+        assertSame(e, (m.connectionState.value as GatewayConnection.Error).cause)
+        verify { rest.close() }
+    }
+
+    @Test fun `disconnect clears the session even when its socket fails to close`() = runTest {
+        val m = manager(FailingCloseSession(ScriptedWsSession(respond = fixtures("connect" to "hello-ok-paired"))))
+        m.connect(url, "shared-token")
+
+        m.disconnect()
+
+        assertEquals(GatewayConnection.Disconnected, m.connectionState.value)
+        assertNull(m.grantedScopes())
+        verify { rest.close() }
+    }
+
+    // ── losing the socket ─────────────────────────────────────────────────────
+
+    @Test fun `a gateway close leaves Connected for a typed Error when the silent reconnect fails`() = runTest {
+        val session = ScriptedWsSession(respond = fixtures("connect" to "hello-ok-paired"))
+        val m = manager(session)
+        m.connect(url, "shared-token")
+        coEvery { rest.openWsSession() } throws GatewayUnreachableException(url)
+
+        session.drop(closeCode = 1008, closeReason = "device removed")
+        runCurrent()
+
+        val cause = (m.connectionState.value as GatewayConnection.Error).cause as GatewayConnectionClosedException
+        assertEquals(1008, cause.closeCode)
+        assertEquals("device removed", cause.closeReason)
+        assertInstanceOf(GatewayUnreachableException::class.java, cause.suppressed.single())
+        assertNull(m.grantedScopes())
+        assertThrows<GatewayNotConnectedException> { m.requireSession() }
+    }
+
+    @Test fun `a dropped socket reconnects once, silently, with the stored device token`() = runTest {
+        val first = ScriptedWsSession(respond = fixtures("connect" to "hello-ok-paired"))
+        val second = ScriptedWsSession(respond = fixtures("connect" to "hello-ok-paired", "health" to "res-health"))
+        val m = manager(first)
+        coEvery { rest.openWsSession() } returnsMany listOf(first, second)
+        m.connect(url, "shared-token")
+        val seen = mutableListOf<GatewayConnection>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { m.connectionState.toList(seen) }
+
+        first.drop()
+        runCurrent()
+
+        assertTrue(seen.all { it is GatewayConnection.Connected }, seen.toString())
+        assertEquals("shared-token", (m.connectionState.value as GatewayConnection.Connected).tokenOrNull)
+        val auth = second.paramsOf("connect").getValue("auth").jsonObject
+        assertEquals("dt-test-0001", auth.getValue("deviceToken").jsonPrimitive.content)
+        assertNull(auth["token"])
+        m.check()
+        assertEquals(listOf("connect", "health"), second.sent.map { it.getValue("method").jsonPrimitive.content })
+    }
+
+    @Test fun `the reconnected session is not reconnected again`() = runTest {
+        val first = ScriptedWsSession(respond = fixtures("connect" to "hello-ok-paired"))
+        val second = ScriptedWsSession(respond = fixtures("connect" to "hello-ok-paired"))
+        val m = manager(first)
+        coEvery { rest.openWsSession() } returnsMany listOf(first, second)
+        m.connect(url, "shared-token")
+        first.drop()
+        runCurrent()
+
+        second.drop()
+        runCurrent()
+
+        val state = m.connectionState.value as GatewayConnection.Error
+        assertInstanceOf(GatewayUnreachableException::class.java, state.cause)
+        coVerify(exactly = 2) { rest.openWsSession() }
+    }
+
+    @Test fun `a credential-storage failure during the reconnect surfaces the lost socket, once`() = runTest {
+        var identityCalls = 0
+        val failsAfterFirst = object : DeviceIdentityProvider {
+            override suspend fun identity(): DeviceIdentity {
+                identityCalls++
+                if (identityCalls > 1) {
+                    throw DeviceCredentialStorageException("open the device identity", GeneralSecurityException("ks"))
+                }
+                return fixedIdentity
+            }
+        }
+        val session = ScriptedWsSession(respond = fixtures("connect" to "hello-ok-paired"))
+        val m = manager(session, identity = failsAfterFirst)
+        m.connect(url, "shared-token")
+
+        session.drop()
+        runCurrent()
+
+        val cause = (m.connectionState.value as GatewayConnection.Error).cause
+        assertInstanceOf(GatewayUnreachableException::class.java, cause)
+        assertInstanceOf(DeviceCredentialStorageException::class.java, cause.suppressed.single())
+        assertEquals(2, identityCalls)
+        coVerify(exactly = 1) { rest.openWsSession() }
+    }
+
+    @Test fun `closing the session on purpose never triggers a reconnect`() = runTest {
+        val session = ScriptedWsSession(respond = fixtures("connect" to "hello-ok-paired"))
+        val m = manager(session)
+        m.connect(url, "shared-token")
+
+        m.disconnect()
+        runCurrent()
+
+        assertEquals(GatewayConnection.Disconnected, m.connectionState.value)
+        coVerify(exactly = 1) { rest.openWsSession() }
+    }
+
     // ── Kept from main, adapted to the WebSocket flow ────────────────────────
 
     @Test fun `two concurrent connect calls result in exactly one Connected state`() = runTest {
@@ -483,6 +641,14 @@ private fun deviceTokenRejection(): JsonObject = buildJsonObject {
         put("code", "INVALID_REQUEST")
         put("message", "unauthorized: device token mismatch")
         putJsonObject("details") { put("code", "AUTH_DEVICE_TOKEN_MISMATCH") }
+    }
+}
+
+/** A socket whose close fails after closing, like one whose close frame cannot be sent any more. */
+private class FailingCloseSession(private val inner: ScriptedWsSession) : WsSession by inner {
+    override suspend fun close() {
+        inner.close()
+        throw IOException("close frame not sent")
     }
 }
 
