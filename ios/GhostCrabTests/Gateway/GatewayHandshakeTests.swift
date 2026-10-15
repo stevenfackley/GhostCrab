@@ -15,7 +15,9 @@ struct GatewayHandshakeTests {
     }
 
     private func connectParams(_ socket: ScriptedGatewayWebSocket) async throws -> [String: Any] {
-        try #require(try jsonObject(try #require(await socket.sentRequest("connect")))["params"] as? [String: Any])
+        // `#require` cannot nest: unwrap in two steps.
+        let text = try #require(await socket.sentRequest("connect"))
+        return try #require(try jsonObject(text)["params"] as? [String: Any])
     }
 
     private func parsedHello(_ fixture: String) throws -> GatewayHello {
@@ -61,7 +63,8 @@ struct GatewayHandshakeTests {
             scopes: TestKeys.operatorScopes, signedAtMs: 1_792_027_507_354, token: "shared-token",
             nonce: "71d63897-7ebd-44e8-a27a-20ac1598b846", platform: "ios", deviceFamily: nil
         ).v3
-        let signature = try #require(Base64URL.decode(try #require(device["signature"] as? String)))
+        let signatureText = try #require(device["signature"] as? String)
+        let signature = try #require(Base64URL.decode(signatureText))
         let key = try Curve25519.Signing.PublicKey(rawRepresentation: identity.publicKeyRaw)
         #expect(key.isValidSignature(signature, for: Data(expected.utf8)))
     }
