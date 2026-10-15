@@ -114,6 +114,7 @@ final class FakeConnectionProfileRepository: ConnectionProfileRepository, @unche
     private var saveLog: [(profile: ConnectionProfile, token: String?)] = []
     private var deleteLog: [String] = []
     private var clearAllCalls = 0
+    private var tokenReads = 0
 
     /// - Parameters:
     ///   - deleteError: When set, every `deleteProfile(profileId:)` throws it and keeps the profile.
@@ -138,6 +139,7 @@ final class FakeConnectionProfileRepository: ConnectionProfileRepository, @unche
     var savedTokens: [String?] { lock.withLock { saveLog.map { $0.token } } }
     var deleteAttempts: [String] { lock.withLock { deleteLog } }
     var clearAllCount: Int { lock.withLock { clearAllCalls } }
+    var getTokenCount: Int { lock.withLock { tokenReads } }
     var storedProfileCount: Int { lock.withLock { profiles.count } }
     var storedTokenCount: Int { lock.withLock { tokens.count } }
 
@@ -159,7 +161,10 @@ final class FakeConnectionProfileRepository: ConnectionProfileRepository, @unche
     }
 
     func getToken(profileId: String) async throws -> String? {
-        lock.withLock { tokens[profileId] }
+        lock.withLock {
+            tokenReads += 1
+            return tokens[profileId]
+        }
     }
 
     func deleteProfile(profileId: String) async throws {
