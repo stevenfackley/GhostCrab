@@ -33,8 +33,9 @@ android {
         versionCode = 2
         versionName = "0.2.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        // AI recommendations feature flag — true for v1.0; flip false to gate behind a pro paywall.
-        buildConfigField("Boolean", "AI_PRO_ENABLED", "true")
+        // AI recommendations: OpenClaw has no recommendation API (ADR-0007). Hidden until a chat.send-based
+        // design (or a gateway skill) gets its own ADR; the Dashboard action and the nav route stay gated on it.
+        buildConfigField("Boolean", "AI_PRO_ENABLED", "false")
         // Git SHA baked in at build time — exposed on the About screen.
         buildConfigField("String", "GIT_SHA", "\"$gitSha\"")
         // Skill install foundation — dark in release until we ship it.

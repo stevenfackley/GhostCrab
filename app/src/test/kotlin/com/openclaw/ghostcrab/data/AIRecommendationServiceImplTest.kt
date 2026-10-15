@@ -1,159 +1,98 @@
 package com.openclaw.ghostcrab.data
 
-import com.openclaw.ghostcrab.domain.exception.GatewayNotConnectedException
-import com.openclaw.ghostcrab.data.api.OpenClawApiClient
-import com.openclaw.ghostcrab.data.api.dto.AIRecommendationRequestDto
-import com.openclaw.ghostcrab.data.api.dto.AIRecommendationResponseDto
-import com.openclaw.ghostcrab.data.api.dto.SuggestedChangeDto
 import com.openclaw.ghostcrab.data.impl.AIRecommendationServiceImpl
 import com.openclaw.ghostcrab.data.impl.GatewayConnectionManagerImpl
-import com.openclaw.ghostcrab.domain.exception.AIQuotaExceededException
 import com.openclaw.ghostcrab.domain.exception.AIServiceUnavailableException
-import com.openclaw.ghostcrab.domain.exception.GatewayApiException
+import com.openclaw.ghostcrab.domain.exception.GatewayNotConnectedException
 import com.openclaw.ghostcrab.domain.model.AuthRequirement
 import com.openclaw.ghostcrab.domain.model.GatewayConnection
 import com.openclaw.ghostcrab.domain.model.OpenClawConfig
 import com.openclaw.ghostcrab.domain.model.RecommendationContext
-import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
-import io.mockk.slot
+import io.mockk.verify
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
-import org.junit.jupiter.api.Assertions.assertTrue
-import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 
+/**
+ * OpenClaw has no recommendation API (QA §8.11, ADR-0007): the service is honestly unsupported. The REST-era
+ * cases (DTO mapping, 404/429/500 mapping) are gone with `POST /api/ai/recommend`; their still-valid intent (never
+ * available while disconnected or connecting, typed not-connected error, no secret ever leaves the device) is kept.
+ */
 class AIRecommendationServiceImplTest {
 
-    private lateinit var manager: GatewayConnectionManagerImpl
-    private lateinit var client: OpenClawApiClient
-    private lateinit var service: AIRecommendationServiceImpl
-
     private val url = "http://192.168.1.50:18789"
+    private val context =
+        RecommendationContext(OpenClawConfig(emptyMap(), null), hardwareInfo = null, activeModelId = null)
 
-    private fun connected(vararg caps: String) = GatewayConnection.Connected(
+    private fun manager(state: GatewayConnection): GatewayConnectionManagerImpl = mockk {
+        every { connectionState } returns MutableStateFlow(state)
+    }
+
+    private fun connected(vararg capabilities: String) = GatewayConnection.Connected(
         url = url,
         displayName = "GW",
-        version = "1.0",
-        authRequirement = AuthRequirement.None,
+        version = "2026.10.3",
+        authRequirement = AuthRequirement.Token,
         isHttps = false,
-        capabilities = caps.toList(),
+        capabilities = capabilities.toList(),
     )
-
-    private val context = RecommendationContext(
-        activeConfig = OpenClawConfig(emptyMap(), null),
-        hardwareInfo = null,
-        activeModelId = null,
-    )
-
-    @BeforeEach
-    fun setUp() {
-        client = mockk(relaxed = true)
-        manager = mockk {
-            every { connectionState } returns MutableStateFlow(GatewayConnection.Disconnected)
-            every { requireClient() } returns client
-        }
-        service = AIRecommendationServiceImpl(manager)
-    }
 
     // ── isAvailable ───────────────────────────────────────────────────────────
 
-    @Test fun `isAvailable true when connected with ai_recommend capability`() = runTest {
-        every { manager.connectionState } returns MutableStateFlow(connected("ai.recommend"))
-        assertTrue(service.isAvailable())
+    @Test fun `never available, whatever the gateway advertises`() = runTest {
+        assertFalse(AIRecommendationServiceImpl(manager(connected("ai.recommend", "config", "models", "skills"))).isAvailable())
     }
 
     @Test fun `isAvailable false when connected without ai_recommend capability`() = runTest {
-        every { manager.connectionState } returns MutableStateFlow(connected("other-skill"))
-        assertFalse(service.isAvailable())
+        assertFalse(AIRecommendationServiceImpl(manager(connected("config"))).isAvailable())
     }
 
     @Test fun `isAvailable false when disconnected`() = runTest {
-        every { manager.connectionState } returns MutableStateFlow(GatewayConnection.Disconnected)
-        assertFalse(service.isAvailable())
+        assertFalse(AIRecommendationServiceImpl(manager(GatewayConnection.Disconnected)).isAvailable())
     }
 
     @Test fun `isAvailable false when connecting`() = runTest {
-        every { manager.connectionState } returns MutableStateFlow(GatewayConnection.Connecting(url))
-        assertFalse(service.isAvailable())
+        assertFalse(AIRecommendationServiceImpl(manager(GatewayConnection.Connecting(url))).isAvailable())
     }
 
     // ── getRecommendation ─────────────────────────────────────────────────────
 
-    @Test fun `getRecommendation maps response fields correctly`() = runTest {
-        val dto = AIRecommendationResponseDto(
-            recommendation = "Use HTTPS",
-            suggestedChanges = listOf(
-                SuggestedChangeDto("gateway", "http.port", "18789", "443", "HTTPS default")
-            ),
-        )
-        coEvery { client.getAIRecommendation(any()) } returns dto
+    @Test fun `getRecommendation reports the feature unavailable without touching the session`() = runTest {
+        val m = manager(connected("ai.recommend"))
+        val service = AIRecommendationServiceImpl(m)
+        val e = assertThrows<AIServiceUnavailableException> { service.getRecommendation("q", context) }
+        assertEquals(url, e.url)
+        assertFalse(e.isRetryable)
+        verify(exactly = 0) { m.requireSession() }
+        verify(exactly = 0) { m.requireClient() }
+    }
 
-        val result = service.getRecommendation("how to secure?", context)
-
-        assertEquals("how to secure?", result.query)
-        assertEquals("Use HTTPS", result.recommendation)
-        assertEquals(1, result.suggestedChanges.size)
-        result.suggestedChanges[0].let { change ->
-            assertEquals("gateway", change.section)
-            assertEquals("http.port", change.key)
-            assertEquals("18789", change.currentValue)
-            assertEquals("443", change.suggestedValue)
-            assertEquals("HTTPS default", change.rationale)
+    @Test fun `getRecommendation while disconnected is GatewayNotConnectedException`() = runTest {
+        assertThrows<GatewayNotConnectedException> {
+            AIRecommendationServiceImpl(manager(GatewayConnection.Disconnected)).getRecommendation("q", context)
         }
     }
 
-    @Test fun `getRecommendation maps empty suggestedChanges`() = runTest {
-        coEvery { client.getAIRecommendation(any()) } returns
-            AIRecommendationResponseDto(recommendation = "All good", suggestedChanges = emptyList())
-
-        val result = service.getRecommendation("any?", context)
-        assertTrue(result.suggestedChanges.isEmpty())
-    }
-
-    @Test fun `getRecommendation 404 throws AIServiceUnavailableException`() = runTest {
-        coEvery { client.getAIRecommendation(any()) } throws GatewayApiException(url, 404)
-        assertThrows<AIServiceUnavailableException> { service.getRecommendation("q", context) }
-    }
-
-    @Test fun `getRecommendation 429 throws AIQuotaExceededException`() = runTest {
-        coEvery { client.getAIRecommendation(any()) } throws GatewayApiException(url, 429)
-        assertThrows<AIQuotaExceededException> { service.getRecommendation("q", context) }
-    }
-
-    @Test fun `getRecommendation 500 re-throws GatewayApiException unchanged`() = runTest {
-        coEvery { client.getAIRecommendation(any()) } throws GatewayApiException(url, 500)
-        val ex = assertThrows<GatewayApiException> { service.getRecommendation("q", context) }
-        assertEquals(500, ex.statusCode)
-    }
-
-    @Test fun `getRecommendation throws GatewayNotConnectedException when not connected`() = runTest {
-        every { manager.requireClient() } throws GatewayNotConnectedException()
-        assertThrows<GatewayNotConnectedException> { service.getRecommendation("q", context) }
-    }
-
-    @Test fun `getRecommendation never sends secrets in the config context`() = runTest {
-        val sent = slot<AIRecommendationRequestDto>()
-        coEvery { client.getAIRecommendation(capture(sent)) } returns
-            AIRecommendationResponseDto(recommendation = "ok", suggestedChanges = emptyList())
+    @Test fun `a config holding secrets never leaves the device`() = runTest {
+        val m = manager(connected("ai.recommend"))
         val secretContext = RecommendationContext(
             activeConfig = OpenClawConfig(
-                mapOf("gateway" to Json.parseToJsonElement("""{"auth":{"mode":"bearer","token":"s3cr3t"}}""")),
+                mapOf("gateway" to Json.parseToJsonElement("""{"auth":{"mode":"token","token":"s3cr3t"}}""")),
             ),
             hardwareInfo = null,
             activeModelId = null,
         )
-
-        service.getRecommendation("q", secretContext)
-
-        val sentConfig = sent.captured.context.activeConfig.toString()
-        assertFalse(sentConfig.contains("s3cr3t"))
-        assertTrue(sentConfig.contains("bearer"))
+        val e = assertThrows<AIServiceUnavailableException> {
+            AIRecommendationServiceImpl(m).getRecommendation("q", secretContext)
+        }
+        assertFalse(e.message.orEmpty().contains("s3cr3t"))
+        verify(exactly = 0) { m.requireSession() }
+        verify(exactly = 0) { m.requireClient() }
     }
 }

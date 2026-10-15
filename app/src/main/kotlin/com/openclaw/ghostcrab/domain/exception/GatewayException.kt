@@ -116,7 +116,8 @@ class TokenWipeFailedException(cause: Throwable) :
 }
 
 /**
- * The gateway does not have the AI recommendation skill installed.
+ * The gateway offers no AI recommendations. OpenClaw has no recommendation API (ADR-0007), so this is thrown for
+ * every gateway until a `chat.send`-based design gets its own ADR. Not retryable.
  *
  * @param url The gateway URL.
  */

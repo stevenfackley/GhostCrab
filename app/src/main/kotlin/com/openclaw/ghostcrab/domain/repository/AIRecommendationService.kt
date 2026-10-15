@@ -8,7 +8,9 @@ import com.openclaw.ghostcrab.domain.model.RecommendationContext
 /**
  * Submits AI recommendation queries through the gateway's proxied CLI skill.
  *
- * The gateway must have the `ai.recommend` capability; check [isAvailable] first.
+ * Check [isAvailable] first. OpenClaw gateways have no recommendation API (ADR-0007, amends ADR-004): the current
+ * implementation is never available and the UI hides the feature (`BuildConfig.AI_PRO_ENABLED = false`) until a
+ * `chat.send`-based design gets its own ADR.
  *
  * **Contract frozen at v1.0.**
  */

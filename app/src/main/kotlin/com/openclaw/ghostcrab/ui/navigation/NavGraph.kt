@@ -122,7 +122,10 @@ fun NavGraph(pairRequest: Int = 0) {
                 },
                 onNavigateToConfig = { navController.navigate("config_editor") },
                 onNavigateToModels = { navController.navigate("model_manager") },
-                onNavigateToAiRecommend = { navController.navigate("ai_recommendation") },
+                onNavigateToAiRecommend = {
+                    // The route exists only while the feature is on (ADR-0007: off until a new ADR).
+                    if (BuildConfig.AI_PRO_ENABLED) navController.navigate("ai_recommendation")
+                },
                 onNavigateToSettings = { navController.navigate("settings") },
             )
         }
