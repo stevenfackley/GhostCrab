@@ -241,7 +241,11 @@ public final class ManualEntryViewModel {
     ///   ``PairingHandoff`` like a scanned QR code: its URL fills scheme, host
     ///   and port, its token fills ``token`` and its name becomes ``pairedName``.
     /// - Anything else must pass ``PairingLink/gatewayURL(from:)`` (`http` or
-    ///   `https`, a host, no userinfo); it fills scheme, host and port only.
+    ///   `https`, a host, no userinfo) or be the `ws(s)` spelling of such a URL
+    ///   (``PairingLink/webSocketGatewayURL(from:)``); it fills scheme, host and
+    ///   port only.
+    /// - An `openclaw qr` setup code is explained in ``pastedLinkError`` and
+    ///   fills nothing: its bootstrap token serves node clients only (ADR-0007).
     ///
     /// Either way the token and suggested name already in the form are
     /// dropped (``setPrefillURL(_:)``), so pasting a link for gateway B after
@@ -272,8 +276,12 @@ public final class ManualEntryViewModel {
             }
             pairingHandoff.stash(request)
             setPrefillURL(request.gatewayURL)
-        } else if let url = PairingLink.gatewayURL(from: trimmed) {
+        } else if let url = PairingLink.gatewayURL(from: trimmed) ?? PairingLink.webSocketGatewayURL(from: trimmed) {
             setPrefillURL(url)
+        } else if let setupCode = PairingLink.setupCode(trimmed) {
+            // Its bootstrap token serves node clients only (ADR-0007): explain, never pair with it.
+            rejectPaste(PairingLink.setupCodeExplanation(setupCode))
+            return
         } else {
             rejectPaste("Not an http(s) gateway URL or a ghostcrab://pair link")
             return

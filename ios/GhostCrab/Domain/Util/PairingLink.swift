@@ -89,6 +89,18 @@ extension PairingLinkError: LocalizedError {
     }
 }
 
+/// What an `openclaw qr` setup code names (ADR-0007). Setup codes pair OpenClaw node apps; their bootstrap token
+/// cannot authorize an operator client such as GhostCrab, so only the gateway URL is kept, to explain the code.
+public struct SetupCodeInfo: Sendable, Equatable {
+    /// The code's gateway URL as an `http(s)` base URL, or `nil` when it has none usable.
+    public let gatewayURL: URL?
+
+    /// - Parameter gatewayURL: The code's gateway URL as an `http(s)` base URL, or `nil`.
+    public init(gatewayURL: URL?) {
+        self.gatewayURL = gatewayURL
+    }
+}
+
 /// Pure decoder for `ghostcrab://pair?p=<base64url JSON>` links.
 ///
 /// Payload JSON (schema v1, the shape the gateway pairing page and the Android
@@ -119,6 +131,9 @@ public enum PairingLink {
 
     /// Default port for an `https` gateway URL without one (tunnels, reverse proxies).
     public static let defaultHTTPSPort = 443
+
+    /// Prefix of an `openclaw qr` setup-code link.
+    public static let setupCodeScheme = "oc-pair://"
 
     /// Whether `raw` uses the `ghostcrab:` scheme, ignoring case and surrounding
     /// whitespace. Every `ghostcrab:` link counts as pairing data, so a broken one
@@ -222,6 +237,56 @@ public enum PairingLink {
         return normalised.url
     }
 
+    /// Recognises an `openclaw qr` setup code: base64url JSON with a non-blank `bootstrapToken`, bare or as
+    /// `oc-pair://<code>`. Only the gateway URL is read; the bootstrap token is never returned, stored or logged
+    /// (ADR-0007: it authenticates node clients only).
+    ///
+    /// - Parameter raw: Untrusted text (QR payload or paste). Over ``maxLength`` is never a setup code.
+    /// - Returns: The code's gateway URL (`ws(s)` mapped to `http(s)`, see ``webSocketGatewayURL(from:)``);
+    ///   `SetupCodeInfo(gatewayURL: nil)` for an `oc-pair://` link that does not decode; `nil` when `raw` is not a
+    ///   setup code (callers then try other formats).
+    public static func setupCode(_ raw: String) -> SetupCodeInfo? {
+        guard raw.utf8.count <= maxLength else { return nil }
+        var code = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let explicit = code.lowercased().hasPrefix(setupCodeScheme)
+        if explicit { code = String(code.dropFirst(setupCodeScheme.count)) }
+        guard !code.isEmpty,
+              code.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || "-_=".contains($0)) }),
+              let json = base64URLDecode(code),
+              let wire = try? JSONDecoder().decode(SetupCodeWire.self, from: json),
+              wire.hasBootstrapToken
+        else {
+            return explicit ? SetupCodeInfo(gatewayURL: nil) : nil
+        }
+        return SetupCodeInfo(gatewayURL: wire.url.flatMap { webSocketGatewayURL(from: $0) ?? gatewayURL(from: $0) })
+    }
+
+    /// User-facing explanation for a scanned or pasted setup code: what it is, why GhostCrab cannot use it, and what
+    /// to do instead. Plain text (no Markdown): the approval command stands on its own last line.
+    ///
+    /// - Parameter info: The recognised code.
+    /// - Returns: One paragraph naming the gateway URL (when known) and the gateway token, then the approval command.
+    public static func setupCodeExplanation(_ info: SetupCodeInfo) -> String {
+        "This is an OpenClaw setup code (from openclaw qr). Setup codes pair OpenClaw node apps; they cannot give "
+            + "GhostCrab operator access (over plain ws:// they grant no access at all). In Manual Entry, enter "
+            + (info.gatewayURL?.absoluteString ?? "the gateway URL")
+            + " and the gateway token, then approve this device on the gateway host:\n"
+            + "openclaw devices approve <requestId>"
+    }
+
+    /// Maps a gateway WebSocket URL (`ws://` / `wss://`, as `openclaw qr` and the Control UI print it) to the
+    /// matching `http(s)` base URL. The path (e.g. `/ws`) is dropped, like every other path.
+    ///
+    /// - Parameter raw: Untrusted URL text.
+    /// - Returns: ``gatewayURL(from:)`` of the `http(s)` form, or `nil` when `raw` is not a `ws(s)` URL it accepts.
+    public static func webSocketGatewayURL(from raw: String) -> URL? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lower = trimmed.lowercased()
+        if lower.hasPrefix("wss://") { return gatewayURL(from: "https://" + String(trimmed.dropFirst("wss://".count))) }
+        if lower.hasPrefix("ws://") { return gatewayURL(from: "http://" + String(trimmed.dropFirst("ws://".count))) }
+        return nil
+    }
+
     // MARK: - Internals
 
     /// Drops the zone id (`%en0`, or RFC 6874's encoded `%25en0`) from a
@@ -252,6 +317,22 @@ public enum PairingLink {
         /// Redacts `token`: the payload is never logged, but keep a stray print from leaking it.
         var description: String {
             "WireV1(url: \(url ?? "nil"), token: \(token == nil ? "nil" : "<redacted>"), name: \(name ?? "nil"))"
+        }
+    }
+
+    /// The two setup-code fields GhostCrab reads. The bootstrap token only proves the input is a setup code; it is
+    /// read into a local and dropped, never kept in a property.
+    private struct SetupCodeWire: Decodable {
+        let url: String?
+        let hasBootstrapToken: Bool
+
+        private enum CodingKeys: String, CodingKey { case url, bootstrapToken }
+
+        init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            url = try container.decodeIfPresent(String.self, forKey: .url)
+            let token = try container.decodeIfPresent(String.self, forKey: .bootstrapToken)
+            hasBootstrapToken = !(token?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
         }
     }
 

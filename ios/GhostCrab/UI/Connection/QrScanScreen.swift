@@ -97,8 +97,7 @@ public struct QrScanScreen: View {
                 VStack {
                     Spacer()
                     GlassSurface {
-                        Text(message)
-                            .font(AppFont.body(14))
+                        CommandMessageText(message, size: 14, alignment: .center)
                             .foregroundStyle(DesignTokens.Color.crimsonError)
                             .multilineTextAlignment(.center)
                             .padding(DesignTokens.Spacing.md)

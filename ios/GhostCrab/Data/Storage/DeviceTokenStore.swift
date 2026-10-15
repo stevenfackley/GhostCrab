@@ -88,25 +88,12 @@ public enum GatewayKey {
     ///   the default port is filled in) with the host lowercased, as Android's `gatewayKeyOf` does; or the trimmed
     ///   input without trailing `/` when it does not parse.
     public static func of(_ url: String) -> String {
-        if let normalised = PairingLink.gatewayURL(from: url)
-            ?? httpSpelling(ofWebSocketURL: url).flatMap(PairingLink.gatewayURL(from:)) {
+        if let normalised = PairingLink.gatewayURL(from: url) ?? PairingLink.webSocketGatewayURL(from: url) {
             // Only scheme, host and port remain; scheme is already lowercase and host names are case-insensitive.
             return normalised.absoluteString.lowercased()
         }
         var trimmed = url.trimmingCharacters(in: .whitespacesAndNewlines)
         while trimmed.hasSuffix("/") { trimmed.removeLast() }
         return trimmed
-    }
-
-    /// - Returns: `url` with a leading `ws://` replaced by `http://` and `wss://` by `https://` (scheme matched
-    ///   case-insensitively), or `nil` for any other scheme.
-    private static func httpSpelling(ofWebSocketURL url: String) -> String? {
-        let trimmed = url.trimmingCharacters(in: .whitespacesAndNewlines)
-        for (webSocket, http) in [("wss://", "https://"), ("ws://", "http://")] {
-            if let scheme = trimmed.range(of: webSocket, options: [.anchored, .caseInsensitive]) {
-                return http + trimmed[scheme.upperBound...]
-            }
-        }
-        return nil
     }
 }

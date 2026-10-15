@@ -63,8 +63,7 @@ public struct ManualEntryScreen: View {
                         .disabled(vm.isConnecting)
                     }
                     if let err = vm.pastedLinkError {
-                        Text(err)
-                            .font(AppFont.body(12))
+                        CommandMessageText(err, size: 12)
                             .foregroundStyle(DesignTokens.Color.crimsonError)
                     }
                 } header: {

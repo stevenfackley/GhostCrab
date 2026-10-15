@@ -112,6 +112,38 @@ struct QrScanViewModelTests {
         #expect(vm.error == "QR code is too large (over 4096 characters)")
     }
 
+    @Test func aSetupCodeIsExplainedAndNothingIsPaired() throws {
+        let handoff = PairingHandoff()
+        let (vm, recorder) = makeVM(handoff: handoff)
+
+        vm.onCodeScanned("eyJ1cmwiOiJ3czovLzE3Mi4xNy4wLjI6MTg3ODkiLCJib290c3RyYXBUb2tlbiI6ImJ0LXRlc3QtMDAwMSIsImV4cGlyZXNBdE1zIjoxNzkyMDI4MDAwMDAwfQ")
+
+        #expect(recorder.urls.isEmpty)
+        #expect(vm.error?.contains("http://172.17.0.2:18789") == true)
+        #expect(vm.error?.contains("openclaw devices approve") == true)
+        #expect(vm.error?.contains("bt-test-0001") == false)
+        #expect(handoff.takePairing(for: try #require(URL(string: "http://172.17.0.2:18789"))) == nil)
+    }
+
+    @Test func anUndecodableOcPairLinkIsStillExplained() {
+        let (vm, recorder) = makeVM()
+        vm.onCodeScanned("oc-pair://not-base64!")
+        #expect(recorder.urls.isEmpty)
+        #expect(vm.error?.contains("the gateway URL") == true)
+    }
+
+    @Test func aWsURLIsAcceptedAsTheGatewayURL() {
+        let (vm, recorder) = makeVM()
+        vm.onCodeScanned("ws://192.168.1.50:18789")
+        #expect(recorder.urls.map(\.absoluteString) == ["http://192.168.1.50:18789"])
+    }
+
+    @Test func aWssURLWithAPathIsAcceptedAsTheHTTPSGatewayURL() {
+        let (vm, recorder) = makeVM()
+        vm.onCodeScanned("wss://gw.example.com/ws")
+        #expect(recorder.urls.map(\.absoluteString) == ["https://gw.example.com:443"])
+    }
+
     @Test func arbitraryTextIsRejected() {
         let (vm, recorder) = makeVM()
         vm.onCodeScanned("WIFI:S:home;T:WPA;P:hunter2;;")

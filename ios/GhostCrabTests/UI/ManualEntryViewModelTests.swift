@@ -197,6 +197,31 @@ struct ManualEntryViewModelTests {
         #expect(vm.pastedLink == "")
     }
 
+    @Test func aPastedSetupCodeIsExplainedAndFillsNothing() {
+        let vm = makeVM(handoff: PairingHandoff())
+        vm.pastedLink = "oc-pair://eyJ1cmwiOiJ3czovLzE3Mi4xNy4wLjI6MTg3ODkiLCJib290c3RyYXBUb2tlbiI6ImJ0LXRlc3QtMDAwMSIsImV4cGlyZXNBdE1zIjoxNzkyMDI4MDAwMDAwfQ"
+
+        vm.applyPastedLink()
+
+        #expect(vm.pastedLinkError?.contains("openclaw devices approve") == true)
+        #expect(vm.pastedLinkError?.contains("bt-test-0001") == false)
+        #expect(vm.host == "")
+        #expect(vm.token == "")
+        #expect(vm.pastedLink == "")
+    }
+
+    @Test func aPastedWsURLFillsSchemeHostAndPort() {
+        let vm = makeVM(handoff: PairingHandoff())
+        vm.pastedLink = "wss://gw.example.com/ws"
+
+        vm.applyPastedLink()
+
+        #expect(vm.pastedLinkError == nil)
+        #expect(vm.useHttps)
+        #expect(vm.host == "gw.example.com")
+        #expect(vm.port == "443")
+    }
+
     @Test func emptyPasteAsksForALink() {
         let vm = makeVM(handoff: PairingHandoff())
         vm.pastedLink = "  \n"

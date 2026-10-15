@@ -9,6 +9,73 @@ import Foundation
 @Suite("PairingLink decoding")
 struct PairingLinkTests {
 
+    // MARK: - openclaw qr setup codes and ws(s) URLs (ADR-0007)
+
+    /// base64url of {"url":"ws://172.17.0.2:18789","bootstrapToken":"bt-test-0001","expiresAtMs":1792028000000}.
+    private static let setupCode =
+        "eyJ1cmwiOiJ3czovLzE3Mi4xNy4wLjI6MTg3ODkiLCJib290c3RyYXBUb2tlbiI6ImJ0LXRlc3QtMDAwMSIsImV4cGlyZXNBdE1zIjoxNzkyMDI4MDAwMDAwfQ"
+
+    private func encode(_ json: String) -> String {
+        Base64URL.encode(Data(json.utf8))
+    }
+
+    @Test func aSetupCodeIsRecognisedWithItsGatewayURLAndNothingElse() throws {
+        let info = try #require(PairingLink.setupCode(Self.setupCode))
+        #expect(info.gatewayURL?.absoluteString == "http://172.17.0.2:18789")
+        #expect(!String(reflecting: info).contains("bt-test-0001"))
+        var dumped = ""
+        dump(info, to: &dumped)
+        #expect(!dumped.contains("bt-test-0001"))
+    }
+
+    @Test func ocPairLinksAreSetupCodesEvenWhenUndecodable() {
+        #expect(PairingLink.setupCode("oc-pair://" + Self.setupCode)?.gatewayURL?.absoluteString == "http://172.17.0.2:18789")
+        #expect(PairingLink.setupCode("OC-PAIR://" + Self.setupCode)?.gatewayURL?.absoluteString == "http://172.17.0.2:18789")
+        #expect(PairingLink.setupCode("oc-pair://not-base64!") == SetupCodeInfo(gatewayURL: nil))
+        #expect(PairingLink.setupCode("oc-pair://") == SetupCodeInfo(gatewayURL: nil))
+    }
+
+    @Test func aWssSetupCodeNamesTheHTTPSGatewayOn443() {
+        let code = encode(#"{"url":"wss://gw.example/ws","bootstrapToken":"bt"}"#)
+        #expect(PairingLink.setupCode(code)?.gatewayURL?.absoluteString == "https://gw.example:443")
+    }
+
+    @Test func aSetupCodeWithoutAUsableURLIsStillExplained() throws {
+        let info = try #require(PairingLink.setupCode(encode(#"{"bootstrapToken":"bt"}"#)))
+        #expect(info.gatewayURL == nil)
+        #expect(PairingLink.setupCodeExplanation(info).contains("the gateway URL"))
+    }
+
+    @Test func theExplanationSaysWhyAndWhatToDoInstead() throws {
+        let text = PairingLink.setupCodeExplanation(try #require(PairingLink.setupCode(Self.setupCode)))
+        #expect(text.contains("http://172.17.0.2:18789"))
+        #expect(text.contains("gateway token"))
+        #expect(text.hasSuffix("\nopenclaw devices approve <requestId>"))
+        #expect(!text.contains("`"))
+        #expect(!text.contains("bt-test-0001"))
+    }
+
+    @Test func otherInputIsNotASetupCode() {
+        #expect(PairingLink.setupCode(encode(#"{"url":"ws://h:1"}"#)) == nil)
+        #expect(PairingLink.setupCode(encode(#"{"url":"ws://h:1","bootstrapToken":"  "}"#)) == nil)
+        #expect(PairingLink.setupCode("http://192.168.1.20:18789") == nil)
+        #expect(PairingLink.setupCode("gw.example.com") == nil)
+        #expect(PairingLink.setupCode("") == nil)
+    }
+
+    @Test func plainWsURLsMapToHTTPBaseURLs() {
+        #expect(PairingLink.webSocketGatewayURL(from: "ws://192.168.1.50:18789")?.absoluteString == "http://192.168.1.50:18789")
+        #expect(PairingLink.webSocketGatewayURL(from: "wss://gw.example/ws")?.absoluteString == "https://gw.example:443")
+        #expect(PairingLink.webSocketGatewayURL(from: "WS://192.168.1.50:18789/ws")?.absoluteString == "http://192.168.1.50:18789")
+        #expect(PairingLink.webSocketGatewayURL(from: "ws://admin:pw@192.168.1.50:18789") == nil)
+        #expect(PairingLink.webSocketGatewayURL(from: "http://h:1") == nil)
+    }
+
+    @Test func wsAndHTTPSpellingsShareOneDeviceTokenKey() throws {
+        let url = try #require(PairingLink.webSocketGatewayURL(from: "ws://192.168.1.50:18789/ws"))
+        #expect(GatewayKey.of(url.absoluteString) == GatewayKey.of("ws://192.168.1.50:18789"))
+    }
+
     // MARK: - Accepted payloads
 
     @Test func decodesURLTokenAndName() throws {
