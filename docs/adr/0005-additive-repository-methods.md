@@ -18,6 +18,11 @@ Instances on `refactor/finish-dev-plan` (PR #125, Android):
 - `ConnectionProfileRepository.clearAll()`
 - `GatewayHealthChecker` (new interface, implemented by `GatewayConnectionManagerImpl`)
 
+Instances on `feat/protocol-alignment-android` (ADR-0007, Android):
+
+- `InstalledSkillRepository.setSkillEnabled()`
+- `InstalledSkill.disabled` (additive model field with a default)
+
 Instances on `feat/ios-finish` (PR #127, iOS):
 
 - `ConnectionProfileRepository.clearAll()` (Swift protocol; implemented by `ConnectionProfileRepositoryImpl` over `ProfileStore.clearAll()`, used by Settings → "Clear all saved gateways", mirroring Android's `SettingsViewModel.confirmClearAllProfiles`)
