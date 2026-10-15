@@ -6,9 +6,7 @@ import com.openclaw.ghostcrab.domain.model.ConnectionProfile
 import com.openclaw.ghostcrab.domain.repository.ConnectionProfileRepository
 import com.openclaw.ghostcrab.domain.repository.GatewayConnectionManager
 import com.openclaw.ghostcrab.domain.repository.OnboardingRepository
-import com.openclaw.ghostcrab.domain.util.suspendRunCatching
 import com.openclaw.ghostcrab.ui.toUserMessage
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -104,57 +102,44 @@ public class ConnectionPickerViewModel(
     /** One-shot navigation events, buffered across rotation. */
     public val events: Flow<ConnectionPickerEvent> = _events.receiveAsFlow()
 
-    /** "Check now" on the approval card wakes the retry loop. */
-    private val pairingWakeUps = Channel<Unit>(Channel.CONFLATED)
-
-    /** The running connect, including any approval wait, so [cancelPairing] can stop it. */
-    private var connectJob: Job? = null
+    /** The running connect and its approval wait; the approval card's Check now / Cancel go here. */
+    public val pairing: PairingWait =
+        PairingWait(viewModelScope, connectionManager) { _uiState.value = ConnectionPickerUiState() }
 
     /**
      * Connects to [profile] with its stored token. Ignored while another connect is in flight.
      * Sends [ConnectionPickerEvent.NavigateToDashboard] on success; sets
      * [ConnectionPickerUiState.errorMessage] on failure. On `PAIRING_REQUIRED` sets
      * [ConnectionPickerUiState.pairingPrompt] and retries until the device is approved, the pending request
-     * expires (an explicit error) or [cancelPairing].
+     * expires (an explicit error) or [PairingWait.cancel].
      *
      * @param profile The profile to connect to.
      */
     public fun connect(profile: ConnectionProfile) {
-        if (_uiState.value.connectingProfileId != null) return
+        if (_uiState.value.connectingProfileId != null || pairing.isRunning) return
         _uiState.value = ConnectionPickerUiState(connectingProfileId = profile.id)
-        connectJob = viewModelScope.launch {
-            suspendRunCatching {
+        pairing.start(
+            onPrompt = { prompt -> _uiState.update { it.copy(pairingPrompt = prompt) } },
+            connect = {
                 val token = if (profile.hasToken) profileRepository.getToken(profile.id) else null
-                connectAwaitingApproval(
-                    wakeUps = pairingWakeUps,
-                    onPrompt = { prompt ->
-                        val explained = prompt.withWarningsFrom(connectionManager.connectionState.value)
-                        _uiState.update { it.copy(pairingPrompt = explained) }
-                    },
-                ) { connectionManager.connect(profile.url, token) }
-            }.onSuccess { approved ->
-                if (approved) {
-                    _uiState.value = ConnectionPickerUiState()
-                    _events.send(ConnectionPickerEvent.NavigateToDashboard)
-                } else {
-                    _uiState.value = ConnectionPickerUiState(errorMessage = PAIRING_TIMEOUT_MESSAGE)
-                }
-            }.onFailure { e ->
-                _uiState.value = ConnectionPickerUiState(errorMessage = e.toUserMessage())
+                connectionManager.connect(profile.url, token)
+            },
+            onFinished = ::onConnectFinished,
+        )
+    }
+
+    /** Navigates on success; otherwise shows the expired approval window or the failure. */
+    private suspend fun onConnectFinished(result: Result<Boolean>) {
+        result.onSuccess { approved ->
+            if (approved) {
+                _uiState.value = ConnectionPickerUiState()
+                _events.send(ConnectionPickerEvent.NavigateToDashboard)
+            } else {
+                _uiState.value = ConnectionPickerUiState(errorMessage = PAIRING_TIMEOUT_MESSAGE)
             }
+        }.onFailure { e ->
+            _uiState.value = ConnectionPickerUiState(errorMessage = e.toUserMessage())
         }
-    }
-
-    /** "Check now" on the approval card: retry the connect immediately. */
-    public fun checkPairingNow() {
-        pairingWakeUps.trySend(Unit)
-    }
-
-    /** "Cancel" on the approval card: stop retrying and clear the connecting state. */
-    public fun cancelPairing() {
-        connectJob?.cancel()
-        connectJob = null
-        _uiState.value = ConnectionPickerUiState()
     }
 
     /** Clears [ConnectionPickerUiState.errorMessage] after the snackbar was shown. */

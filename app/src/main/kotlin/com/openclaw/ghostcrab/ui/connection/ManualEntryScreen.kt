@@ -266,8 +266,8 @@ fun ManualEntryScreen(
             if (approval != null) {
                 PairingApprovalCard(
                     prompt = approval,
-                    onCheckNow = viewModel::checkPairingNow,
-                    onCancel = viewModel::cancelPairing,
+                    onCheckNow = viewModel.pairing::checkNow,
+                    onCancel = viewModel.pairing::cancel,
                 )
             } else {
                 ConnectButton(isConnecting = isConnecting, onConnect = viewModel::connect)

@@ -11,7 +11,6 @@ import com.openclaw.ghostcrab.domain.util.DEFAULT_GATEWAY_PORT
 import com.openclaw.ghostcrab.domain.util.GatewayUrl
 import com.openclaw.ghostcrab.domain.util.suspendRunCatching
 import com.openclaw.ghostcrab.ui.toUserMessage
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -20,7 +19,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.launch
 import java.util.UUID
 
 data class ManualEntryFormState(
@@ -67,7 +65,6 @@ sealed interface ManualEntryEvent {
     data object NavigateToDashboard : ManualEntryEvent
 }
 
-@Suppress("TooManyFunctions") // one screen: form editing plus the connect lifecycle (approval wait, check, cancel)
 class ManualEntryViewModel(
     private val connectionManager: GatewayConnectionManager,
     private val profileRepository: ConnectionProfileRepository,
@@ -97,11 +94,8 @@ class ManualEntryViewModel(
     /** One-shot navigation events, buffered so an event sent during rotation is delivered once a collector returns. */
     val events: Flow<ManualEntryEvent> = _events.receiveAsFlow()
 
-    /** "Check now" on the approval card wakes the retry loop. */
-    private val pairingWakeUps = Channel<Unit>(Channel.CONFLATED)
-
-    /** The running connect, including any approval wait, so [cancelPairing] can stop it. */
-    private var connectJob: Job? = null
+    /** The running connect and its approval wait; the approval card's Check now / Cancel go here. */
+    val pairing = PairingWait(viewModelScope, connectionManager) { _uiState.value = ManualEntryUiState.Idle }
 
     fun onHostChange(value: String) {
         if (value != _form.value.host) addressEditedByHand()
@@ -188,11 +182,11 @@ class ManualEntryViewModel(
     /**
      * Validates the form and connects. On `PAIRING_REQUIRED` the state becomes
      * [ManualEntryUiState.AwaitingApproval] and the connect is retried until the device is approved, the pending
-     * request expires (an explicit error) or [cancelPairing]. The profile is saved only once connected. Ignored
-     * while a connect (or an approval wait) is running.
+     * request expires (an explicit error) or [PairingWait.cancel]. The profile is saved only once connected.
+     * Ignored while a connect (or an approval wait) is running.
      */
     fun connect() {
-        if (connectJob?.isActive == true) return
+        if (pairing.isRunning) return
         val state = _form.value
         val hostError = validateHost(state.host)
         val portError = validatePort(state.port)
@@ -202,25 +196,24 @@ class ManualEntryViewModel(
         }
 
         val url = state.assembledUrl
-        connectJob = viewModelScope.launch {
-            _uiState.value = ManualEntryUiState.Connecting
-            val token = state.token.trim().takeIf { it.isNotEmpty() }
-            // Connect (waiting for device approval when asked) AND persist inside one guard: a Keystore/DataStore
-            // failure after a successful connect must surface as an error, not crash the app.
-            suspendRunCatching {
-                val approved = connectAwaitingApproval(
-                    wakeUps = pairingWakeUps,
-                    onPrompt = { prompt ->
-                        val explained = prompt.withWarningsFrom(connectionManager.connectionState.value)
-                        _uiState.value = ManualEntryUiState.AwaitingApproval(explained)
-                    },
-                ) { connectionManager.connect(url, token) }
-                if (approved) {
+        val token = state.token.trim().takeIf { it.isNotEmpty() }
+        _uiState.value = ManualEntryUiState.Connecting
+        pairing.start(
+            onPrompt = { _uiState.value = ManualEntryUiState.AwaitingApproval(it) },
+            connect = { connectionManager.connect(url, token) },
+        ) { connected ->
+            // Persist inside a guard too: a Keystore/DataStore failure after a successful connect must surface as
+            // an error, not crash the app.
+            val outcome = if (connected.getOrNull() == true) {
+                suspendRunCatching {
                     saveConnectedProfile(url, token)
                     onboardingRepository.markCompleted()
+                    true
                 }
-                approved
-            }.onSuccess { approved ->
+            } else {
+                connected
+            }
+            outcome.onSuccess { approved ->
                 if (approved) {
                     _uiState.value = ManualEntryUiState.Idle
                     _events.send(ManualEntryEvent.NavigateToDashboard)
@@ -231,18 +224,6 @@ class ManualEntryViewModel(
                 _uiState.value = ManualEntryUiState.Error(e.toUserMessage())
             }
         }
-    }
-
-    /** "Check now" on the approval card: retry the connect immediately. */
-    fun checkPairingNow() {
-        pairingWakeUps.trySend(Unit)
-    }
-
-    /** "Cancel" on the approval card: stop retrying. The pending request simply expires on the gateway. */
-    fun cancelPairing() {
-        connectJob?.cancel()
-        connectJob = null
-        _uiState.value = ManualEntryUiState.Idle
     }
 
     private suspend fun saveConnectedProfile(url: String, token: String?) {

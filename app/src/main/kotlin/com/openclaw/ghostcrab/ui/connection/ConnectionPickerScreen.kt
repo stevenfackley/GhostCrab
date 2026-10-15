@@ -159,8 +159,8 @@ fun ConnectionPickerScreen(
                     item(key = "pairing-approval") {
                         PairingApprovalCard(
                             prompt = prompt,
-                            onCheckNow = viewModel::checkPairingNow,
-                            onCancel = viewModel::cancelPairing,
+                            onCheckNow = viewModel.pairing::checkNow,
+                            onCancel = viewModel.pairing::cancel,
                         )
                     }
                 }

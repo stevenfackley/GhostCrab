@@ -295,7 +295,7 @@ class ManualEntryViewModelTest {
         advanceTimeBy(PAIRING_RETRY_INTERVAL_MS * 3)
         coVerify(exactly = 0) { profileRepository.saveProfile(any(), any()) }
         coVerify(exactly = 0) { onboardingRepository.markCompleted() }
-        vm.cancelPairing()
+        vm.pairing.cancel()
     }
 
     @Test fun `the approval prompt carries the warnings of the failed connect`() = runTest {
@@ -307,14 +307,14 @@ class ManualEntryViewModelTest {
         vm.connect()
         val waiting = vm.uiState.value as ManualEntryUiState.AwaitingApproval
         assertEquals(listOf(ConnectionWarning.DeviceIdentityRegenerated), waiting.prompt.warnings)
-        vm.cancelPairing()
+        vm.pairing.cancel()
     }
 
     @Test fun `cancelPairing stops retrying and returns to Idle`() = runTest {
         coEvery { connectionManager.connect(any(), any()) } throws pending
         fillForm()
         vm.connect()
-        vm.cancelPairing()
+        vm.pairing.cancel()
         advanceTimeBy(60_000)
         assertEquals(ManualEntryUiState.Idle, vm.uiState.value)
         coVerify(exactly = 1) { connectionManager.connect(any(), any()) }
@@ -325,7 +325,7 @@ class ManualEntryViewModelTest {
         coEvery { connectionManager.connect(any(), any()) } coAnswers { if (calls++ == 0) throw pending }
         fillForm()
         vm.connect()
-        vm.checkPairingNow()
+        vm.pairing.checkNow()
         runCurrent()
         coVerify(exactly = 2) { connectionManager.connect(any(), any()) }
         assertEquals(ManualEntryUiState.Idle, vm.uiState.value)
@@ -337,7 +337,7 @@ class ManualEntryViewModelTest {
         vm.connect()
         vm.connect()
         coVerify(exactly = 1) { connectionManager.connect(any(), any()) }
-        vm.cancelPairing()
+        vm.pairing.cancel()
     }
 
     @Test fun `a credential-storage failure during the wait is an error, never retried`() = runTest {

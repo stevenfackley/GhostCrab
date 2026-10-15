@@ -175,7 +175,7 @@ class ConnectionPickerViewModelTest {
         }
         val vm = ConnectionPickerViewModel(FakeCpProfileRepo(listOf(p)), manager, FakeCpOnboardingRepo(true))
         vm.connect(p)
-        vm.cancelPairing()
+        vm.pairing.cancel()
         assertEquals(ConnectionPickerUiState(), vm.uiState.value)
     }
 
@@ -190,7 +190,7 @@ class ConnectionPickerViewModelTest {
         }
         val vm = ConnectionPickerViewModel(FakeCpProfileRepo(listOf(p)), manager, FakeCpOnboardingRepo(true))
         vm.connect(p)
-        vm.checkPairingNow()
+        vm.pairing.checkNow()
         runCurrent()
         assertEquals(2, calls)
         assertEquals(ConnectionPickerUiState(), vm.uiState.value)
@@ -210,7 +210,7 @@ class ConnectionPickerViewModelTest {
         val vm = ConnectionPickerViewModel(FakeCpProfileRepo(listOf(p)), manager, FakeCpOnboardingRepo(true))
         vm.connect(p)
         assertEquals(listOf(ConnectionWarning.DeviceIdentityRegenerated), vm.uiState.value.pairingPrompt?.warnings)
-        vm.cancelPairing()
+        vm.pairing.cancel()
     }
 
     @Test
