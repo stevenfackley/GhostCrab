@@ -10,6 +10,8 @@ import com.openclaw.ghostcrab.domain.model.OpenClawConfig
 import com.openclaw.ghostcrab.domain.repository.ConfigRepository
 import com.openclaw.ghostcrab.domain.repository.GatewayConnectionManager
 import com.openclaw.ghostcrab.domain.util.suspendRunCatching
+import com.openclaw.ghostcrab.ui.config.sections.inlineErrorFieldsOf
+import com.openclaw.ghostcrab.ui.sessionChanges
 import com.openclaw.ghostcrab.ui.toUserMessage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -41,7 +43,8 @@ class ConfigEditorViewModel(
 
     init {
         viewModelScope.launch {
-            connectionManager.connectionState.collect { conn ->
+            // A silent reconnect is not a new session: no reload until the reconnected one arrives.
+            connectionManager.connectionState.sessionChanges().collect { conn ->
                 when (conn) {
                     is GatewayConnection.Connected -> loadConfig()
                     is GatewayConnection.Disconnected -> _state.value = ConfigEditorUiState.Disconnected
@@ -54,21 +57,28 @@ class ConfigEditorViewModel(
     /**
      * Fetches (or re-fetches) the config from the gateway.
      *
-     * Transitions to [ConfigEditorUiState.Loading] then either [ConfigEditorUiState.Ready]
-     * or [ConfigEditorUiState.Error].
+     * From any state but [ConfigEditorUiState.Ready]: [ConfigEditorUiState.Loading], then
+     * [ConfigEditorUiState.Ready] or [ConfigEditorUiState.Error]. A reload of a Ready state (a new session after a
+     * reconnect, or Retry) keeps it on screen and keeps the unsaved edits, field errors and open dialogs: only the
+     * config is replaced; a failed reload becomes [ConfigEditorUiState.Ready.saveError] instead of dropping them.
      */
     fun loadConfig() {
         viewModelScope.launch {
-            _state.value = ConfigEditorUiState.Loading
+            if (_state.value !is ConfigEditorUiState.Ready) _state.value = ConfigEditorUiState.Loading
             try {
                 val config = configRepository.getConfig()
-                _state.value = if (config.sections.isEmpty()) {
-                    ConfigEditorUiState.NoConfigApi
-                } else {
-                    ConfigEditorUiState.Ready(config = config)
+                _state.update { current ->
+                    when {
+                        config.sections.isEmpty() -> ConfigEditorUiState.NoConfigApi
+                        current is ConfigEditorUiState.Ready -> current.copy(config = config)
+                        else -> ConfigEditorUiState.Ready(config = config)
+                    }
                 }
             } catch (e: GatewayException) {
-                _state.value = ConfigEditorUiState.Error(e.toUserMessage())
+                _state.update { current ->
+                    (current as? ConfigEditorUiState.Ready)?.copy(saveError = "Reload failed: ${e.toUserMessage()}")
+                        ?: ConfigEditorUiState.Error(e.toUserMessage())
+                }
             }
         }
     }
@@ -92,7 +102,7 @@ class ConfigEditorViewModel(
     /**
      * Records or clears a client-side validation error for a specific field path.
      *
-     * @param fieldPath Dot-separated path, e.g. `"gateway.http.port"`.
+     * @param fieldPath Dot-separated path, e.g. `"gateway.port"`.
      * @param error Human-readable error message, or `null` to clear.
      */
     fun setFieldError(fieldPath: String, error: String?) {
@@ -132,8 +142,10 @@ class ConfigEditorViewModel(
      * On success: reloads config, drops [section]'s pending edit only if it is still the saved value,
      *   sets saveSuccess.
      * On 412: reloads config, keeps every pending edit, sets `concurrentEditSection`.
-     * On 422 / [ConfigValidationException]: sets the field error inline.
-     * On other errors (or a failed reload after 412): keeps every pending edit, sets `saveError`.
+     * On [ConfigValidationException] (the gateway's schema check, one issue inside [section]): sets the field
+     *   error, and also `saveError` when the section's editor has no field showing that path (raw JSON sections
+     *   always), so a rejection is never silent.
+     * On other errors, 422 included (or a failed reload after 412): keeps every pending edit, sets `saveError`.
      *
      * @param section Top-level section key to write.
      */
@@ -163,7 +175,7 @@ class ConfigEditorViewModel(
                     _state.updateReady { it.copy(saveError = "Save failed: ${e.toUserMessage()}") }
                 }
             } catch (e: ConfigValidationException) {
-                _state.updateReady { it.copy(fieldErrors = it.fieldErrors + (e.field to e.reason)) }
+                _state.updateReady { it.withValidationError(section, newValue, e) }
             } catch (e: GatewayException) {
                 _state.updateReady { it.copy(saveError = "Save failed: ${e.toUserMessage()}") }
             }
@@ -223,6 +235,22 @@ private inline fun MutableStateFlow<ConfigEditorUiState>.updateReady(
     transform: (ConfigEditorUiState.Ready) -> ConfigEditorUiState.Ready,
 ) {
     update { state -> (state as? ConfigEditorUiState.Ready)?.let { transform(it) } ?: state }
+}
+
+/**
+ * State after the gateway rejected [section] (saved as [savedValue]) with [error]: the field error is recorded, and
+ * when the editor rendering the section's current value has no field for that path, it is also a save error.
+ */
+private fun ConfigEditorUiState.Ready.withValidationError(
+    section: String,
+    savedValue: JsonElement,
+    error: ConfigValidationException,
+): ConfigEditorUiState.Ready {
+    val shownInline = error.field in inlineErrorFieldsOf(section, pendingChanges[section] ?: savedValue)
+    return copy(
+        fieldErrors = fieldErrors + (error.field to error.reason),
+        saveError = if (shownInline) saveError else "Save failed: ${error.toUserMessage()}",
+    )
 }
 
 /**

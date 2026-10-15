@@ -80,6 +80,7 @@ public fun TroubleshootingDrawer(
                     stringResource(R.string.onboarding_troubleshoot_scan_1),
                     stringResource(R.string.onboarding_troubleshoot_scan_2),
                     stringResource(R.string.onboarding_troubleshoot_scan_3),
+                    stringResource(R.string.onboarding_troubleshoot_scan_4),
                 ),
             )
             Spacer(Modifier.height(Spacing.md))

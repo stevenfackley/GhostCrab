@@ -1,7 +1,10 @@
 package com.openclaw.ghostcrab.ui.dashboard
 
+import com.openclaw.ghostcrab.domain.model.ConnectionWarning
 import com.openclaw.ghostcrab.domain.model.GatewayConnection
 import com.openclaw.ghostcrab.domain.model.ModelInfo
+import com.openclaw.ghostcrab.ui.GatewayFeatures
+import com.openclaw.ghostcrab.ui.toUserMessage
 
 /**
  * Point-in-time snapshot of the most recent `/health` poll result.
@@ -39,7 +42,18 @@ sealed interface DashboardUiState {
         val connection: GatewayConnection.Connected,
         val health: HealthSnapshot,
         val models: List<ModelInfo>,
-    ) : DashboardUiState
+    ) : DashboardUiState {
+        /** The screens [connection]'s granted scopes allow; the dashboard hides the entries of the others. */
+        val features: GatewayFeatures get() = GatewayFeatures.of(connection)
+
+        /**
+         * `toUserMessage()` of the storage failure when the gateway's device token could not be saved
+         * ([ConnectionWarning.DeviceTokenNotSaved]), shown as an amber notice; `null` when there is none.
+         */
+        val deviceTokenNotSaved: String?
+            get() = connection.warnings.firstNotNullOfOrNull { it as? ConnectionWarning.DeviceTokenNotSaved }
+                ?.cause?.toUserMessage()
+    }
 
     /**
      * Gateway is unreachable (two consecutive `/health` failures).

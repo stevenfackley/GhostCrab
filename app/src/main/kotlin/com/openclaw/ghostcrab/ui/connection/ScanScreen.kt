@@ -39,8 +39,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.openclaw.ghostcrab.R
 import com.openclaw.ghostcrab.domain.model.DiscoveredGateway
 import com.openclaw.ghostcrab.ui.components.GlassSurface
 import com.openclaw.ghostcrab.ui.components.ObserveAsEvents
@@ -54,7 +56,8 @@ import org.koin.androidx.compose.koinViewModel
  *
  * Auto-starts a 10 s mDNS scan on entry. Discovered gateways appear in real time as glass cards.
  * Tapping a result either connects immediately (known profile) or navigates to ManualEntry with
- * the URL pre-filled.
+ * the URL pre-filled. A known gateway that answers `PAIRING_REQUIRED` shows the approval panel until the device
+ * is approved, the request expires, or the user cancels.
  *
  * @param onNavigateBack Navigate up to ConnectionPicker.
  * @param onNavigateToManualEntry Navigate to ManualEntry with [prefillUrl] pre-populated.
@@ -71,8 +74,11 @@ fun ScanScreen(
     viewModel: ScanViewModel = koinViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val pairingPrompt by viewModel.pairingPrompt.collectAsStateWithLifecycle()
 
     LaunchedEffect(Unit) { viewModel.startScan() }
+    val back = viewModel.leaving(onNavigateBack)
+    val enterManually = viewModel.leaving(onEnterManually)
 
     ObserveAsEvents(viewModel.events) { event ->
         when (event) {
@@ -95,7 +101,7 @@ fun ScanScreen(
                     )
                 },
                 navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
+                    IconButton(onClick = back) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "Back",
@@ -115,13 +121,41 @@ fun ScanScreen(
                 .fillMaxSize()
                 .padding(innerPadding),
         ) {
-            ScanScreenBody(
+            ScanContent(
                 state = state,
-                onGatewaySelected = viewModel::onGatewaySelected,
-                onStartScan = viewModel::startScan,
-                onEnterManually = onEnterManually,
+                pairingPrompt = pairingPrompt,
+                viewModel = viewModel,
+                onEnterManually = enterManually,
             )
         }
+    }
+}
+
+/**
+ * The approval panel while a saved gateway waits for approval (it replaces the results: one connect at a time),
+ * else the scan state. Leaving the screen clears the ViewModel, which stops the wait.
+ */
+@Composable
+private fun ScanContent(
+    state: ScanState,
+    pairingPrompt: PairingPrompt?,
+    viewModel: ScanViewModel,
+    onEnterManually: () -> Unit,
+) {
+    if (pairingPrompt != null) {
+        PairingApprovalCard(
+            prompt = pairingPrompt,
+            onCheckNow = viewModel.pairing::checkNow,
+            onCancel = viewModel.pairing::cancel,
+            modifier = Modifier.padding(Spacing.md),
+        )
+    } else {
+        ScanScreenBody(
+            state = state,
+            onGatewaySelected = viewModel::onGatewaySelected,
+            onStartScan = viewModel::startScan,
+            onEnterManually = onEnterManually,
+        )
     }
 }
 
@@ -333,8 +367,7 @@ private fun EmptyResultsContent(
         verticalArrangement = Arrangement.Center,
     ) {
         Text(
-            text = "No OpenClaw gateways detected on this network.\n" +
-                "mDNS may be blocked — try entering the URL manually.",
+            text = stringResource(R.string.scan_empty_results),
             style = MaterialTheme.typography.bodyMedium,
             color = BrandTokens.colorTextSecondary,
         )
@@ -381,4 +414,10 @@ private fun ErrorContent(
             Text("Enter URL manually")
         }
     }
+}
+
+/** [navigate] preceded by stopping a running approval wait (a no-op when none runs), as the picker does. */
+private fun ScanViewModel.leaving(navigate: () -> Unit): () -> Unit = {
+    pairing.cancel()
+    navigate()
 }

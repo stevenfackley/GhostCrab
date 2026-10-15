@@ -1,7 +1,10 @@
 package com.openclaw.ghostcrab.ui
 
 import app.cash.turbine.test
+import com.openclaw.ghostcrab.domain.exception.DeviceCredentialStorageException
+import com.openclaw.ghostcrab.domain.exception.GatewayPairingRequiredException
 import com.openclaw.ghostcrab.domain.exception.ProfileNeedsReauthException
+import com.openclaw.ghostcrab.domain.model.ConnectionWarning
 import com.openclaw.ghostcrab.domain.model.GatewayConnection
 import com.openclaw.ghostcrab.domain.repository.ConnectionProfileRepository
 import com.openclaw.ghostcrab.domain.repository.GatewayConnectionManager
@@ -13,17 +16,26 @@ import com.openclaw.ghostcrab.ui.connection.ManualEntryEvent
 import com.openclaw.ghostcrab.ui.connection.ManualEntryFormState
 import com.openclaw.ghostcrab.ui.connection.ManualEntryUiState
 import com.openclaw.ghostcrab.ui.connection.ManualEntryViewModel
+import com.openclaw.ghostcrab.ui.connection.PAIRING_RETRY_INTERVAL_MS
+import com.openclaw.ghostcrab.ui.connection.PAIRING_TIMEOUT_MS
 import com.openclaw.ghostcrab.ui.connection.PairingHandoff
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.ViewModelStore
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.jupiter.api.AfterEach
@@ -34,6 +46,7 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import java.security.GeneralSecurityException
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ManualEntryViewModelTest {
@@ -43,6 +56,7 @@ class ManualEntryViewModelTest {
     private lateinit var profileRepository: ConnectionProfileRepository
     private lateinit var onboardingRepository: OnboardingRepository
     private lateinit var vm: ManualEntryViewModel
+    private val connState = MutableStateFlow<GatewayConnection>(GatewayConnection.Disconnected)
 
     @BeforeEach
     fun setUp() {
@@ -50,8 +64,7 @@ class ManualEntryViewModelTest {
         connectionManager = mockk(relaxed = true)
         profileRepository = mockk(relaxed = true)
         onboardingRepository = mockk(relaxed = true)
-        every { connectionManager.connectionState } returns
-            MutableStateFlow(GatewayConnection.Disconnected)
+        every { connectionManager.connectionState } returns connState
         every { profileRepository.getProfiles() } returns flowOf(emptyList())
         vm = ManualEntryViewModel(connectionManager, profileRepository, onboardingRepository, PairingHandoff())
     }
@@ -253,6 +266,161 @@ class ManualEntryViewModelTest {
 
         val state = vm.uiState.value as ManualEntryUiState.Error
         assertTrue(state.message.contains("ProfileNeedsReauthException"))
+    }
+
+    // ── Pairing approval (ADR-0007) ───────────────────────────────────────────
+
+    private val pending =
+        GatewayPairingRequiredException("ws://192.168.1.50:18789/ws", "req-1", "not-paired", listOf("operator.read"))
+
+    private val gatewayUrl = "http://192.168.1.50:18789"
+
+    /** Fills the form for [gatewayUrl]; the manager reports the refusal as the real one does after a connect. */
+    private fun fillForm(warnings: List<ConnectionWarning> = emptyList()) {
+        connState.value = GatewayConnection.Error(gatewayUrl, pending, warnings)
+        vm.onHostChange("192.168.1.50")
+        vm.onTokenChange("shared-token")
+    }
+
+    @Test fun `pairing required shows the approval prompt and connects once approved`() = runTest {
+        var calls = 0
+        coEvery { connectionManager.connect(any(), any()) } coAnswers { if (calls++ == 0) throw pending }
+        fillForm()
+        vm.events.test {
+            vm.connect()
+            val waiting = vm.uiState.value as ManualEntryUiState.AwaitingApproval
+            assertEquals("openclaw devices approve req-1", waiting.prompt.approveCommand)
+            advanceTimeBy(PAIRING_RETRY_INTERVAL_MS + 1)
+            assertEquals(ManualEntryEvent.NavigateToDashboard, awaitItem())
+        }
+        assertEquals(ManualEntryUiState.Idle, vm.uiState.value)
+        coVerify(exactly = 2) { connectionManager.connect("http://192.168.1.50:18789", "shared-token") }
+    }
+
+    @Test fun `the profile is saved only once the device is approved`() = runTest {
+        coEvery { connectionManager.connect(any(), any()) } throws pending
+        fillForm()
+        vm.connect()
+        advanceTimeBy(PAIRING_RETRY_INTERVAL_MS * 3)
+        coVerify(exactly = 0) { profileRepository.saveProfile(any(), any()) }
+        coVerify(exactly = 0) { onboardingRepository.markCompleted() }
+        vm.pairing.cancel()
+    }
+
+    @Test fun `the approval prompt carries the warnings of the failed connect`() = runTest {
+        coEvery { connectionManager.connect(any(), any()) } throws pending
+        fillForm(warnings = listOf(ConnectionWarning.DeviceIdentityRegenerated))
+        vm.connect()
+        val waiting = vm.uiState.value as ManualEntryUiState.AwaitingApproval
+        assertEquals(listOf(ConnectionWarning.DeviceIdentityRegenerated), waiting.prompt.warnings)
+        assertEquals(pending.url, waiting.prompt.url)
+        vm.pairing.cancel()
+    }
+
+    @Test fun `cancelPairing stops retrying and returns to Idle`() = runTest {
+        coEvery { connectionManager.connect(any(), any()) } throws pending
+        fillForm()
+        vm.connect()
+        vm.pairing.cancel()
+        advanceTimeBy(60_000)
+        assertEquals(ManualEntryUiState.Idle, vm.uiState.value)
+        coVerify(exactly = 1) { connectionManager.connect(any(), any()) }
+    }
+
+    @Test fun `Cancel disconnects, so no stale pairing error stays behind`() = runTest {
+        coEvery { connectionManager.connect(any(), any()) } throws pending
+        fillForm()
+        vm.connect()
+        vm.pairing.cancel()
+        runCurrent()
+        coVerify(exactly = 1) { connectionManager.disconnect() }
+    }
+
+    @Test fun `checkPairingNow retries without waiting`() = runTest {
+        var calls = 0
+        coEvery { connectionManager.connect(any(), any()) } coAnswers { if (calls++ == 0) throw pending }
+        fillForm()
+        vm.connect()
+        vm.pairing.checkNow()
+        runCurrent()
+        coVerify(exactly = 2) { connectionManager.connect(any(), any()) }
+        assertEquals(ManualEntryUiState.Idle, vm.uiState.value)
+    }
+
+    @Test fun `connect while waiting for approval is ignored`() = runTest {
+        coEvery { connectionManager.connect(any(), any()) } throws pending
+        fillForm()
+        vm.connect()
+        vm.connect()
+        coVerify(exactly = 1) { connectionManager.connect(any(), any()) }
+        vm.pairing.cancel()
+    }
+
+    @Test fun `a credential-storage failure during the wait is an error, never retried`() = runTest {
+        var calls = 0
+        val storage = DeviceCredentialStorageException("open the device identity", GeneralSecurityException("ks"))
+        coEvery { connectionManager.connect(any(), any()) } coAnswers {
+            if (calls++ == 0) throw pending else throw storage
+        }
+        fillForm()
+        vm.connect()
+        advanceTimeBy(PAIRING_RETRY_INTERVAL_MS * 4)
+        assertTrue((vm.uiState.value as ManualEntryUiState.Error).message.contains("DeviceCredentialStorageException"))
+        coVerify(exactly = 2) { connectionManager.connect(any(), any()) }
+    }
+
+    @Test fun `an expired approval window is an explicit error`() = runTest {
+        coEvery { connectionManager.connect(any(), any()) } throws pending
+        fillForm()
+        vm.connect()
+        advanceTimeBy(PAIRING_TIMEOUT_MS + 1)
+        assertTrue((vm.uiState.value as ManualEntryUiState.Error).message.contains("PAIRING_REQUIRED"))
+    }
+
+    @Test fun `leaving the screen mid-wait disconnects, so no stale pairing error stays behind`() = runTest {
+        vm = ManualEntryViewModel(
+            connectionManager, profileRepository, onboardingRepository, PairingHandoff(),
+            cleanupScope = backgroundScope,
+        )
+        coEvery { connectionManager.connect(any(), any()) } throws pending
+        fillForm()
+        vm.connect()
+        runCurrent()
+
+        clear(vm)
+        runCurrent()
+
+        coVerify(exactly = 1) { connectionManager.disconnect() }
+        advanceTimeBy(PAIRING_RETRY_INTERVAL_MS * 3)
+        coVerify(exactly = 1) { connectionManager.connect(any(), any()) }
+    }
+
+    @Test fun `Cancel during the post-approval save is ignored, so the approved gateway is saved`() = runTest {
+        var calls = 0
+        val saving = CompletableDeferred<Unit>()
+        coEvery { connectionManager.connect(any(), any()) } coAnswers { if (calls++ == 0) throw pending }
+        coEvery { profileRepository.saveProfile(any(), any()) } coAnswers { saving.await() }
+        fillForm()
+        vm.events.test {
+            vm.connect()
+            vm.pairing.checkNow()
+            runCurrent()
+
+            vm.pairing.cancel()
+            saving.complete(Unit)
+
+            assertEquals(ManualEntryEvent.NavigateToDashboard, awaitItem())
+        }
+        coVerify(exactly = 1) { onboardingRepository.markCompleted() }
+        coVerify(exactly = 0) { connectionManager.disconnect() }
+        assertEquals(ManualEntryUiState.Idle, vm.uiState.value)
+    }
+
+    /** Clears [viewModel] the way leaving the screen does: `viewModelScope` is cancelled, then its closeables run. */
+    private fun clear(viewModel: ManualEntryViewModel) {
+        val store = ViewModelStore()
+        ViewModelProvider(store, viewModelFactory { initializer { viewModel } })[ManualEntryViewModel::class.java]
+        store.clear()
     }
 
     @Test

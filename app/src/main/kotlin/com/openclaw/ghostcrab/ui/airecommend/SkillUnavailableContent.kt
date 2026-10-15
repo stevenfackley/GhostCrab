@@ -1,9 +1,5 @@
 package com.openclaw.ghostcrab.ui.airecommend
 
-import android.content.ActivityNotFoundException
-import android.content.Intent
-import android.net.Uri
-import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,20 +10,15 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.OpenInBrowser
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -40,7 +31,8 @@ import com.openclaw.ghostcrab.ui.theme.BrandTokens
 import com.openclaw.ghostcrab.ui.theme.Spacing
 import com.openclaw.ghostcrab.ui.toUserMessage
 
-private data class SkillUnavailableCopy(val title: String, val body: String, val command: String)
+/** @property command A CLI command for the gateway host, or `null` when there is nothing to run. */
+private data class SkillUnavailableCopy(val title: String, val body: String, val command: String?)
 
 @Composable
 private fun rememberSkillUnavailableCopy(missingScope: String?): SkillUnavailableCopy {
@@ -53,16 +45,16 @@ private fun rememberSkillUnavailableCopy(missingScope: String?): SkillUnavailabl
         if (isScopeGap) R.string.ai_skill_unavailable_scope_body
         else R.string.ai_skill_unavailable_body,
     )
-    val command = stringResource(
-        if (isScopeGap) R.string.ai_skill_unavailable_scope_command
-        else R.string.ai_skill_unavailable_hint,
-    )
+    // Only the scope gap has something to run on the host; OpenClaw has no recommendation API to install.
+    val command = if (isScopeGap) stringResource(R.string.ai_skill_unavailable_scope_command) else null
     return SkillUnavailableCopy(title, body, command)
 }
 
 /**
- * Shown when the AI recommendation skill is not installed (or lacks a scope) on the gateway;
- * offers an install button and install progress / error feedback.
+ * Shown when the gateway serves no AI recommendations. OpenClaw has none (ADR-0007): the copy says so and that
+ * recommendations will return through the gateway's agent (`chat.send`) once a design is decided. A missing scope
+ * and the install button / progress / error feedback appear only when the view model has a recommendation skill
+ * to install (none today).
  */
 @Composable
 internal fun SkillUnavailableContent(
@@ -78,10 +70,9 @@ internal fun SkillUnavailableContent(
     val installing = installProgress != null
     // Mirror the CLI-code block hide logic: once install is in flight or the skill installer
     // is actively usable, the CLI copy is noise — keep the card focused on the in-app flow.
-    val showCliBlock = !installing && installProgress !is SkillInstallProgress.Succeeded
+    val cliCommand = copy.command?.takeIf { !installing && installProgress !is SkillInstallProgress.Succeeded }
     val showInstallButton = canInstall && installProgress == null && installError == null
     val showLiveProgress = installProgress != null && installProgress !is SkillInstallProgress.Succeeded
-    val showBrowserButton = missingScope == null && !installing
 
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         GlassSurface(modifier = Modifier.padding(Spacing.md)) {
@@ -103,9 +94,9 @@ internal fun SkillUnavailableContent(
                         color = BrandTokens.colorTextSecondary,
                     ),
                 )
-                if (showCliBlock) {
+                if (cliCommand != null) {
                     Spacer(Modifier.height(Spacing.xs))
-                    CodeBlock(code = copy.command, onCopied = onCopied)
+                    CodeBlock(code = cliCommand, onCopied = onCopied)
                 }
                 if (showInstallButton) {
                     Spacer(Modifier.height(Spacing.xs))
@@ -123,10 +114,6 @@ internal fun SkillUnavailableContent(
                         onDismiss = onDismissError,
                         canRetry = canInstall,
                     )
-                }
-                if (showBrowserButton) {
-                    Spacer(Modifier.height(Spacing.xs))
-                    OpenBrowserButton()
                 }
             }
         }
@@ -146,36 +133,6 @@ private fun InstallButton(onInstall: () -> Unit) {
         Text(
             text = stringResource(R.string.ai_skill_install_button),
             fontWeight = FontWeight.Bold,
-        )
-    }
-}
-
-@Composable
-private fun OpenBrowserButton() {
-    val context = LocalContext.current
-    val clawhubUrl = stringResource(R.string.ai_skill_unavailable_clawhub_url)
-    val noBrowserMessage = stringResource(R.string.ai_skill_open_browser_unavailable, clawhubUrl)
-    OutlinedButton(
-        onClick = {
-            try {
-                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(clawhubUrl)))
-            } catch (_: ActivityNotFoundException) {
-                // Locked-down profiles can have no browser; say so instead of crashing.
-                Toast.makeText(context, noBrowserMessage, Toast.LENGTH_LONG).show()
-            }
-        },
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Icon(
-            imageVector = Icons.Default.OpenInBrowser,
-            contentDescription = null,
-            modifier = Modifier.size(18.dp),
-            tint = BrandTokens.colorCyanPrimary,
-        )
-        Spacer(Modifier.size(Spacing.xs))
-        Text(
-            text = stringResource(R.string.ai_skill_unavailable_open_browser),
-            color = BrandTokens.colorCyanPrimary,
         )
     }
 }
@@ -232,7 +189,7 @@ private fun installErrorMessage(error: SkillInstallError): String {
         )
         is SkillInstallError.Protocol -> stringResource(
             R.string.ai_skill_install_error_protocol,
-            error.rpcCode,
+            error.code,
             error.message,
         )
         is SkillInstallError.MalformedResponse -> stringResource(

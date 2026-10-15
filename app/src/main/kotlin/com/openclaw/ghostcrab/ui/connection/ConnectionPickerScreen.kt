@@ -92,6 +92,20 @@ fun ConnectionPickerScreen(
         }
     }
 
+    // While the gateway waits for approval the other ways to connect are hidden (Cancel first), and leaving the
+    // list always stops its connect: a wait left running in the back stack must never replace a session opened
+    // on another screen.
+    val awaitingApproval = pickerState.pairingPrompt != null
+    val leaving = { navigate: () -> Unit ->
+        {
+            viewModel.pairing.cancel()
+            navigate()
+        }
+    }
+    val toQrScan = leaving(onNavigateToQrScan)
+    val toScan = leaving(onNavigateToScan)
+    val toManualEntry = leaving(onNavigateToManualEntry)
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -107,27 +121,29 @@ fun ConnectionPickerScreen(
                     containerColor = BrandTokens.colorAbyss,
                 ),
                 actions = {
-                    IconButton(onClick = onNavigateToQrScan) {
-                        Icon(
-                            imageVector = Icons.Default.QrCodeScanner,
-                            contentDescription = "Scan QR Code",
-                            tint = BrandTokens.colorCyanPrimary,
-                        )
-                    }
-                    IconButton(onClick = onNavigateToScan) {
-                        Icon(
-                            imageVector = Icons.Default.Search,
-                            contentDescription = "Scan LAN",
-                            tint = BrandTokens.colorTextSecondary,
-                        )
+                    if (!awaitingApproval) {
+                        IconButton(onClick = toQrScan) {
+                            Icon(
+                                imageVector = Icons.Default.QrCodeScanner,
+                                contentDescription = "Scan QR Code",
+                                tint = BrandTokens.colorCyanPrimary,
+                            )
+                        }
+                        IconButton(onClick = toScan) {
+                            Icon(
+                                imageVector = Icons.Default.Search,
+                                contentDescription = "Scan LAN",
+                                tint = BrandTokens.colorTextSecondary,
+                            )
+                        }
                     }
                 },
             )
         },
         floatingActionButton = {
-            if (profiles.isNotEmpty()) {
+            if (profiles.isNotEmpty() && !awaitingApproval) {
                 FloatingActionButton(
-                    onClick = onNavigateToManualEntry,
+                    onClick = toManualEntry,
                     containerColor = BrandTokens.colorCyanPrimary,
                     contentColor = BrandTokens.colorAbyss,
                 ) {
@@ -143,9 +159,9 @@ fun ConnectionPickerScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding),
-                onScanQr = onNavigateToQrScan,
-                onScanLan = onNavigateToScan,
-                onManualEntry = onNavigateToManualEntry,
+                onScanQr = toQrScan,
+                onScanLan = toScan,
+                onManualEntry = toManualEntry,
             )
         } else {
             LazyColumn(
@@ -155,6 +171,15 @@ fun ConnectionPickerScreen(
                 contentPadding = PaddingValues(Spacing.md),
                 verticalArrangement = Arrangement.spacedBy(Spacing.sm),
             ) {
+                pickerState.pairingPrompt?.let { prompt ->
+                    item(key = "pairing-approval") {
+                        PairingApprovalCard(
+                            prompt = prompt,
+                            onCheckNow = viewModel.pairing::checkNow,
+                            onCancel = viewModel.pairing::cancel,
+                        )
+                    }
+                }
                 items(profiles, key = { it.id }) { profile ->
                     ProfileCard(
                         profile = profile,

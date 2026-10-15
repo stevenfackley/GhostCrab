@@ -3,6 +3,8 @@ package com.openclaw.ghostcrab.di
 import android.content.Context
 import android.net.nsd.NsdManager
 import android.net.wifi.WifiManager
+import com.openclaw.ghostcrab.data.gateway.DeviceIdentityProvider
+import com.openclaw.ghostcrab.data.gateway.DeviceTokenStore
 import com.openclaw.ghostcrab.domain.repository.ConnectionProfileRepository
 import com.openclaw.ghostcrab.domain.repository.GatewayConnectionManager
 import com.openclaw.ghostcrab.domain.repository.GatewayHealthChecker
@@ -23,6 +25,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import org.koin.core.annotation.KoinExperimentalAPI
@@ -70,6 +73,9 @@ class KoinModulesTest {
 
             assertNotNull(koin.get<GatewayConnectionManager>())
             assertNotNull(koin.get<GatewayHealthChecker>())
+            assertNotNull(koin.get<DeviceTokenStore>())
+            // A single: DeviceIdentityStore's mutex only prevents two identities within one instance.
+            assertSame(koin.get<DeviceIdentityProvider>(), koin.get<DeviceIdentityProvider>())
             assertNotNull(koin.get<ConnectionProfileRepository>())
             assertNotNull(koin.get<SettingsRepository>())
             assertEquals(Dispatchers.IO, koin.get<CoroutineDispatcher>(IoDispatcher))

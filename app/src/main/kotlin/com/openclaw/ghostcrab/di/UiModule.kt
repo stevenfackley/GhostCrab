@@ -37,10 +37,11 @@ val uiModule = module {
             configRepository = get(),
             modelRepository = get(),
             scopeProbe = getOrNull(),
-            installRepo = getOrNull(),
+            // No gateway skill serves recommendations (ADR-0007), so nothing is offered for install.
+            recommendSkill = null,
         )
     }
-    viewModel { SettingsViewModel(get(), get(), get()) }
+    viewModel { SettingsViewModel(get(), get(), get(), get()) }
     viewModel { QrScanViewModel(get()) }
     if (com.openclaw.ghostcrab.BuildConfig.SKILLS_INSTALL_ENABLED) {
         viewModel { InstalledSkillsViewModel(get()) }

@@ -21,9 +21,8 @@ public sealed interface ModelManagerUiState {
     public data object Disconnected : ModelManagerUiState
 
     /**
-     * Gateway returned 404 for the models endpoint — feature not implemented.
-     * The real upstream gateway (`ghcr.io/openclaw/openclaw`) is in this state by default;
-     * only gateways advertising the `"models"` capability in `/status` support this feature.
+     * The gateway has no model API: `models.list` is an unknown method on the session socket
+     * (`GatewayMethodUnsupportedException`, ADR-0007), or a legacy REST gateway answered 404.
      */
     public data object NotSupported : ModelManagerUiState
 

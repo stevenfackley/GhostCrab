@@ -11,6 +11,7 @@ import com.openclaw.ghostcrab.domain.util.DEFAULT_GATEWAY_PORT
 import com.openclaw.ghostcrab.domain.util.GatewayUrl
 import com.openclaw.ghostcrab.domain.util.suspendRunCatching
 import com.openclaw.ghostcrab.ui.toUserMessage
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -19,7 +20,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.launch
 import java.util.UUID
 
 data class ManualEntryFormState(
@@ -52,6 +52,13 @@ data class ManualEntryFormState(
 sealed interface ManualEntryUiState {
     data object Idle : ManualEntryUiState
     data object Connecting : ManualEntryUiState
+
+    /**
+     * The gateway wants this device approved; the connect is retried until it is (ADR-0007).
+     *
+     * @param prompt What to run on the gateway host, and what explains the request.
+     */
+    data class AwaitingApproval(val prompt: PairingPrompt) : ManualEntryUiState
     data class Error(val message: String) : ManualEntryUiState
 }
 
@@ -59,11 +66,16 @@ sealed interface ManualEntryEvent {
     data object NavigateToDashboard : ManualEntryEvent
 }
 
+/**
+ * @param cleanupScope Where the approval wait's disconnect runs once this ViewModel is cleared (see
+ *   [PairingWait.release]); tests inject a test scope.
+ */
 class ManualEntryViewModel(
     private val connectionManager: GatewayConnectionManager,
     private val profileRepository: ConnectionProfileRepository,
     private val onboardingRepository: OnboardingRepository,
     private val pairingHandoff: PairingHandoff,
+    cleanupScope: CoroutineScope = pairingCleanupScope(),
 ) : ViewModel() {
 
     /** Display name from a consumed pair bundle; used for the saved profile instead of the gateway's own name. */
@@ -87,6 +99,18 @@ class ManualEntryViewModel(
     private val _events = Channel<ManualEntryEvent>(Channel.BUFFERED)
     /** One-shot navigation events, buffered so an event sent during rotation is delivered once a collector returns. */
     val events: Flow<ManualEntryEvent> = _events.receiveAsFlow()
+
+    /** The running connect and its approval wait; the approval card's Check now / Cancel go here. */
+    val pairing = PairingWait(viewModelScope, connectionManager, cleanupScope) {
+        _uiState.value = ManualEntryUiState.Idle
+    }
+
+    init {
+        // Leaving the screen (Back) mid-wait: clearing this ViewModel cancels viewModelScope, and the wait with it,
+        // so the wait's disconnect runs in the cleanup scope instead. Without it a stale Error(PAIRING_REQUIRED)
+        // would stay in the manager. (A closeable rather than onCleared: same moment, one function fewer.)
+        addCloseable { pairing.release() }
+    }
 
     fun onHostChange(value: String) {
         if (value != _form.value.host) addressEditedByHand()
@@ -170,7 +194,14 @@ class ManualEntryViewModel(
         _form.update { it.copy(tokenVisible = !it.tokenVisible) }
     }
 
+    /**
+     * Validates the form and connects. On `PAIRING_REQUIRED` the state becomes
+     * [ManualEntryUiState.AwaitingApproval] and the connect is retried until the device is approved, the pending
+     * request expires (an explicit error) or [PairingWait.cancel]. The profile is saved only once connected.
+     * Ignored while a connect (or an approval wait) is running.
+     */
     fun connect() {
+        if (pairing.isRunning) return
         val state = _form.value
         val hostError = validateHost(state.host)
         val portError = validatePort(state.port)
@@ -180,18 +211,31 @@ class ManualEntryViewModel(
         }
 
         val url = state.assembledUrl
-        viewModelScope.launch {
-            _uiState.value = ManualEntryUiState.Connecting
-            val token = state.token.trim().takeIf { it.isNotEmpty() }
-            // Connect AND persist inside one guard: a Keystore/DataStore failure after a successful
-            // connect must surface as an error, not crash the app.
-            suspendRunCatching {
-                connectionManager.connect(url, token)
-                saveConnectedProfile(url, token)
-                onboardingRepository.markCompleted()
-            }.onSuccess {
-                _uiState.value = ManualEntryUiState.Idle
-                _events.send(ManualEntryEvent.NavigateToDashboard)
+        val token = state.token.trim().takeIf { it.isNotEmpty() }
+        _uiState.value = ManualEntryUiState.Connecting
+        pairing.start(
+            url = url,
+            onPrompt = { _uiState.value = ManualEntryUiState.AwaitingApproval(it) },
+            connect = { connectionManager.connect(url, token) },
+        ) { connected ->
+            // Persist inside a guard too: a Keystore/DataStore failure after a successful connect must surface as
+            // an error, not crash the app.
+            val outcome = if (connected.getOrNull() == true) {
+                suspendRunCatching {
+                    saveConnectedProfile(url, token)
+                    onboardingRepository.markCompleted()
+                    true
+                }
+            } else {
+                connected
+            }
+            outcome.onSuccess { approved ->
+                if (approved) {
+                    _uiState.value = ManualEntryUiState.Idle
+                    _events.send(ManualEntryEvent.NavigateToDashboard)
+                } else {
+                    _uiState.value = ManualEntryUiState.Error(PAIRING_TIMEOUT_MESSAGE)
+                }
             }.onFailure { e ->
                 _uiState.value = ManualEntryUiState.Error(e.toUserMessage())
             }

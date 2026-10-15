@@ -1,47 +1,31 @@
 package com.openclaw.ghostcrab.data.impl
 
-import com.openclaw.ghostcrab.data.ws.FakeWsSession
-import com.openclaw.ghostcrab.data.ws.GatewayWsClient
 import com.openclaw.ghostcrab.domain.repository.ScopeProbeResult
-import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertInstanceOf
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
+/**
+ * ADR-0007: scopes come from `hello-ok.auth.scopes` of the live session. The former `auth.whoami` tests
+ * (JSON-RPC result, `-32601` → UnknownOldGateway) are gone with the method: upstream never had it.
+ */
 class ScopeProbeImplTest {
 
-    @Test
-    fun `probe parses scopes from auth_whoami response`() = runTest {
-        val session = FakeWsSession()
-        val ws = GatewayWsClient.forTesting(session)
-        val probe = ScopeProbeImpl { ws }
-
-        val result = async { probe.probe() }
-        val sent = session.awaitSent()
-        val id = sent["id"]!!.toString().toLong()
-        session.pushInbound(
-            """{"jsonrpc":"2.0","id":$id,"result":{"scopes":["operator.read","operator.admin"]}}"""
-        )
-
-        val known = result.await() as ScopeProbeResult.Known
-        assertTrue(known.has("operator.admin"))
-        assertEquals(setOf("operator.read", "operator.admin"), known.scopes)
+    @Test fun `scopes of the live session are Known`() = runTest {
+        val result = ScopeProbeImpl { setOf("operator.read", "operator.admin") }.probe()
+        assertEquals(ScopeProbeResult.Known(setOf("operator.read", "operator.admin")), result)
+        assertTrue((result as ScopeProbeResult.Known).has("operator.admin"))
     }
 
-    @Test
-    fun `probe maps method-not-found to UnknownOldGateway`() = runTest {
-        val session = FakeWsSession()
-        val ws = GatewayWsClient.forTesting(session)
-        val probe = ScopeProbeImpl { ws }
+    @Test fun `an empty scope set is Known and empty, not unknown`() = runTest {
+        assertEquals(ScopeProbeResult.Known(emptySet()), ScopeProbeImpl { emptySet() }.probe())
+    }
 
-        val result = async { probe.probe() }
-        val sent = session.awaitSent()
-        val id = sent["id"]!!.toString().toLong()
-        session.pushInbound(
-            """{"jsonrpc":"2.0","id":$id,"error":{"code":-32601,"message":"method not found"}}"""
-        )
-
-        assertTrue(result.await() is ScopeProbeResult.UnknownOldGateway)
+    @Test fun `no session is Failed with the exception class`() = runTest {
+        val result = ScopeProbeImpl { null }.probe()
+        assertInstanceOf(ScopeProbeResult.Failed::class.java, result)
+        assertTrue((result as ScopeProbeResult.Failed).cause.contains("GatewayNotConnectedException"))
     }
 }

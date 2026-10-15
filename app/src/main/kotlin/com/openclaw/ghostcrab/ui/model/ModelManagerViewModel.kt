@@ -4,10 +4,12 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.openclaw.ghostcrab.domain.exception.GatewayApiException
 import com.openclaw.ghostcrab.domain.exception.GatewayException
+import com.openclaw.ghostcrab.domain.exception.GatewayMethodUnsupportedException
 import com.openclaw.ghostcrab.domain.model.GatewayConnection
 import com.openclaw.ghostcrab.domain.repository.GatewayConnectionManager
 import com.openclaw.ghostcrab.domain.repository.ModelRepository
 import com.openclaw.ghostcrab.domain.util.suspendRunCatching
+import com.openclaw.ghostcrab.ui.sessionChanges
 import com.openclaw.ghostcrab.ui.toUserMessage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -36,7 +38,8 @@ public class ModelManagerViewModel(
 
     init {
         viewModelScope.launch {
-            connectionManager.connectionState.collect { conn ->
+            // A silent reconnect is not a new session: no reload until the reconnected one arrives.
+            connectionManager.connectionState.sessionChanges().collect { conn ->
                 when (conn) {
                     is GatewayConnection.Connected -> loadModels()
                     is GatewayConnection.Disconnected -> _state.value = ModelManagerUiState.Disconnected
@@ -64,6 +67,9 @@ public class ModelManagerViewModel(
                 } else {
                     ModelManagerUiState.Error(e.toUserMessage())
                 }
+            } catch (_: GatewayMethodUnsupportedException) {
+                // The session socket's "unknown method: models.list" (ADR-0007): the gateway has no model API.
+                _state.value = ModelManagerUiState.NotSupported
             } catch (e: GatewayException) {
                 _state.value = ModelManagerUiState.Error(e.toUserMessage())
             }

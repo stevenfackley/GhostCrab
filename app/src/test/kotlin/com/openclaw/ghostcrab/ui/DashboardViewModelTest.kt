@@ -1,6 +1,11 @@
 package com.openclaw.ghostcrab.ui
 
+import com.openclaw.ghostcrab.data.gateway.SCOPE_OPERATOR_ADMIN
+import com.openclaw.ghostcrab.data.gateway.SCOPE_OPERATOR_READ
+import com.openclaw.ghostcrab.data.gateway.gatewayCapabilities
+import com.openclaw.ghostcrab.domain.exception.DeviceCredentialStorageException
 import com.openclaw.ghostcrab.domain.model.AuthRequirement
+import com.openclaw.ghostcrab.domain.model.ConnectionWarning
 import com.openclaw.ghostcrab.domain.model.GatewayConnection
 import com.openclaw.ghostcrab.domain.model.ModelInfo
 import com.openclaw.ghostcrab.domain.repository.GatewayConnectionManager
@@ -22,9 +27,11 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertInstanceOf
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import java.security.GeneralSecurityException
 
 /**
  * Unit tests for [DashboardViewModel].
@@ -104,6 +111,74 @@ class DashboardViewModelTest {
         assertTrue(state.models.first().isActive)
 
         // Cancel the poll loop so runTest does not advance through the infinite delay
+        connFlow.value = GatewayConnection.Disconnected
+    }
+
+    @Test
+    fun `a hello-ok without scopes offers no config, models or skills`() = runTest {
+        val (vm, connFlow) = makeVm()
+        connFlow.value = connectedState.copy(capabilities = gatewayCapabilities(ALL_METHODS, scopes = emptySet()))
+
+        val ready = vm.state.value as DashboardUiState.Ready
+        assertEquals(GatewayFeatures(config = false, models = false, skills = false), ready.features)
+
+        connFlow.value = GatewayConnection.Disconnected
+    }
+
+    @Test
+    fun `a hello-ok with the admin and read scopes offers config, models and skills`() = runTest {
+        val (vm, connFlow) = makeVm()
+        val scopes = setOf(SCOPE_OPERATOR_ADMIN, SCOPE_OPERATOR_READ)
+        connFlow.value = connectedState.copy(capabilities = gatewayCapabilities(ALL_METHODS, scopes))
+
+        val ready = vm.state.value as DashboardUiState.Ready
+        assertEquals(GatewayFeatures(config = true, models = true, skills = true), ready.features)
+
+        connFlow.value = GatewayConnection.Disconnected
+    }
+
+    @Test
+    fun `a device token that could not be saved is exposed for the dashboard notice`() = runTest {
+        val (vm, connFlow) = makeVm()
+        val failure = DeviceCredentialStorageException(
+            "save the device token for http://192.168.1.50:18789",
+            GeneralSecurityException("keystore locked"),
+        )
+        connFlow.value = connectedState.copy(warnings = listOf(ConnectionWarning.DeviceTokenNotSaved(failure)))
+
+        val ready = vm.state.value as DashboardUiState.Ready
+        assertEquals(failure.toUserMessage(), ready.deviceTokenNotSaved)
+
+        connFlow.value = GatewayConnection.Disconnected
+    }
+
+    @Test
+    fun `a session without warnings shows no device-token notice`() = runTest {
+        val (vm, connFlow) = makeVm()
+        connFlow.value = connectedState.copy(warnings = listOf(ConnectionWarning.DeviceIdentityRegenerated))
+
+        assertNull((vm.state.value as DashboardUiState.Ready).deviceTokenNotSaved)
+
+        connFlow.value = GatewayConnection.Disconnected
+    }
+
+    @Test
+    fun `a silent reconnect keeps the dashboard as is and the reconnected session reloads it`() = runTest {
+        val models = FakeModelRepository(listOf(model("gpt-4o")))
+        val connFlow = MutableStateFlow<GatewayConnection>(GatewayConnection.Disconnected)
+        val vm = DashboardViewModel(FakeDashboardConnectionManager(connFlow), models, healthChecker {})
+        connFlow.value = connectedState
+        val ready = vm.state.value
+
+        connFlow.value = connectedState.copy(reconnecting = true)
+        assertSame(ready, vm.state.value)
+        assertEquals(1, models.loads)
+
+        val reconnected = connectedState.copy(sessionGeneration = 1)
+        connFlow.value = reconnected
+        assertEquals(2, models.loads)
+        assertEquals(reconnected, (vm.state.value as DashboardUiState.Ready).connection)
+
         connFlow.value = GatewayConnection.Disconnected
     }
 
@@ -217,6 +292,11 @@ class DashboardViewModelTest {
 
         connFlow.value = GatewayConnection.Disconnected
     }
+
+    private companion object {
+        /** `hello-ok.features.methods` of a gateway that serves every screen. */
+        val ALL_METHODS = setOf("config.get", "config.patch", "models.list", "skills.status")
+    }
 }
 
 // ── Fakes ─────────────────────────────────────────────────────────────────────
@@ -244,7 +324,13 @@ private class FakeDashboardConnectionManager(
 private class FakeModelRepository(
     private val models: List<ModelInfo> = emptyList(),
 ) : ModelRepository {
-    override suspend fun getModels(): List<ModelInfo> = models
+    var loads = 0
+        private set
+
+    override suspend fun getModels(): List<ModelInfo> {
+        loads++
+        return models
+    }
     override suspend fun setActiveModel(modelId: String) = Unit
 }
 

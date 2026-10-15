@@ -77,8 +77,9 @@ jobs:
             exit 1
           fi
 
-          # STATUS_AUTH: the app probes /status without the token to detect token auth.
-          PORT=$PORT HOST=127.0.0.1 TOKEN="$GATEWAY_TOKEN" STATUS_AUTH=1 \
+          # LEGACY_REST: the iOS app speaks the pre-ADR-0007 REST contract until the iOS protocol-alignment plan
+          # lands (its Task 20 removes this). STATUS_AUTH: that app probes /status without the token.
+          LEGACY_REST=1 PORT=$PORT HOST=127.0.0.1 TOKEN="$GATEWAY_TOKEN" STATUS_AUTH=1 \
             MOCK_DISPLAY_NAME="$GATEWAY_NAME" MOCK_VERSION="2026.10.1" \
             MOCK_HARDWARE="arm64 · 32 GB · Ubuntu 24.04" \
             nohup node server.mjs > "$RUNNER_TEMP/mock-gateway.log" 2>&1 &

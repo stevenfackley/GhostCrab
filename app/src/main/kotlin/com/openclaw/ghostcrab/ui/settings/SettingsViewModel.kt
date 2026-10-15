@@ -4,14 +4,18 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.openclaw.ghostcrab.domain.model.ConnectionProfile
 import com.openclaw.ghostcrab.domain.repository.ConnectionProfileRepository
+import com.openclaw.ghostcrab.domain.repository.GatewayConnectionManager
 import com.openclaw.ghostcrab.domain.repository.OnboardingRepository
 import com.openclaw.ghostcrab.domain.repository.SettingsRepository
 import com.openclaw.ghostcrab.domain.util.suspendRunCatching
+import com.openclaw.ghostcrab.ui.GatewayFeatures
 import com.openclaw.ghostcrab.ui.toUserMessage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -24,11 +28,13 @@ import kotlinx.coroutines.launch
  * @param profileRepository Source for saved gateway profiles.
  * @param settingsRepository Source for app-level preferences.
  * @param onboardingRepository Used to reset the walkthrough.
+ * @param connectionManager Source of the live session's capabilities, which gate the Installed Skills entry.
  */
 class SettingsViewModel(
     private val profileRepository: ConnectionProfileRepository,
     private val settingsRepository: SettingsRepository,
     private val onboardingRepository: OnboardingRepository,
+    connectionManager: GatewayConnectionManager,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow<SettingsUiState>(SettingsUiState.Loading)
@@ -41,12 +47,14 @@ class SettingsViewModel(
             combine(
                 profileRepository.getProfiles(),
                 settingsRepository.allowCleartextPublicIPs,
-            ) { profiles, allowCleartext ->
+                connectionManager.connectionState.map { GatewayFeatures.of(it).skills }.distinctUntilChanged(),
+            ) { profiles, allowCleartext, skillsAvailable ->
                 // Preserve transient overlay state (dialogs, errors) across data refreshes
                 val overlay = _state.value as? SettingsUiState.Ready
                 SettingsUiState.Ready(
                     profiles = profiles,
                     allowCleartextPublicIPs = allowCleartext,
+                    skillsAvailable = skillsAvailable,
                     pendingDeleteProfileId = overlay?.pendingDeleteProfileId,
                     showClearAllConfirmation = overlay?.showClearAllConfirmation ?: false,
                     editingProfile = overlay?.editingProfile,

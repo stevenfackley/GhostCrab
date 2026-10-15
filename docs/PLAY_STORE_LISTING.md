@@ -107,6 +107,10 @@ Expected IARC rating: **Everyone (E)** or **Rating Pending**.
 4. Config Editor (form view)
 5. Manual Entry screen (URL + token fields)
 
+**Upload set (8 of the 9 captures from `android-screenshots.yml`; Play accepts at most 8 phone screenshots):**
+`01-onboarding`, `03-lan-scan`, `04-manual-entry`, `05-dashboard`, `06-config-editor`, `07-models`, `09-settings`, `10-gateways-saved`.
+Skip `02-gateways-empty` (least informative: an empty list). All nine stay captured; only the upload set is trimmed.
+
 ---
 
 ## Data Safety Form (Play Console → Data Safety)
@@ -124,7 +128,7 @@ Expected IARC rating: **Everyone (E)** or **Rating Pending**.
 | App info & performance | No | — | — | — |
 | Device or other IDs | No | — | — | — |
 
-**Answer "No" to all collection questions.** No data is collected or shared with third parties.
+**These "No" answers hold only without ML Kit.** The QR scanner's ML Kit library sends Google diagnostics (app info and performance, a per-installation id); declare them or replace ML Kit first. See "Open decision: ML Kit diagnostics" in `docs/DATA_SAFETY.md`. Nothing reaches the developer.
 
 ### Security practices
 

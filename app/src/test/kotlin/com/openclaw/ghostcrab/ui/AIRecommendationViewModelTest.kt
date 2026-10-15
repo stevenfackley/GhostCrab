@@ -29,6 +29,7 @@ import io.mockk.coEvery
 import io.mockk.mockk
 import com.openclaw.ghostcrab.ui.airecommend.AIRecommendationUiState
 import com.openclaw.ghostcrab.ui.airecommend.AIRecommendationViewModel
+import com.openclaw.ghostcrab.ui.airecommend.RecommendSkillInstall
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -68,6 +69,9 @@ class AIRecommendationViewModelTest {
 
     private val gatewayUrl = "http://192.168.1.50:18789"
 
+    /** Stand-in for a future gateway skill that serves recommendations; production wires none (ADR-0007). */
+    private val testSkillSlug = "example/recommend-skill"
+
     private val connectedWithSkill = GatewayConnection.Connected(
         url = gatewayUrl,
         displayName = "Home Gateway",
@@ -105,6 +109,7 @@ class AIRecommendationViewModelTest {
         models: FakeAIModelRepository = FakeAIModelRepository(),
         scopeProbe: ScopeProbe? = null,
         installRepo: InstalledSkillRepository? = null,
+        recommendSkillSlug: String? = testSkillSlug,
     ): Pair<AIRecommendationViewModel, MutableStateFlow<GatewayConnection>> {
         val flow = MutableStateFlow(initialConnection)
         val vm = AIRecommendationViewModel(
@@ -113,7 +118,7 @@ class AIRecommendationViewModelTest {
             configRepository = config,
             modelRepository = models,
             scopeProbe = scopeProbe,
-            installRepo = installRepo,
+            recommendSkill = installRepo?.let { repo -> recommendSkillSlug?.let { RecommendSkillInstall(it, repo) } },
         )
         return vm to flow
     }
@@ -288,7 +293,7 @@ class AIRecommendationViewModelTest {
             error = AIServiceUnavailableException(gatewayUrl)
         }
 
-        val (vm, _) = makeVm(service = service, scopeProbe = scopeProbe)
+        val (vm, _) = makeVm(service = service, scopeProbe = scopeProbe, installRepo = FakeInstallRepo())
         vm.submitQuery("anything")
 
         val s = vm.state.value as AIRecommendationUiState.SkillUnavailable
@@ -326,6 +331,40 @@ class AIRecommendationViewModelTest {
     }
 
     @Test
+    fun `without a recommendation skill nothing is offered for install`() = runTest {
+        val service = FakeAIService(available = true).apply {
+            error = AIServiceUnavailableException(gatewayUrl)
+        }
+        val repo = FakeInstallRepo()
+        val (vm, _) = makeVm(service = service, installRepo = repo, recommendSkillSlug = null)
+
+        vm.submitQuery("query")
+        val s = vm.state.value as AIRecommendationUiState.SkillUnavailable
+        assertFalse(s.canInstall)
+        vm.installSkill()
+
+        assertEquals(s, vm.state.value)
+        assertNull(repo.installedSlug)
+    }
+
+    @Test
+    fun `without a recommendation skill a missing scope is not reported`() = runTest {
+        // No skill to install means operator.admin cannot help; the scope copy would send the user on an errand.
+        val scopeProbe = mockk<ScopeProbe>()
+        coEvery { scopeProbe.probe() } returns ScopeProbeResult.Known(setOf("operator.read"))
+        val service = FakeAIService(available = true).apply {
+            error = AIServiceUnavailableException(gatewayUrl)
+        }
+        val (vm, _) = makeVm(service = service, scopeProbe = scopeProbe, recommendSkillSlug = null)
+
+        vm.submitQuery("anything")
+
+        val s = vm.state.value as AIRecommendationUiState.SkillUnavailable
+        assertNull(s.missingScope)
+        assertFalse(s.canInstall)
+    }
+
+    @Test
     fun `installSkill is no-op when installRepo is null`() = runTest {
         val service = FakeAIService(available = false)
         val (vm, _) = makeVm(initialConnection = connectedNoSkill, service = service, installRepo = null)
@@ -343,7 +382,7 @@ class AIRecommendationViewModelTest {
                 SkillInstallProgress.Connecting("gateway"),
                 SkillInstallProgress.Downloading(50),
                 SkillInstallProgress.Succeeded(
-                    InstalledSkill("wanng-ide/auto-skill-hunter", "1.0.0", SkillSource.ClawHub, 0L),
+                    InstalledSkill(testSkillSlug, "1.0.0", SkillSource.ClawHub, 0L),
                 ),
             )
         }
@@ -352,7 +391,7 @@ class AIRecommendationViewModelTest {
         vm.installSkill()
 
         assertInstanceOf(AIRecommendationUiState.Idle::class.java, vm.state.value)
-        assertEquals("wanng-ide/auto-skill-hunter", repo.installedSlug)
+        assertEquals(testSkillSlug, repo.installedSlug)
     }
 
     @Test
@@ -367,7 +406,7 @@ class AIRecommendationViewModelTest {
                 // Clear service error so auto-resubmit succeeds
                 service.error = null
                 emit(SkillInstallProgress.Succeeded(
-                    InstalledSkill("wanng-ide/auto-skill-hunter", "1.0.0", SkillSource.ClawHub, 0L),
+                    InstalledSkill(testSkillSlug, "1.0.0", SkillSource.ClawHub, 0L),
                 ))
             }
         }
@@ -699,4 +738,5 @@ private class FakeInstallRepo : InstalledSkillRepository {
         return scripted
     }
     override suspend fun uninstall(slug: String): Result<Unit> = Result.success(Unit)
+    override suspend fun setSkillEnabled(skillKey: String, enabled: Boolean): Result<Unit> = Result.success(Unit)
 }

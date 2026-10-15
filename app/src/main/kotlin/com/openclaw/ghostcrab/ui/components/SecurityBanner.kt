@@ -25,6 +25,23 @@ import com.openclaw.ghostcrab.ui.theme.Spacing
 /** Amber HTTP banner — shown whenever the active connection is not TLS. */
 @Composable
 fun HttpSecurityBanner(modifier: Modifier = Modifier) {
+    AmberBanner(text = stringResource(R.string.banner_http_message), modifier = modifier)
+}
+
+/**
+ * Amber notice for a `ConnectionWarning.DeviceTokenNotSaved` on the live session: the session works, but the
+ * gateway's device token is not stored on this phone.
+ *
+ * @param detail `toUserMessage()` of the storage failure (names the gateway and the exception class, never the token).
+ * @param modifier Applied to the surface.
+ */
+@Composable
+fun DeviceTokenNotSavedBanner(detail: String, modifier: Modifier = Modifier) {
+    AmberBanner(text = stringResource(R.string.banner_device_token_not_saved, detail), modifier = modifier)
+}
+
+@Composable
+private fun AmberBanner(text: String, modifier: Modifier) {
     Surface(
         modifier = modifier.fillMaxWidth(),
         color = BrandTokens.colorAmberWarn.copy(alpha = 0.15f),
@@ -44,7 +61,7 @@ fun HttpSecurityBanner(modifier: Modifier = Modifier) {
             )
             Spacer(Modifier.width(Spacing.sm))
             Text(
-                text = stringResource(R.string.banner_http_message),
+                text = text,
                 style = MaterialTheme.typography.bodySmall,
                 color = BrandTokens.colorAmberWarn,
             )

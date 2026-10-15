@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.openclaw.ghostcrab.domain.util.PairCodeResult
 import com.openclaw.ghostcrab.domain.util.decodePairCode
+import com.openclaw.ghostcrab.domain.util.setupCodeExplanation
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -21,7 +22,7 @@ sealed interface QrScanUiState {
     data object PermissionRequired : QrScanUiState
     /** Permission permanently denied — must open Settings. */
     data object PermissionDenied : QrScanUiState
-    /** A QR was decoded but its content is not a valid gateway URL. */
+    /** A QR was decoded but its content is not a usable gateway URL (or is an `openclaw qr` setup code). */
     data class InvalidQr(val message: String) : QrScanUiState
     /** A valid code was accepted; further frames are ignored. Terminal: navigation leaves the screen. */
     data object Decoded : QrScanUiState
@@ -68,10 +69,12 @@ class QrScanViewModel(private val pairingHandoff: PairingHandoff) : ViewModel() 
     }
 
     /**
-     * Call when ML Kit decodes a barcode. Accepts a plain `http(s)` gateway URL (emits
-     * [QrScanEvent.NavigateToManualEntry]) or a `ghostcrab://pair` bundle (offered to [PairingHandoff],
-     * emits [QrScanEvent.NavigateToPairedEntry]); anything else sets [QrScanUiState.InvalidQr]. After one
-     * accepted code, further frames are ignored until [onScanAgain].
+     * Call when ML Kit decodes a barcode. Accepts a plain `http(s)` / `ws(s)` gateway URL (emits
+     * [QrScanEvent.NavigateToManualEntry] with the `http(s)` base URL) or a `ghostcrab://pair` bundle (offered to
+     * [PairingHandoff], emits [QrScanEvent.NavigateToPairedEntry]). An `openclaw qr` setup code sets
+     * [QrScanUiState.InvalidQr] with [setupCodeExplanation] (it cannot authorize GhostCrab, ADR-0007); anything
+     * else sets [QrScanUiState.InvalidQr] too. After one accepted code, further frames are ignored until
+     * [onScanAgain].
      *
      * @param raw Raw string decoded from the QR code.
      */
@@ -79,6 +82,7 @@ class QrScanViewModel(private val pairingHandoff: PairingHandoff) : ViewModel() 
         if (_uiState.value == QrScanUiState.Decoded) return
         when (val result = decodePairCode(raw)) {
             is PairCodeResult.Invalid -> _uiState.value = QrScanUiState.InvalidQr(result.reason)
+            is PairCodeResult.SetupCode -> _uiState.value = QrScanUiState.InvalidQr(setupCodeExplanation(result.url))
             // Navigate with the normalized base URL only: path/query/fragment must not reach the saved-state Bundle.
             is PairCodeResult.PlainUrl -> accept(QrScanEvent.NavigateToManualEntry(result.url.toString()))
             is PairCodeResult.Bundle -> {

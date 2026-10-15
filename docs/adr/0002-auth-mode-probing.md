@@ -1,6 +1,6 @@
 # ADR-002: Auth-Mode Detection via /health + /status Asymmetry
 
-**Status:** Accepted  
+**Status:** Superseded by ADR-0007 (2026-10-15). The real gateway serves HTML at `/status` to every caller; auth is detected from the WS `connect` outcome instead.  
 **Date:** 2026-04-14
 
 ## Context

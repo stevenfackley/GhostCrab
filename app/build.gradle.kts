@@ -33,8 +33,9 @@ android {
         versionCode = 2
         versionName = "0.2.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        // AI recommendations feature flag — true for v1.0; flip false to gate behind a pro paywall.
-        buildConfigField("Boolean", "AI_PRO_ENABLED", "true")
+        // AI recommendations: OpenClaw has no recommendation API (ADR-0007). Hidden until a chat.send-based
+        // design (or a gateway skill) gets its own ADR; the Dashboard action and the nav route stay gated on it.
+        buildConfigField("Boolean", "AI_PRO_ENABLED", "false")
         // Git SHA baked in at build time — exposed on the About screen.
         buildConfigField("String", "GIT_SHA", "\"$gitSha\"")
         // Skill install foundation — dark in release until we ship it.
@@ -90,6 +91,13 @@ android {
             it.binaryResultsDirectory.set(
                 file("${System.getProperty("java.io.tmpdir")}/ghostcrab-test-results-${System.nanoTime()}")
             )
+        }
+    }
+    // Frames captured from the real gateway (ADR-0007). One copy, shared with the iOS tests
+    // (ios/project.yml) and the mock gateway's conformance tests. On the classpath as /2026.10.3/<name>.json.
+    sourceSets {
+        getByName("test") {
+            resources.srcDir(rootProject.file("fixtures/gateway-protocol"))
         }
     }
     buildToolsVersion = "36.0.0"
@@ -198,6 +206,8 @@ dependencies {
     // DataStore + Security
     implementation(libs.datastore.preferences)
     implementation(libs.androidx.security.crypto)
+    // Ed25519 device identity (ADR-0007). Same version security-crypto already pulls in.
+    implementation(libs.tink.android)
 
     // Serialization
     implementation(libs.kotlinx.serialization.json)

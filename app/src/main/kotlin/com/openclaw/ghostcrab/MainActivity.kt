@@ -77,6 +77,7 @@ class MainActivity : ComponentActivity() {
             is PairCodeResult.Invalid ->
                 Toast.makeText(this, getString(R.string.pair_link_invalid, result.reason), Toast.LENGTH_LONG).show()
             is PairCodeResult.PlainUrl -> Unit // unreachable: pairLinkToHandle only passes ghostcrab: links
+            is PairCodeResult.SetupCode -> Unit // unreachable: pairLinkToHandle only passes ghostcrab: links
         }
     }
 }

@@ -30,8 +30,9 @@ import java.util.Base64
  * Google Play screenshots, captured on an emulator by `.github/workflows/android-screenshots.yml`.
  *
  * Walks onboarding → empty gateway picker → LAN scan → Manual Entry (pre-filled through a
- * `ghostcrab://pair` link) → dashboard → config editor → models → AI recommendations → settings →
- * picker with the saved gateway. The connected screens need the mock gateway
+ * `ghostcrab://pair` link) → dashboard → config editor → models → settings → picker with the saved
+ * gateway. There is no 08: the AI recommendation route is off (`BuildConfig.AI_PRO_ENABLED`, ADR-0007), and
+ * the other files keep their numbers. The connected screens need the mock gateway
  * (`scripts/mock-gateway`) the workflow starts on the runner host; the capture script forwards the
  * emulator's `127.0.0.1:<port>` to it with `adb reverse`.
  *
@@ -113,14 +114,6 @@ class StoreScreenshotTest {
                 snap("07-models")
                 Espresso.pressBack()
             }
-        }
-
-        // 8. AI recommendations
-        if (waitForText(configure) && clickText(string(R.string.dashboard_action_ai_recommend), scroll = true)) {
-            waitForText(string(R.string.ai_screen_title))
-            pause(LOAD_MS)
-            snap("08-ai-recommendation")
-            Espresso.pressBack()
         }
 
         // 9. Settings (top-bar icon)

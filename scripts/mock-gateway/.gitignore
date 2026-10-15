@@ -1,1 +1,4 @@
 node_modules/
+
+# probe-real.mjs device identity (contains an Ed25519 private key)
+.probe-identity.json

@@ -5,7 +5,8 @@ sealed class SkillInstallError(val isRetryable: Boolean) {
     data class NotFound(val slug: String) : SkillInstallError(false)
     data class DependencyConflict(val conflicts: List<String>) : SkillInstallError(false)
     data class Network(val cause: Throwable) : SkillInstallError(true)
-    data class Protocol(val rpcCode: Int, val message: String) : SkillInstallError(false)
+    /** The gateway rejected the install with string [code] (e.g. `UNAVAILABLE`) and [message] (ADR-0007). */
+    data class Protocol(val code: String, val message: String) : SkillInstallError(false)
     data class VerificationFailed(val expected: String, val actual: String) : SkillInstallError(false)
     /** The gateway answered with JSON of an unexpected shape. Not retryable. */
     data class MalformedResponse(val detail: String) : SkillInstallError(false)

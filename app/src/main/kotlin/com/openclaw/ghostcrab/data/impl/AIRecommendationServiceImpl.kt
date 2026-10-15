@@ -1,95 +1,37 @@
 package com.openclaw.ghostcrab.data.impl
 
-import com.openclaw.ghostcrab.data.api.dto.AIContextDto
-import com.openclaw.ghostcrab.data.api.dto.AIRecommendationRequestDto
-import com.openclaw.ghostcrab.domain.exception.AIQuotaExceededException
 import com.openclaw.ghostcrab.domain.exception.AIServiceUnavailableException
-import com.openclaw.ghostcrab.domain.exception.GatewayApiException
+import com.openclaw.ghostcrab.domain.exception.GatewayNotConnectedException
 import com.openclaw.ghostcrab.domain.model.AIRecommendation
 import com.openclaw.ghostcrab.domain.model.GatewayConnection
 import com.openclaw.ghostcrab.domain.model.RecommendationContext
-import com.openclaw.ghostcrab.domain.model.SuggestedChange
 import com.openclaw.ghostcrab.domain.repository.AIRecommendationService
-import com.openclaw.ghostcrab.domain.util.redactSecrets
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.jsonObject
 
 /**
- * Ktor-backed [AIRecommendationService] that proxies queries to the gateway's AI skill.
+ * OpenClaw gateways have no recommendation API: `POST /api/ai/recommend` is 404 and no WS method exists
+ * (QA §8.11, ADR-0007). Until a `chat.send`-based design has its own ADR, the feature is unsupported: never
+ * available, and a request fails with [AIServiceUnavailableException] without any network call, so no config
+ * (secrets included) ever leaves the device. The UI hides the feature behind `BuildConfig.AI_PRO_ENABLED`.
  *
- * [isAvailable] is a capability check against the cached connection state — no network call.
- * [getRecommendation] POSTs to `POST /api/ai/recommend` on the connected gateway.
- *
- * @param connectionManager Provides the active [OpenClawApiClient] and connection state.
+ * @param connectionManager Supplies the gateway URL for the error.
  */
 class AIRecommendationServiceImpl(
     private val connectionManager: GatewayConnectionManagerImpl,
 ) : AIRecommendationService {
 
-    /**
-     * Returns `true` if the currently-connected gateway advertises the `ai.recommend`
-     * capability in its `/status` response.
-     *
-     * Reads the in-memory connection state — no network call is made.
-     *
-     * @return `true` when [GatewayConnection.Connected.capabilities] contains `"ai.recommend"`.
-     */
-    override suspend fun isAvailable(): Boolean {
-        val state = connectionManager.connectionState.value
-        return state is GatewayConnection.Connected &&
-            SKILL_KEY in state.capabilities
-    }
+    /** @return Always `false`: no OpenClaw gateway offers recommendations (ADR-0007). */
+    override suspend fun isAvailable(): Boolean = false
 
     /**
-     * Submits [query] and auto-collected [context] to `POST /api/ai/recommend`.
-     *
-     * @param query Free-text user query.
-     * @param context Session context assembled by the ViewModel (config + hardware + active model).
-     * @return [AIRecommendation] mapped from the gateway DTO.
-     * @throws AIServiceUnavailableException if the gateway returns 404 (skill not installed).
-     * @throws AIQuotaExceededException if the gateway returns 429 (rate limit).
-     * @throws com.openclaw.ghostcrab.domain.exception.GatewayException on other network errors.
-     * @throws com.openclaw.ghostcrab.domain.exception.GatewayNotConnectedException if no session is active.
+     * @param query Ignored.
+     * @param context Ignored; never sent anywhere.
+     * @return Never returns.
+     * @throws AIServiceUnavailableException always, naming the connected gateway (not retryable).
+     * @throws GatewayNotConnectedException if no session is active.
      */
-    override suspend fun getRecommendation(
-        query: String,
-        context: RecommendationContext,
-    ): AIRecommendation {
-        val client = connectionManager.requireClient()
-        val request = AIRecommendationRequestDto(
-            query = query,
-            context = AIContextDto(
-                // ADR-0004: the AI skill may forward context to an external LLM — never ship secrets.
-                activeConfig = JsonObject(context.activeConfig.sections).redactSecrets().jsonObject,
-                hardwareInfo = context.hardwareInfo,
-                activeModelId = context.activeModelId,
-            ),
-        )
-        return try {
-            client.getAIRecommendation(request).let { dto ->
-                AIRecommendation(
-                    query = query,
-                    recommendation = dto.recommendation,
-                    suggestedChanges = dto.suggestedChanges.map { change ->
-                        SuggestedChange(
-                            section = change.section,
-                            key = change.key,
-                            currentValue = change.currentValue,
-                            suggestedValue = change.suggestedValue,
-                            rationale = change.rationale,
-                        )
-                    },
-                )
-            }
-        } catch (e: GatewayApiException) {
-            when (e.statusCode) {
-                404 -> throw AIServiceUnavailableException(client.baseUrl)
-                429 -> throw AIQuotaExceededException(client.baseUrl)
-                else -> throw e
-            }
-        }
+    override suspend fun getRecommendation(query: String, context: RecommendationContext): AIRecommendation {
+        val connected = connectionManager.connectionState.value as? GatewayConnection.Connected
+            ?: throw GatewayNotConnectedException()
+        throw AIServiceUnavailableException(connected.url)
     }
-
 }
-
-private const val SKILL_KEY = "ai.recommend"

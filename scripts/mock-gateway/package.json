@@ -1,11 +1,15 @@
 {
   "name": "ghostcrab-mock-gateway",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "Mock OpenClaw Gateway matching the API surface GhostCrab was built against. For manual QA only.",
+  "description": "Mock OpenClaw gateway speaking the real WS protocol 4 (ADR-0007), for conformance tests and on-device QA.",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
-    "start": "node server.mjs"
+    "start": "node server.mjs",
+    "test": "node --test test/*.test.mjs"
   },
   "dependencies": {
     "ws": "^8.22.0"

@@ -1,6 +1,6 @@
 # ADR-004: AI Recommendations Proxied Through the Gateway
 
-**Status:** Accepted  
+**Status:** Accepted; amended by ADR-0007 (2026-10-15): OpenClaw has no recommendation API, so the feature is disabled (`AI_PRO_ENABLED = false`) until a `chat.send`-based design gets its own ADR. The rule "no provider keys on the device" stands.  
 **Date:** 2026-04-14
 
 ## Context

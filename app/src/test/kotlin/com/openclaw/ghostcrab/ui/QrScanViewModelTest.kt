@@ -14,6 +14,8 @@ import kotlinx.coroutines.test.setMain
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertInstanceOf
+import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import java.util.Base64
@@ -124,5 +126,18 @@ class QrScanViewModelTest {
             assertEquals(QrScanEvent.NavigateToPairedEntry, awaitItem())
         }
         assertEquals("tkn", handoff.take()?.token)
+    }
+
+    @Test
+    fun `onQrDecoded openclaw setup code explains instead of pairing`() = runTest {
+        val handoff = PairingHandoff()
+        val vm = QrScanViewModel(handoff)
+        val code = Base64.getUrlEncoder().withoutPadding()
+            .encodeToString("""{"url":"ws://192.168.1.50:18789","bootstrapToken":"bt-test-0001"}""".toByteArray())
+        vm.onQrDecoded(code)
+        val message = (vm.uiState.value as QrScanUiState.InvalidQr).message
+        assertTrue(message.contains("http://192.168.1.50:18789"))
+        assertTrue(message.contains("openclaw devices approve"))
+        assertNull(handoff.take())
     }
 }

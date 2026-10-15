@@ -63,6 +63,23 @@ data class GatewayUrl(val scheme: String, val host: String, val port: Int) {
         }
 
         /**
+         * Parses a gateway WebSocket URL (`ws://` / `wss://`, as in `openclaw qr` setup codes) into the matching
+         * `http(s)` base URL. Path, query and fragment are dropped, like [parse].
+         *
+         * @param raw Untrusted URL text.
+         * @return The base URL, or `null` when [raw] is not a `ws(s)` URL that [parse] accepts as `http(s)`.
+         */
+        fun fromWebSocketUrl(raw: String): GatewayUrl? {
+            val trimmed = raw.trim()
+            val mapped = when {
+                trimmed.startsWith("wss://", ignoreCase = true) -> "https://" + trimmed.substring("wss://".length)
+                trimmed.startsWith("ws://", ignoreCase = true) -> "http://" + trimmed.substring("ws://".length)
+                else -> return null
+            }
+            return parse(mapped)
+        }
+
+        /**
          * Builds a URL for a resolved `(host, port)` pair, e.g. from mDNS. Strips an IPv6 zone id
          * (`%wlan0`), which is not valid in a URL authority.
          *

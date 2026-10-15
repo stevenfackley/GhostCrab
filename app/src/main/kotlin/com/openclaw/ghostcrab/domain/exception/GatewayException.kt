@@ -1,5 +1,8 @@
 package com.openclaw.ghostcrab.domain.exception
 
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+
 /**
  * Sealed hierarchy for all errors originating from gateway communication or local profile state.
  *
@@ -113,7 +116,8 @@ class TokenWipeFailedException(cause: Throwable) :
 }
 
 /**
- * The gateway does not have the AI recommendation skill installed.
+ * The gateway offers no AI recommendations. OpenClaw has no recommendation API (ADR-0007), so this is thrown for
+ * every gateway until a `chat.send`-based design gets its own ADR. Not retryable.
  *
  * @param url The gateway URL.
  */
@@ -137,7 +141,7 @@ class AIQuotaExceededException(
 /**
  * A config value failed client-side or server-side validation.
  *
- * @param field The config key that failed validation (e.g. `"gateway.http.port"`).
+ * @param field The config key that failed validation (e.g. `"gateway.port"`).
  * @param reason Human-readable reason for the failure.
  */
 class ConfigValidationException(
@@ -192,9 +196,162 @@ class GatewayProtocolException(
 
 /**
  * An operation needed the active gateway session but none exists (never connected, or the
- * connection dropped mid-flight). Not retryable as-is: the user must reconnect first.
+ * connection dropped mid-flight). Not retryable as-is: the user must reconnect first. The exception is the
+ * silent reconnect after a dropped socket ([reconnectingTo] set): the session is expected back within seconds,
+ * so that failure is retryable.
+ *
+ * @param reconnectingTo Additive (v1.1, ADR-0007): the gateway URL the connection manager is silently reconnecting
+ *   to, or `null` when no reconnect is running.
  */
-class GatewayNotConnectedException :
-    GatewayException("No active gateway connection. Reconnect and try again.") {
+class GatewayNotConnectedException(val reconnectingTo: String? = null) : GatewayException(
+    reconnectingTo?.let { "Reconnecting to $it…" } ?: "No active gateway connection. Reconnect and try again.",
+) {
+    override val isRetryable: Boolean = reconnectingTo != null
+}
+
+/**
+ * A gateway RPC answered `ok:false` with a code this client has no more specific type for (ADR-0007).
+ *
+ * @param url The gateway WebSocket endpoint.
+ * @param method The RPC method.
+ * @param code Top-level error code (e.g. `UNAVAILABLE`, `INVALID_REQUEST`).
+ * @param rpcMessage The server's message, verbatim.
+ * @param retryable The server's `retryable` hint.
+ * @param details `error.details` when it is an object (e.g. `config.patch` validation `issues[]`), else `null`.
+ * @param retryAfterMs The server's back-off hint, if any.
+ */
+@Suppress("LongParameterList") // The request context plus upstream's ErrorShape, field for field.
+class GatewayRpcException(
+    val url: String,
+    val method: String,
+    val code: String,
+    val rpcMessage: String,
+    retryable: Boolean,
+    val details: JsonObject? = null,
+    val retryAfterMs: Long? = null,
+) : GatewayException(
+    "Gateway RPC $method failed at $url: $code${detailCodeOf(details)?.let { "/$it" } ?: ""} — $rpcMessage",
+) {
+    override val isRetryable: Boolean = retryable
+
+    /** `error.details.code`, when the server sent one. */
+    val detailCode: String? = detailCodeOf(details)
+}
+
+/** `details.code` when it is a JSON string, else `null`. */
+private fun detailCodeOf(details: JsonObject?): String? =
+    (details?.get("code") as? JsonPrimitive)?.takeIf { it.isString }?.content
+
+/**
+ * The gateway does not implement [method] (`INVALID_REQUEST unknown method: …`). The feature is unsupported
+ * on this gateway; retrying cannot help.
+ *
+ * @param url The gateway WebSocket endpoint.
+ * @param method The RPC method the gateway does not know.
+ */
+class GatewayMethodUnsupportedException(
+    val url: String,
+    val method: String,
+) : GatewayException("Gateway at $url does not support '$method' (INVALID_REQUEST unknown method)") {
     override val isRetryable: Boolean = false
+}
+
+/**
+ * The connection lacks the operator scope [method] needs (`FORBIDDEN` / `MISSING_SCOPE`). Approve this device
+ * with that scope on the gateway host.
+ *
+ * @param url The gateway WebSocket endpoint.
+ * @param method The refused RPC method.
+ * @param missingScope The scope the gateway reported, e.g. `operator.admin`.
+ */
+class GatewayMissingScopeException(
+    val url: String,
+    val method: String,
+    val missingScope: String,
+) : GatewayException("Gateway at $url refused '$method': missing scope $missingScope (FORBIDDEN/MISSING_SCOPE)") {
+    override val isRetryable: Boolean = false
+}
+
+/**
+ * The gateway knows this device but its owner has not approved it yet (`NOT_PAIRED` / `PAIRING_REQUIRED`).
+ * Retryable: the same connect succeeds once `openclaw devices approve <requestId>` ran on the gateway host.
+ *
+ * @param url The gateway WebSocket endpoint.
+ * @param requestId The pending pairing request, when the gateway sent one.
+ * @param reason `not-paired`, `scope-upgrade`, `role-upgrade` or `metadata-upgrade`.
+ * @param requestedScopes The scopes this device asked for.
+ */
+class GatewayPairingRequiredException(
+    val url: String,
+    val requestId: String?,
+    val reason: String,
+    val requestedScopes: List<String>,
+) : GatewayException(
+    "Gateway at $url needs this device approved ($reason). On the gateway host run: " +
+        (requestId?.let { "openclaw devices approve $it" } ?: "openclaw devices list"),
+) {
+    override val isRetryable: Boolean = true
+}
+
+/**
+ * The gateway rejected the `connect` handshake's credential or device proof (`error.details.code` starting
+ * with `AUTH_` or `DEVICE_`, e.g. `AUTH_TOKEN_MISMATCH`, `AUTH_TOKEN_MISSING`, `DEVICE_IDENTITY_REQUIRED`).
+ *
+ * @param url The gateway WebSocket endpoint.
+ * @param detailCode The structured code.
+ * @param rpcMessage The server's message, verbatim.
+ * @param recommendedNextStep Upstream recovery hint (`update_auth_credentials`, `wait_then_retry`, …), if any.
+ * @param retryable The server's `retryable` hint. The rejection is retryable when this is `true` or
+ *   [recommendedNextStep] is `wait_then_retry`; otherwise the credential has to change first.
+ * @param retryAfterMs The server's back-off hint, if any.
+ */
+class GatewayConnectAuthException(
+    val url: String,
+    val detailCode: String,
+    val rpcMessage: String,
+    val recommendedNextStep: String?,
+    retryable: Boolean = false,
+    val retryAfterMs: Long? = null,
+) : GatewayException("Gateway at $url rejected the connect handshake: $detailCode — $rpcMessage") {
+    override val isRetryable: Boolean = retryable || recommendedNextStep == NEXT_STEP_WAIT_THEN_RETRY
+
+    private companion object {
+        const val NEXT_STEP_WAIT_THEN_RETRY = "wait_then_retry"
+    }
+}
+
+/**
+ * The gateway closed the control-plane socket with a policy-violation close (WebSocket 1008) and no response
+ * explaining it, e.g. a socket that never sent `connect` or a frame the gateway refused. Not retryable as-is:
+ * the same frames would be refused again.
+ *
+ * @param url The gateway WebSocket endpoint.
+ * @param closeCode The WebSocket close code.
+ * @param closeReason The close reason the gateway sent; may be empty.
+ */
+class GatewayConnectionClosedException(
+    val url: String,
+    val closeCode: Int,
+    val closeReason: String,
+) : GatewayException(
+    "Gateway at $url closed the connection: WebSocket $closeCode" +
+        (closeReason.takeIf { it.isNotBlank() }?.let { " — $it" } ?: ""),
+) {
+    override val isRetryable: Boolean = false
+}
+
+/**
+ * This phone's encrypted storage (Android Keystore + EncryptedSharedPreferences) refused to read or write the
+ * gateway device identity or a device token (ADR-0007). Retryable: Keystore errors are often transient (for
+ * example right after boot); a lasting one needs the app's storage cleared.
+ *
+ * @param operation What could not be done, e.g. `save the device token for http://gw.local:18789`. Never holds a
+ *   secret.
+ * @param cause The Keystore or preferences failure.
+ */
+class DeviceCredentialStorageException(
+    val operation: String,
+    cause: Throwable,
+) : GatewayException("Could not $operation in this phone's encrypted storage.", cause) {
+    override val isRetryable: Boolean = true
 }

@@ -22,10 +22,13 @@ sealed interface SettingsUiState {
      *   Cleared by [SettingsViewModel.clearOnboardingResetSuccess].
      * @param errorMessage Transient error message from a failed operation. `null` when clear.
      *   Cleared by [SettingsViewModel.clearError].
+     * @param skillsAvailable `true` while a session whose granted scopes allow `skills.status` is live; the Installed
+     *   Skills entry is hidden otherwise (ADR-0007).
      */
     data class Ready(
         val profiles: List<ConnectionProfile>,
         val allowCleartextPublicIPs: Boolean,
+        val skillsAvailable: Boolean = false,
         val pendingDeleteProfileId: String? = null,
         val showClearAllConfirmation: Boolean = false,
         val editingProfile: ConnectionProfile? = null,

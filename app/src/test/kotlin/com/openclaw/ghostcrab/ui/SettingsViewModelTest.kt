@@ -1,11 +1,17 @@
 package com.openclaw.ghostcrab.ui
 
+import com.openclaw.ghostcrab.data.gateway.SCOPE_OPERATOR_ADMIN
+import com.openclaw.ghostcrab.data.gateway.SCOPE_OPERATOR_READ
+import com.openclaw.ghostcrab.data.gateway.gatewayCapabilities
 import com.openclaw.ghostcrab.domain.exception.GatewayException
 import com.openclaw.ghostcrab.domain.exception.ProfileNeedsReauthException
 import com.openclaw.ghostcrab.domain.exception.TokenWipeFailedException
+import com.openclaw.ghostcrab.domain.model.AuthRequirement
 import com.openclaw.ghostcrab.domain.model.ConnectionProfile
+import com.openclaw.ghostcrab.domain.model.GatewayConnection
 import com.openclaw.ghostcrab.domain.model.OnboardingStep
 import com.openclaw.ghostcrab.domain.repository.ConnectionProfileRepository
+import com.openclaw.ghostcrab.domain.repository.GatewayConnectionManager
 import com.openclaw.ghostcrab.domain.repository.OnboardingRepository
 import com.openclaw.ghostcrab.domain.repository.SettingsRepository
 import com.openclaw.ghostcrab.ui.settings.SettingsUiState
@@ -57,9 +63,36 @@ class SettingsViewModelTest {
         profileRepo: FakeSettingsProfileRepository = FakeSettingsProfileRepository(profiles),
         settingsRepo: FakeSettingsRepository = FakeSettingsRepository(allowCleartext),
         onboardingRepo: FakeSettingsOnboardingRepository = FakeSettingsOnboardingRepository(),
-    ): SettingsViewModel = SettingsViewModel(profileRepo, settingsRepo, onboardingRepo)
+        connection: MutableStateFlow<GatewayConnection> = MutableStateFlow(GatewayConnection.Disconnected),
+    ): SettingsViewModel =
+        SettingsViewModel(profileRepo, settingsRepo, onboardingRepo, FakeSettingsConnectionManager(connection))
+
+    private fun connected(scopes: Set<String>) = GatewayConnection.Connected(
+        url = "ws://192.168.1.50:18789",
+        displayName = "Home",
+        version = "2026.10.3",
+        authRequirement = AuthRequirement.Token,
+        isHttps = false,
+        capabilities = gatewayCapabilities(setOf("config.get", "config.patch", "models.list", "skills.status"), scopes),
+    )
 
     // ── Tests ─────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `the skills entry needs a session whose scopes allow skills`() = runTest {
+        val connection = MutableStateFlow<GatewayConnection>(GatewayConnection.Disconnected)
+        val vm = makeVm(connection = connection)
+        assertFalse((vm.state.value as SettingsUiState.Ready).skillsAvailable)
+
+        connection.value = connected(scopes = emptySet())
+        assertFalse((vm.state.value as SettingsUiState.Ready).skillsAvailable)
+
+        connection.value = connected(scopes = setOf(SCOPE_OPERATOR_ADMIN, SCOPE_OPERATOR_READ))
+        assertTrue((vm.state.value as SettingsUiState.Ready).skillsAvailable)
+
+        connection.value = GatewayConnection.Disconnected
+        assertFalse((vm.state.value as SettingsUiState.Ready).skillsAvailable)
+    }
 
     @Test
     fun `initial state is Ready with profiles and cleartext pref`() = runTest {
@@ -336,4 +369,14 @@ private class FakeSettingsOnboardingRepository : OnboardingRepository {
     override suspend fun getSavedStep(): OnboardingStep = OnboardingStep.Welcome
     override suspend fun markCompleted() = Unit
     override suspend fun reset() { wasReset = true }
+}
+
+private class FakeSettingsConnectionManager(
+    override val connectionState: MutableStateFlow<GatewayConnection>,
+) : GatewayConnectionManager {
+    override suspend fun probeAuth(url: String) = AuthRequirement.None
+    override suspend fun connect(url: String, token: String?) = Unit
+    override suspend fun disconnect() {
+        connectionState.value = GatewayConnection.Disconnected
+    }
 }
