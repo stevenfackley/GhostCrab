@@ -5,6 +5,8 @@ import androidx.lifecycle.viewModelScope
 import com.openclaw.ghostcrab.domain.model.OnboardingStep
 import com.openclaw.ghostcrab.domain.repository.OnboardingRepository
 import com.openclaw.ghostcrab.domain.util.generateToken
+import com.openclaw.ghostcrab.domain.util.suspendRunCatching
+import com.openclaw.ghostcrab.ui.toUserMessage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -36,6 +38,18 @@ public class OnboardingViewModel(
      */
     public val suggestedToken: StateFlow<String> = _suggestedToken.asStateFlow()
 
+    private val _error = MutableStateFlow<String?>(null)
+
+    /** Why completing onboarding failed, formatted for display; cleared by [clearError]. */
+    public val error: StateFlow<String?> = _error.asStateFlow()
+
+    /**
+     * True while the completion write runs and after it succeeds. [next], [back] and [skip] are
+     * ignored meanwhile, so a double tap or a Back during the write cannot start a second write
+     * or move the pager under it. Reset when the write fails, so the user can retry.
+     */
+    private var completing = false
+
     init {
         viewModelScope.launch {
             val saved = repository.getSavedStep()
@@ -43,13 +57,18 @@ public class OnboardingViewModel(
         }
     }
 
-    /** Advances to the next step and persists the change. */
+    /** Advances to the next step and persists the change. Ignored while completing. */
     public fun next() {
+        if (completing) return
         viewModelScope.launch { advance(forward = true) }
     }
 
-    /** Returns to the previous step and persists the change. No-op at [OnboardingStep.Welcome]. */
+    /**
+     * Returns to the previous step and persists the change. No-op at [OnboardingStep.Welcome];
+     * ignored while completing.
+     */
     public fun back() {
+        if (completing) return
         viewModelScope.launch { advance(forward = false) }
     }
 
@@ -58,12 +77,19 @@ public class OnboardingViewModel(
         _suggestedToken.value = generateToken()
     }
 
-    /** Skips directly to completion, marking onboarding done. */
+    /** Skips directly to completion, marking onboarding done. Ignored while completing. */
     public fun skip() {
+        if (completing) return
         viewModelScope.launch { complete() }
     }
 
+    /** Clears [error] once it has been shown. */
+    public fun clearError() {
+        _error.value = null
+    }
+
     private suspend fun advance(forward: Boolean) {
+        if (completing) return
         val current = _step.value
         val next = when {
             forward -> when (current) {
@@ -97,9 +123,18 @@ public class OnboardingViewModel(
      * Persists completion before emitting [OnboardingStep.Completed]: the screen navigates to the
      * picker on that emission, and the picker's first-run check reads the stored flag. Emitting
      * first raced the write and bounced the user back into onboarding.
+     *
+     * A failed write (DataStore I/O) leaves the current step in place and reports through [error]
+     * instead of crashing `viewModelScope`.
      */
     private suspend fun complete() {
-        repository.markCompleted()
-        _step.value = OnboardingStep.Completed
+        if (completing) return
+        completing = true
+        suspendRunCatching { repository.markCompleted() }
+            .onSuccess { _step.value = OnboardingStep.Completed }
+            .onFailure { e ->
+                completing = false
+                _error.value = "Could not save onboarding progress: ${e.toUserMessage()}"
+            }
     }
 }

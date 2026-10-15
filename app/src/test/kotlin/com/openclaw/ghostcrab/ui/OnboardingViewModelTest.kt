@@ -4,18 +4,22 @@ import com.openclaw.ghostcrab.domain.model.OnboardingStep
 import com.openclaw.ghostcrab.domain.repository.OnboardingRepository
 import com.openclaw.ghostcrab.domain.util.generateToken
 import com.openclaw.ghostcrab.ui.onboarding.OnboardingViewModel
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import java.io.IOException
 
 /**
  * Unit tests for [OnboardingViewModel].
@@ -121,6 +125,47 @@ class OnboardingViewModelTest {
         assertTrue(fakeRepo.completedCalled)
     }
 
+    @Test
+    fun `a failed completion write keeps the step, reports the error and allows a retry`() = runTest {
+        val vm = makeVm()
+        fakeRepo.markCompletedFailure = IOException("disk full")
+
+        vm.skip()
+
+        assertEquals(OnboardingStep.Welcome, vm.step.value)
+        val error = vm.error.value
+        assertTrue(error != null && "disk full" in error, "error was: $error")
+
+        vm.clearError()
+        fakeRepo.markCompletedFailure = null
+        vm.skip()
+
+        assertEquals(OnboardingStep.Completed, vm.step.value)
+        assertNull(vm.error.value)
+        assertEquals(2, fakeRepo.markCompletedCalls)
+    }
+
+    @Test
+    fun `taps during the completion write are ignored`() = runTest {
+        val vm = makeVm(savedStep = OnboardingStep.InstallGateway)
+        val gate = CompletableDeferred<Unit>()
+        fakeRepo.markCompletedGate = gate
+
+        vm.skip()
+        vm.skip()
+        vm.next()
+        vm.back()
+
+        assertEquals(OnboardingStep.InstallGateway, vm.step.value)
+        assertEquals(1, fakeRepo.markCompletedCalls)
+
+        gate.complete(Unit)
+        advanceUntilIdle()
+
+        assertEquals(OnboardingStep.Completed, vm.step.value)
+        assertEquals(1, fakeRepo.markCompletedCalls)
+    }
+
     // ── Token generation ──────────────────────────────────────────────────────
 
     @Test
@@ -160,6 +205,13 @@ private class FakeOnboardingRepository(
     var stepProvider: (() -> OnboardingStep)? = null
     var stepSeenByMarkCompleted: OnboardingStep? = null
 
+    /** Thrown by [markCompleted] while set. */
+    var markCompletedFailure: Exception? = null
+
+    /** Awaited by [markCompleted] while set, to hold the write in flight. */
+    var markCompletedGate: CompletableDeferred<Unit>? = null
+    var markCompletedCalls = 0
+
     override suspend fun isCompleted(): Boolean = completed
 
     override suspend fun saveStep(step: OnboardingStep) {
@@ -169,7 +221,10 @@ private class FakeOnboardingRepository(
     override suspend fun getSavedStep(): OnboardingStep = savedStep
 
     override suspend fun markCompleted() {
+        markCompletedCalls++
         stepSeenByMarkCompleted = stepProvider?.invoke()
+        markCompletedGate?.await()
+        markCompletedFailure?.let { throw it }
         completed = true
         completedCalled = true
     }
