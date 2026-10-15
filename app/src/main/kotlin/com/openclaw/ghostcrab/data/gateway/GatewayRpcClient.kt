@@ -58,6 +58,9 @@ class GatewayRpcClient private constructor(
     /**
      * Server events (`tick`, `health`, `config.changed`, …). Best effort: a collector that falls behind loses the
      * oldest undelivered events. Completes when the socket ends (immediately for a collector that starts later).
+     * Nothing is replayed, so a consumer waiting for an event its own request triggers must subscribe before
+     * sending that request: `async(start = CoroutineStart.UNDISPATCHED) { withTimeoutOrNull(t) { rpc.events.first
+     * { … } } }`, then `request(…)`, then await.
      */
     val events: Flow<GatewayFrame.Event> = eventBus
         .onSubscription { if (isClosed) emit(null) }
