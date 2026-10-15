@@ -10,15 +10,23 @@ struct ManualEntryViewModelTests {
         handoff: PairingHandoff,
         gateway: FakeGatewayConnectionManager = FakeGatewayConnectionManager(),
         profiles: FakeConnectionProfileRepository = FakeConnectionProfileRepository(),
-        onboarding: FakeOnboardingRepository = FakeOnboardingRepository()
+        onboarding: FakeOnboardingRepository = FakeOnboardingRepository(),
+        pairingRetryInterval: Duration = PairingApproval.retryInterval,
+        pairingTimeout: Duration = PairingApproval.timeout
     ) -> ManualEntryViewModel {
         ManualEntryViewModel(
             connectionManager: gateway,
             profileRepository: profiles,
             onboardingRepository: onboarding,
-            pairingHandoff: handoff
+            pairingHandoff: handoff,
+            pairingRetryInterval: pairingRetryInterval,
+            pairingTimeout: pairingTimeout
         )
     }
+
+    private static let pending = GatewayError.pairingRequired(
+        url: "ws://192.168.1.20:18789/ws", requestId: "req-7", reason: "not-paired", requestedScopes: ["operator.read"]
+    )
 
     @Test func prefillPicksUpStashedPairingTokenOnce() throws {
         let handoff = PairingHandoff()
@@ -408,6 +416,94 @@ struct ManualEntryViewModelTests {
         #expect(profiles.savedProfiles.isEmpty)
         #expect(vm.lastError == nil)
         #expect(!vm.navigateToDashboard)
+    }
+
+    // MARK: - Device approval (PAIRING_REQUIRED)
+
+    @Test(.timeLimit(.minutes(1)))
+    func pairingRequiredShowsTheCommandThenConnectsOnCheckNow() async {
+        let gateway = FakeGatewayConnectionManager(failFirst: [Self.pending])
+        let profiles = FakeConnectionProfileRepository()
+        let vm = makeVM(handoff: PairingHandoff(), gateway: gateway, profiles: profiles, pairingRetryInterval: .seconds(60))
+        vm.setHost("192.168.1.20")
+
+        vm.connect()
+        while vm.pairingPrompt == nil { await Task.yield() }
+        #expect(vm.pairingPrompt?.approveCommand == "openclaw devices approve req-7")
+        #expect(vm.isConnecting)
+        #expect(vm.lastError == nil)
+
+        vm.checkPairingNow()
+        await vm.connectTask?.value
+        #expect(vm.navigateToDashboard)
+        #expect(vm.pairingPrompt == nil)
+        #expect(gateway.connectURLs.count == 2)
+        #expect(profiles.savedProfiles.count == 1)
+    }
+
+    @Test func noApprovalInTimeShowsTheNextStep() async {
+        let gateway = FakeGatewayConnectionManager(connectError: Self.pending)
+        let vm = makeVM(handoff: PairingHandoff(), gateway: gateway, pairingRetryInterval: .milliseconds(10), pairingTimeout: .milliseconds(60))
+        vm.setHost("192.168.1.20")
+        vm.connect()
+        await vm.connectTask?.value
+        #expect(vm.lastError == PairingApproval.timeoutMessage)
+        #expect(vm.pairingPrompt == nil)
+        #expect(!vm.isConnecting)
+        #expect(!vm.navigateToDashboard)
+        // No stale PAIRING_REQUIRED error outlives the expired wait.
+        #expect(gateway.disconnectCount == 1)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func cancellingWhileWaitingClearsTheCard() async {
+        let gateway = FakeGatewayConnectionManager(connectError: Self.pending)
+        let profiles = FakeConnectionProfileRepository()
+        let vm = makeVM(handoff: PairingHandoff(), gateway: gateway, profiles: profiles, pairingRetryInterval: .seconds(60))
+        vm.setHost("192.168.1.20")
+        vm.connect()
+        while vm.pairingPrompt == nil { await Task.yield() }
+        let waiting = vm.connectTask
+        vm.cancelConnect()
+        #expect(vm.pairingPrompt == nil)
+        #expect(!vm.isConnecting)
+        #expect(vm.lastError == nil)
+
+        await waiting?.value
+        #expect(gateway.disconnectCount == 1)
+        #expect(gateway.connectURLs.count == 1)
+        #expect(profiles.savedProfiles.isEmpty)
+        #expect(!vm.navigateToDashboard)
+    }
+
+    @Test func aConnectSupersededByAnotherScreenShowsNoError() async {
+        let gateway = FakeGatewayConnectionManager(failFirst: [CancellationError()])
+        let profiles = FakeConnectionProfileRepository()
+        let vm = makeVM(handoff: PairingHandoff(), gateway: gateway, profiles: profiles)
+        vm.setHost("192.168.1.20")
+
+        vm.connect()
+        await vm.connectTask?.value
+
+        #expect(vm.lastError == nil)
+        #expect(!vm.isConnecting)
+        #expect(!vm.navigateToDashboard)
+        #expect(profiles.savedProfiles.isEmpty)
+    }
+
+    @Test func aKeychainFailureIsShownAndNotRetried() async {
+        let storage = GatewayError.deviceCredentialStorage(operation: "read the device identity")
+        let gateway = FakeGatewayConnectionManager(failFirst: [Self.pending, storage])
+        let vm = makeVM(handoff: PairingHandoff(), gateway: gateway, pairingRetryInterval: .milliseconds(10))
+        vm.setHost("192.168.1.20")
+
+        vm.connect()
+        await vm.connectTask?.value
+
+        #expect(gateway.connectURLs.count == 2)
+        #expect(vm.lastError == storage.errorDescription)
+        #expect(vm.pairingPrompt == nil)
+        #expect(!vm.isConnecting)
     }
 
     // MARK: - Route prefill and pairing re-delivery

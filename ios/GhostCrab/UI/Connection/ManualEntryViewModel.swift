@@ -21,6 +21,8 @@ public final class ManualEntryViewModel {
     private let profileRepository: any ConnectionProfileRepository
     private let onboardingRepository: any OnboardingRepository
     private let pairingHandoff: PairingHandoff
+    /// The connect and the device-approval wait it may turn into (ADR-0007); one at a time.
+    private let pairing: PairingWait
 
     // MARK: - Form state
 
@@ -38,6 +40,10 @@ public final class ManualEntryViewModel {
 
     /// Flipped to `true` after a successful connect + profile save; host pushes `.dashboard`.
     public private(set) var navigateToDashboard: Bool = false
+
+    /// Set while the connect waits for `openclaw devices approve` on the gateway host (ADR-0007); the screen
+    /// shows ``PairingApprovalCard``. `nil` otherwise.
+    public private(set) var pairingPrompt: PairingPrompt?
 
     /// Profile name suggested by a pairing link (trimmed, non-blank), or `nil`.
     /// Saved as the profile's display name instead of the gateway's own name.
@@ -63,8 +69,8 @@ public final class ManualEntryViewModel {
     /// the link (a pairing link contains the token).
     public private(set) var pastedLinkError: String?
 
-    /// In-flight connect, if any. Read-only outside the VM so tests can await it.
-    @ObservationIgnored private(set) var connectTask: Task<Void, Never>?
+    /// In-flight connect (and approval wait), if any. Tests await it.
+    var connectTask: Task<Void, Never>? { pairing.task }
 
     // MARK: - Init
 
@@ -73,16 +79,23 @@ public final class ManualEntryViewModel {
     ///   - profileRepository: Persists the profile + token after a successful connect.
     ///   - onboardingRepository: Marked completed after a successful connect.
     ///   - pairingHandoff: One-shot source of a token from QR / deep-link pairing.
+    ///   - pairingRetryInterval: Delay between connects while awaiting device approval.
+    ///   - pairingTimeout: How long to wait for approval (upstream expires the request after 5 minutes).
     public init(
         connectionManager: any GatewayConnectionManager,
         profileRepository: any ConnectionProfileRepository,
         onboardingRepository: any OnboardingRepository,
-        pairingHandoff: PairingHandoff
+        pairingHandoff: PairingHandoff,
+        pairingRetryInterval: Duration = PairingApproval.retryInterval,
+        pairingTimeout: Duration = PairingApproval.timeout
     ) {
         self.connectionManager = connectionManager
         self.profileRepository = profileRepository
         self.onboardingRepository = onboardingRepository
         self.pairingHandoff = pairingHandoff
+        self.pairing = PairingWait(
+            connectionManager: connectionManager, retryInterval: pairingRetryInterval, timeout: pairingTimeout
+        )
     }
 
     // MARK: - Derived
@@ -279,10 +292,14 @@ public final class ManualEntryViewModel {
     // MARK: - Connect
 
     /// Validates the form, connects, saves the profile + token, marks onboarding
-    /// completed, then flips ``navigateToDashboard``. Ignored while a connect is
-    /// already in flight, so a double tap connects once.
+    /// completed, then flips ``navigateToDashboard``. On `PAIRING_REQUIRED` sets
+    /// ``pairingPrompt`` and retries until the device is approved, the pending
+    /// request expires (``PairingApproval/timeoutMessage``) or ``cancelConnect()``
+    /// (see ``PairingWait``); the profile is saved only once connected. A connect
+    /// that another screen superseded ends without an error. Ignored while a
+    /// connect is already in flight, so a double tap connects once.
     public func connect() {
-        guard connectTask == nil else { return }
+        guard !pairing.isRunning else { return }
         let hostError = validateHost(host)
         let portError = validatePort(port)
         if hostError != nil || portError != nil {
@@ -299,73 +316,103 @@ public final class ManualEntryViewModel {
 
         self.isConnecting = true
         self.lastError = nil
+        self.pairingPrompt = nil
 
-        connectTask = Task {
-            // A cancelled task leaves `connectTask` alone: `cancelConnect()` already cleared it.
-            defer { if !Task.isCancelled { self.connectTask = nil } }
-            var gatewayAccepted = false
-            do {
-                try await self.connectionManager.connect(url: url, token: tokenValue)
-                gatewayAccepted = true
-                // Left the screen while connecting: save nothing, navigate nowhere.
-                try Task.checkCancellation()
+        pairing.start(
+            url: url,
+            token: { tokenValue },
+            onPrompt: { [weak self] prompt in self?.pairingPrompt = prompt },
+            onFinished: { [weak self] result in await self?.finishConnect(result, url: url, token: tokenValue) }
+        )
+    }
 
-                // A pairing link's suggested name wins; otherwise the name the
-                // gateway reports once connected; otherwise the URL.
-                let displayName: String
-                if let pairedName = self.pairedName {
-                    displayName = pairedName
-                } else if case let .connected(_, name, _, _, _, _, _, _) = self.connectionManager.currentState {
-                    displayName = name
-                } else {
-                    displayName = url
-                }
-
-                // Look up any existing profile with this URL to preserve its id.
-                let existingId: UUID? = await self.firstProfileId(matching: url)
-                let profile = ConnectionProfile(
-                    id: existingId ?? UUID(),
-                    displayName: displayName,
-                    url: url,
-                    lastConnectedAt: Date(),
-                    hasToken: tokenValue != nil
-                )
-                try await self.profileRepository.saveProfile(profile, token: tokenValue)
-                await self.onboardingRepository.markCompleted()
-                try Task.checkCancellation()
-
-                self.isConnecting = false
-                self.navigateToDashboard = true
-            } catch {
-                guard !Task.isCancelled else {
-                    // Left the screen after the gateway accepted the connect:
-                    // no dashboard will show this session, so don't leave it
-                    // live behind the picker. (A cancel before that point
-                    // already left the manager disconnected.)
-                    if gatewayAccepted {
-                        await self.connectionManager.disconnect()
-                    }
-                    return
-                }
-                self.isConnecting = false
-                self.lastError = (error as? LocalizedError)?.errorDescription
-                    ?? "Connect failed: \(String(describing: error))"
-            }
+    /// The connect (or its approval wait) ended: save and navigate once connected, otherwise say why not.
+    private func finishConnect(_ result: PairingWaitResult, url: String, token tokenValue: String?) async {
+        pairingPrompt = nil
+        switch result {
+        case .connected:
+            await saveAndNavigate(url: url, token: tokenValue)
+        case .expired:
+            isConnecting = false
+            lastError = PairingApproval.timeoutMessage
+        case .superseded:
+            // Another screen acted on the connection meanwhile: nothing to report.
+            isConnecting = false
+        case .failed(let error):
+            isConnecting = false
+            lastError = Self.message(for: error)
         }
     }
 
-    /// Abandons an in-flight connect. Call from the screen's `.onDisappear`
-    /// (Back while connecting), like Android cancelling the attempt with the
-    /// ViewModel's scope: no error is shown, no navigation follows, and the
-    /// profile is not saved unless its save had already started. The manager
-    /// ends disconnected either way: a handshake still running stops there,
-    /// and a session the gateway had already accepted is disconnected.
-    /// No-op when nothing is in flight.
+    /// Saves the profile + token for the connected gateway, marks onboarding completed and navigates. Runs inside
+    /// the connect's task, so a ``cancelConnect()`` (Back) during the save abandons it and disconnects.
+    private func saveAndNavigate(url: String, token tokenValue: String?) async {
+        do {
+            // Left the screen once the gateway accepted: save nothing, navigate nowhere.
+            try Task.checkCancellation()
+
+            // A pairing link's suggested name wins; otherwise the name the
+            // gateway reports once connected; otherwise the URL.
+            let displayName: String
+            if let pairedName = self.pairedName {
+                displayName = pairedName
+            } else if case let .connected(_, name, _, _, _, _, _, _) = self.connectionManager.currentState {
+                displayName = name
+            } else {
+                displayName = url
+            }
+
+            // Look up any existing profile with this URL to preserve its id.
+            let existingId: UUID? = await self.firstProfileId(matching: url)
+            let profile = ConnectionProfile(
+                id: existingId ?? UUID(),
+                displayName: displayName,
+                url: url,
+                lastConnectedAt: Date(),
+                hasToken: tokenValue != nil
+            )
+            try await self.profileRepository.saveProfile(profile, token: tokenValue)
+            await self.onboardingRepository.markCompleted()
+            try Task.checkCancellation()
+
+            self.isConnecting = false
+            self.navigateToDashboard = true
+        } catch {
+            guard !Task.isCancelled else {
+                // Left the screen after the gateway accepted the connect:
+                // no dashboard will show this session, so don't leave it
+                // live behind the picker.
+                await self.connectionManager.disconnect()
+                return
+            }
+            self.isConnecting = false
+            self.lastError = Self.message(for: error)
+        }
+    }
+
+    /// This screen's error renderer: the error's own description (URL + code), else its type and payload.
+    private static func message(for error: any Error) -> String {
+        (error as? LocalizedError)?.errorDescription ?? "Connect failed: \(String(describing: error))"
+    }
+
+    /// Abandons an in-flight connect or approval wait. Call from the screen's
+    /// `.onDisappear` (Back while connecting) and from the approval card's
+    /// Cancel, like Android cancelling the attempt with the ViewModel's scope:
+    /// no error is shown, no navigation follows, and the profile is not saved
+    /// unless its save had already started. The manager ends disconnected
+    /// either way: a handshake still running stops there, a session the
+    /// gateway had already accepted is disconnected, and so is a wait that
+    /// still holds its `PAIRING_REQUIRED` error. No-op when nothing is in flight.
     public func cancelConnect() {
-        guard let task = connectTask else { return }
-        task.cancel()
-        connectTask = nil
+        guard pairing.isRunning else { return }
+        pairing.cancel()
         isConnecting = false
+        pairingPrompt = nil
+    }
+
+    /// "Check now" on the approval card: re-attempts the connect at once.
+    public func checkPairingNow() {
+        pairing.checkNow()
     }
 
     public func consumeNavigation() {
