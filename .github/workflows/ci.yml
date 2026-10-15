@@ -26,3 +26,23 @@ jobs:
       report-path: app/build/reports
       build-release: true
     secrets: inherit
+
+  mock-gateway:
+    # Conformance of the protocol-4 mock gateway against the captured real-gateway frames (ADR-0007).
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: scripts/mock-gateway
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: scripts/mock-gateway/package-lock.json
+      - run: npm ci
+      - run: npm test

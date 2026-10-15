@@ -1,88 +1,66 @@
 # mock-gateway
 
-Stand-in OpenClaw Gateway for manual QA of GhostCrab.
-
-The real upstream gateway (`ghcr.io/openclaw/openclaw`) does **not** implement the
-JSON API GhostCrab was built against — `/api/models/*`, `/api/ai/recommend`, raw
-JSON-RPC over `/ws` with `skills.list` / `skills.uninstall` — those endpoints
-were speculative spec that never shipped. See
-[`IMPLEMENTATION_PLAN.md`](../../docs/IMPLEMENTATION_PLAN.md) (phase 7 ledger).
-
-This mock implements the spec GhostCrab expects, so Models, Config editor, AI
-Recommend, and Skills-Install can be exercised end-to-end on a real device.
+Stand-in OpenClaw gateway that speaks the **real** control plane of `ghcr.io/openclaw/openclaw` 2026.10.3
+(WS protocol 4, see `docs/adr/0007-gateway-protocol-alignment.md`): `connect.challenge`, Ed25519-signed
+`connect`, `PAIRING_REQUIRED` until approved, `req`/`res`/`event` frames with string ids and string error codes.
+Its error shapes are checked against frames captured from the real gateway (`fixtures/gateway-protocol/2026.10.3/`).
 
 ## Start
 
 ```bash
 cd scripts/mock-gateway
-npm install      # once
-npm start        # listens on :18790 by default
+npm install
+TOKEN=shared-token npm start          # :18790; unset TOKEN = auth mode none
 ```
 
-`HOST=0.0.0.0` by default, so the device on your LAN can reach it.
-
-## Point the app at it
-
-1. Find your workstation's LAN IP (Windows: `ipconfig` → IPv4 of Wi-Fi/Ethernet).
-2. In GhostCrab's Manual Entry: `http://<LAN-IP>:18790`, auth: `none` (unless you
-   set `TOKEN`).
-3. Connect. Models, Config, AI Recommend, Installed Skills should all populate.
-
-## Env vars
-
-| Var        | Default                         | Purpose |
-|------------|---------------------------------|---------|
-| `PORT`     | `18790`                         | avoids conflict with real gateway on 18789 |
-| `HOST`     | `0.0.0.0`                       | `127.0.0.1` to lock to workstation |
-| `TOKEN`    | *(none — unauth)*               | require `Authorization: Bearer <TOKEN>` |
-| `SCOPES`   | `operator.read,operator.admin`  | controls `auth.whoami` response |
-| `FAIL_MODE`| *(none)*                        | comma list — force failure paths |
-| `STATUS_AUTH` | *(off)*                  | `1`: `/status` also needs the token, so GhostCrab (which probes `/status` without one) reports token auth |
-| `MOCK_DISPLAY_NAME` | `Mock OpenClaw Gateway` | `/status` display name |
-| `MOCK_VERSION` | `mock-0.1.0`                 | `/status` and `auth.whoami` version |
-| `MOCK_HARDWARE` | `x86_64 · 32GB · Windows 11 (mock)` | `/status` hardware line |
-
-`FAIL_MODE` values:
-- `models-404` — `GET /api/models/status` → 404 (exercise empty-state UI)
-- `ai-404` — `POST /api/ai/recommend` → 404 (simulate missing AI skill)
-- `ai-429` — `POST /api/ai/recommend` → 429 (quota exhausted)
-- `install-unauth` — `skills.install` → RPC error −32003 (missing `operator.admin`)
-- `install-notfound` — `skills.install` → RPC error −32004 (unknown slug)
-
-Example:
+Point GhostCrab at `http://<LAN-IP>:18790` (token `shared-token`). The first connect shows the approval panel;
+approve the phone with:
 
 ```bash
-TOKEN=abc123 SCOPES=operator.read FAIL_MODE=install-unauth npm start
+curl -X POST http://127.0.0.1:18790/__mock/devices/approve
 ```
 
-## What it covers
-
-HTTP:
-- `GET /health`, `GET /ready`, `GET /status`
-- `GET /config` (returns body + `ETag`)
-- `PATCH /config/{section}` (honors `If-Match`, 412 on mismatch, 422 on invalid)
-- `GET /api/models/status`, `POST /api/models/active`
-- `POST /api/ai/recommend`
-- `GET /api/skills`, `POST /api/skills/install`, `POST /api/skills/uninstall`,
-  `POST /api/auth/whoami` (the iOS client uses HTTP where Android uses WS)
-
-WebSocket JSON-RPC at `/ws`:
-- `auth.whoami` → `{scopes, nodeId, version}`
-- `skills.list` → `{skills: InstalledSkill[]}`
-- `skills.install` → `InstalledSkill`, streams 5 `skills.install.progress` notifications
-- `skills.uninstall` → `null`
-
-## Smoke-test
+A setup code to test the QR explanation (GhostCrab recognises it and explains that setup codes cannot authorize an operator client; as on a real gateway, its token is refused for operators):
 
 ```bash
-npm start            # in one terminal
-node smoke-ws.mjs    # in another — exercises every WS method
+curl -X POST http://127.0.0.1:18790/__mock/setup-code
 ```
 
-## Out of scope
+| Var | Default | Purpose |
+|---|---|---|
+| `PORT` | `18790` | avoids a real gateway on 18789 |
+| `HOST` | `0.0.0.0` | `127.0.0.1` to keep it local |
+| `TOKEN` | *(none: auth mode none)* | shared gateway token |
+| `SCOPES` | `operator.read,operator.write,operator.admin` | the most a device can be granted |
+| `AUTO_APPROVE` | *(off)* | `1` approves new devices immediately |
+| `FAIL_MODE` | *(none)* | `install-unavailable`: every `skills.install` fails like an unknown ClawHub slug |
+| `MOCK_DISPLAY_NAME` | `mock-gateway` | gateway host in `hello-ok` presence: the name the apps show (store screenshots use `Home Lab`) |
+| `MOCK_VERSION` | `2026.10.3-mock` | `hello-ok.server.version` |
+| `LEGACY_REST` | *(off)* | `1` serves the pre-ADR-0007 REST mock (`legacy-rest.mjs`, with its old `STATUS_AUTH` / `MOCK_HARDWARE` switches) for `ios-screenshots.yml` until the iOS plan's Task 20 removes it |
 
-- No persistence across restarts. State is in-memory.
-- No TLS. Add a reverse proxy if you need HTTPS/WSS.
-- Does **not** mimic the real gateway's event-envelope + pairing handshake
-  (`connect.challenge`, `device.pair.*`). GhostCrab doesn't implement that side
-  either, so both stay consistent.
+Methods: `health`, `status`, `models.list`, `skills.status`, `skills.install`, `skills.update`, `config.get`,
+`config.patch` (`baseHash` required; `gateway.port` validated; `__OPENCLAW_REDACTED__` restores the secret).
+Anything else answers `INVALID_REQUEST unknown method: …`, as upstream. Writes (`config.patch`, `skills.update`)
+emit `config.changed` ~80 ms later, and `skills.status` reflects a `skills.update` only from then on, as upstream.
+`client.id` must be `openclaw-android` or `openclaw-ios` and `client.mode` `ui` or `cli`; a paired device that
+changes `platform` must be approved again.
+
+## Tests
+
+```bash
+npm test
+```
+
+CI runs them in the `mock-gateway` job of `.github/workflows/ci.yml`.
+
+## Probing a real gateway
+
+`node probe-real.mjs ws://<host>:18789/ws <token> [pair|no-token|config|skills]` connects with a persistent device
+identity (`.probe-identity.json`, gitignored) and prints frames with device tokens redacted. Run it when a new
+gateway release ships, to re-check what the fixtures pin (`baseHash` errors, `skills.update` and the
+`config.changed` timing, ClawHub skill entries).
+
+## Not covered
+
+TLS (`wss://`), JSON5 in `config.patch` (`raw` must be JSON), events beyond the challenge and `config.changed`,
+scope/role upgrade requests, and `role: "node"` clients (the only ones setup codes serve).

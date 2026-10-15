@@ -46,10 +46,9 @@ jobs:
         run: |
           node --version
           npm ci --no-audit --no-fund
-          # STATUS_AUTH: the app probes /status without the token to detect token auth.
-          PORT=$GATEWAY_PORT HOST=127.0.0.1 TOKEN="$GATEWAY_TOKEN" STATUS_AUTH=1 \
+          # AUTO_APPROVE: the emulator is a new device; skip the pairing approval for screenshots.
+          PORT=$GATEWAY_PORT HOST=127.0.0.1 TOKEN="$GATEWAY_TOKEN" AUTO_APPROVE=1 \
             MOCK_DISPLAY_NAME="Home Lab" MOCK_VERSION="2026.10.1" \
-            MOCK_HARDWARE="arm64 · 32 GB · Ubuntu 24.04" \
             nohup node server.mjs > "$RUNNER_TEMP/mock-gateway.log" 2>&1 &
           for _ in $(seq 1 30); do
             curl -fsS -m 2 "http://127.0.0.1:$GATEWAY_PORT/health" >/dev/null 2>&1 && break
