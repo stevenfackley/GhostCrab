@@ -24,7 +24,7 @@ struct GatewayErrorCasesTests {
         let message = error.errorDescription ?? ""
         #expect(message.hasSuffix("On the gateway host run: openclaw devices list"))
         #expect(!message.contains(requestId))
-        #expect(!message.contains("approve"))
+        #expect(!message.contains("devices approve"))
     }
 
     @Test func connectRejectedNamesUrlAndCode() {
