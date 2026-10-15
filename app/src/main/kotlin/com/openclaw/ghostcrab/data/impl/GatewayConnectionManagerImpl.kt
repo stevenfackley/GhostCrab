@@ -58,7 +58,8 @@ private val CREDENTIAL_MISSING_CODES = setOf("AUTH_TOKEN_MISSING", "AUTH_PASSWOR
  *
  * The live socket is watched: when it ends (gateway restart, Wi-Fi change, Doze, a 1008 close) the manager makes
  * one silent reconnect with this gateway's stored device token (the shared token when none is stored); if that
- * fails, or the reconnected socket ends too, the state becomes [GatewayConnection.Error] with the typed end cause.
+ * fails, or the reconnected socket ends too, the state becomes [GatewayConnection.Error]: with the gateway's refusal
+ * (pairing required, rejected credential) when the reconnect got one, else with the typed end cause.
  *
  * A caller's timeout or cancellation always propagates as cancellation (the state returns to
  * [GatewayConnection.Disconnected]); it is never turned into a gateway error.
@@ -228,37 +229,48 @@ class GatewayConnectionManagerImpl(
     private suspend fun onSocketLost(lost: ActiveSession, cause: GatewayException) {
         active = null
         release(lost.client, lost.rpc)?.let(cause::addSuppressed)
-        if (lost.mayReconnect && reconnectQuietly(lost, cause)) return
-        _connectionState.value = GatewayConnection.Error(lost.url, cause, warnings(gatewayKeyOf(lost.url)))
+        val reported = if (lost.mayReconnect) reconnectQuietly(lost, cause) ?: return else cause
+        _connectionState.value = GatewayConnection.Error(lost.url, reported, warnings(gatewayKeyOf(lost.url)))
     }
 
     /**
-     * The single silent reconnect. Any failure (credential storage included) is attached to [cause] and ends the
-     * attempt: it is never retried here.
+     * The single silent reconnect; a failure ends the attempt and is never retried here.
      *
-     * @return `true` when the reconnected session is live.
+     * @return `null` when the reconnected session is live, else the error to report. The gateway's own refusal
+     *   (pairing required, a rejected credential or device) is the actionable one, so it becomes the primary cause
+     *   with [cause] attached; any other failure (transport, credential storage) is attached to [cause] instead.
      */
-    private suspend fun reconnectQuietly(lost: ActiveSession, cause: GatewayException): Boolean {
+    private suspend fun reconnectQuietly(lost: ActiveSession, cause: GatewayException): GatewayException? {
         val opening = Opening()
         return try {
             activate(openSession(lost.url, lost.token, opening, reconnecting = true))
-            true
+            null
         } catch (e: CancellationException) {
             release(opening.client, opening.rpc)?.let(e::addSuppressed)
             throw e
+        } catch (e: GatewayPairingRequiredException) {
+            abandonReconnect(primary = e, secondary = cause, opening)
         } catch (e: GatewayConnectAuthException) {
             forgetRevokedDeviceToken(lost.url, e)
-            abandonReconnect(cause, e, opening)
+            abandonReconnect(primary = e, secondary = cause, opening)
         } catch (@Suppress("TooGenericExceptionCaught") e: Exception) {
-            abandonReconnect(cause, e, opening)
+            abandonReconnect(primary = cause, secondary = e, opening)
         }
     }
 
-    /** Releases what the failed reconnect opened and attaches [failure] to [cause]. @return `false`. */
-    private suspend fun abandonReconnect(cause: GatewayException, failure: Exception, opening: Opening): Boolean {
-        release(opening.client, opening.rpc)?.let(failure::addSuppressed)
-        cause.addSuppressed(failure)
-        return false
+    /**
+     * Releases what the failed reconnect opened.
+     *
+     * @return [primary], with [secondary] attached.
+     */
+    private suspend fun abandonReconnect(
+        primary: GatewayException,
+        secondary: Exception,
+        opening: Opening,
+    ): GatewayException {
+        release(opening.client, opening.rpc)?.let(primary::addSuppressed)
+        primary.addSuppressed(secondary)
+        return primary
     }
 
     private suspend fun openRpc(client: OpenClawApiClient): GatewayRpcClient =

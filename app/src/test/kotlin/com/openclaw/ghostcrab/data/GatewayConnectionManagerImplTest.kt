@@ -485,6 +485,46 @@ class GatewayConnectionManagerImplTest {
         assertEquals(listOf("connect", "health"), second.sent.map { it.getValue("method").jsonPrimitive.content })
     }
 
+    @Test fun `a reconnect refused for pairing makes the pairing request the primary cause`() = runTest {
+        val first = ScriptedWsSession(respond = fixtures("connect" to "hello-ok-paired"))
+        val second = ScriptedWsSession(
+            closeAfterReplyTo = setOf("connect"),
+            respond = fixtures("connect" to "err-pairing-metadata-upgrade"),
+        )
+        val m = manager(first)
+        coEvery { rest.openWsSession() } returnsMany listOf(first, second)
+        m.connect(url, "shared-token")
+
+        first.drop()
+        runCurrent()
+
+        val cause = (m.connectionState.value as GatewayConnection.Error).cause as GatewayPairingRequiredException
+        assertEquals("6837c6b0-f559-445b-bc0c-a50fbe5b5998", cause.requestId)
+        assertInstanceOf(GatewayUnreachableException::class.java, cause.suppressed.single())
+        assertTrue(second.closedByClient)
+    }
+
+    @Test fun `a reconnect refused with a revoked device token makes the rejection primary and forgets it`() = runTest {
+        val first = ScriptedWsSession(respond = fixtures("connect" to "hello-ok-paired"))
+        val second = ScriptedWsSession(
+            closeAfterReplyTo = setOf("connect"),
+            respond = { _, _ -> deviceTokenRejection() },
+        )
+        val m = manager(first)
+        coEvery { rest.openWsSession() } returnsMany listOf(first, second)
+        m.connect(url, "shared-token")
+        assertNotNull(tokens.tokens[url])
+
+        first.drop(closeCode = 1008, closeReason = "device token revoked")
+        runCurrent()
+
+        val cause = (m.connectionState.value as GatewayConnection.Error).cause as GatewayConnectAuthException
+        assertEquals("AUTH_DEVICE_TOKEN_MISMATCH", cause.detailCode)
+        val closed = cause.suppressed.single() as GatewayConnectionClosedException
+        assertEquals("device token revoked", closed.closeReason)
+        assertNull(tokens.tokens[url])
+    }
+
     @Test fun `the reconnected session is not reconnected again`() = runTest {
         val first = ScriptedWsSession(respond = fixtures("connect" to "hello-ok-paired"))
         val second = ScriptedWsSession(respond = fixtures("connect" to "hello-ok-paired"))
