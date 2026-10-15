@@ -181,8 +181,9 @@ public struct ModelManagerScreen: View {
             Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundStyle(DesignTokens.Color.amberWarn)
                 .font(.system(size: 16))
-            Text("Gateway primary model \(primary) is not in its catalogue.")
-                .font(AppFont.mono(12))
+            // Only the model ref is mono; the sentence is UI text (CLAUDE.md).
+            Text("Gateway primary model \(Text(verbatim: primary).font(AppFont.mono(12))) is not in its catalogue.")
+                .font(AppFont.body(12))
                 .foregroundStyle(DesignTokens.Color.textPrimary)
             Spacer(minLength: 0)
         }

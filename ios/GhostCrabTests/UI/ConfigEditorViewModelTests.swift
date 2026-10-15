@@ -67,6 +67,55 @@ struct ConfigEditorViewModelTests {
         #expect(saveSuccess)
         #expect(conflict == nil)
         #expect(pending["gateway"] == nil)
+        #expect(pending["agents"] != nil) // only the saved section's edit is done
+    }
+
+    @Test func aSaveKeepsTheOtherSectionsPendingEdits() async throws {
+        let repo = FakeConfigRepository(config: OpenClawConfig(sections: [
+            "gateway": AnyCodable(["port": AnyCodable(18789)]),
+            "agents": AnyCodable(["note": AnyCodable("old")]),
+        ]))
+        let vm = ConfigEditorViewModel(config: repo, gateway: FakeGatewayConnectionManager())
+        vm.loadConfig()
+        await vm.loadTask?.value
+        vm.editSection("gateway", value: AnyCodable(["port": AnyCodable(18790)]))
+        vm.editSection("agents", value: AnyCodable(["note": AnyCodable("kept")]))
+        vm.setFieldError("agents.note", error: "still being typed")
+
+        vm.confirmSave("gateway")
+        await vm.saveTask?.value
+
+        guard case .ready(let config, let pending, let fieldErrors, _, let saveSuccess, _) = vm.state else {
+            Issue.record("expected ready, got \(vm.state)")
+            return
+        }
+        #expect(saveSuccess)
+        #expect(repo.updatedSections == ["gateway"])
+        #expect(config.sections["gateway"]?.objectValue?["port"]?.value as? Int == 18790)
+        #expect(pending["gateway"] == nil)
+        #expect(pending["agents"]?.objectValue?["note"]?.value as? String == "kept")
+        #expect(fieldErrors == ["agents.note": "still being typed"])
+    }
+
+    @Test func aReEditMadeDuringTheSaveSurvivesIt() async throws {
+        let repo = FakeConfigRepository(config: OpenClawConfig(sections: ["gateway": AnyCodable(["port": AnyCodable(18789)])]))
+        let vm = ConfigEditorViewModel(config: repo, gateway: FakeGatewayConnectionManager())
+        vm.loadConfig()
+        await vm.loadTask?.value
+        vm.editSection("gateway", value: AnyCodable(["port": AnyCodable(18790)]))
+
+        vm.confirmSave("gateway")
+        // The save task has not run yet (both are on the main actor): this edit lands while the save is in flight.
+        vm.editSection("gateway", value: AnyCodable(["port": AnyCodable(18791)]))
+        await vm.saveTask?.value
+
+        guard case .ready(let config, let pending, _, _, let saveSuccess, _) = vm.state else {
+            Issue.record("expected ready, got \(vm.state)")
+            return
+        }
+        #expect(saveSuccess)
+        #expect(config.sections["gateway"]?.objectValue?["port"]?.value as? Int == 18790)
+        #expect(pending["gateway"]?.objectValue?["port"]?.value as? Int == 18791)
     }
 
     @Test func reloadAndDiscardDropsOnlyTheConflictingEditAndWritesNothing() async throws {

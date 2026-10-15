@@ -144,11 +144,30 @@ struct DeviceStoresTests {
         }
         #expect(operation == "store the device identity")
         #expect(await store.regenerated == false)
-        // Storage recovered: the replacement lands now and is still reported, though the unusable item is gone.
+        // Storage recovered: the replacement lands now and is still reported.
         secrets.refusingWrites = false
         let identity = try await store.identity()
         #expect(secrets.stored[DeviceIdentityStore.account] == identity.seedBase64ForStorage())
         #expect(await store.regenerated)
+    }
+
+    @Test func aFailedStoreKeepsTheUnusableItemSoARelaunchStillReportsTheReplacement() async throws {
+        let unusable = Data(count: 5).base64EncodedString()
+        let secrets = FlakyTokenStore(tokens: [DeviceIdentityStore.account: unusable],
+                                      failingReads: 0, status: errSecSuccess, refusingWrites: true)
+        let beforeTheCrash = DeviceIdentityStore(secrets: secrets, retryDelay: .zero)
+        guard case .deviceCredentialStorage? = await gatewayError({ _ = try await beforeTheCrash.identity() }) else {
+            Issue.record("expected deviceCredentialStorage")
+            return
+        }
+        // Never deleted ahead of the store: the next launch finds the same unusable item.
+        #expect(secrets.stored[DeviceIdentityStore.account] == unusable)
+
+        secrets.refusingWrites = false
+        let relaunched = DeviceIdentityStore(secrets: secrets, retryDelay: .zero)
+        let identity = try await relaunched.identity()
+        #expect(secrets.stored[DeviceIdentityStore.account] == identity.seedBase64ForStorage())
+        #expect(await relaunched.regenerated) // a missing item would read as a first install: no warning
     }
 
     @Test func aNewIdentityThatCannotBeStoredIsAStorageError() async throws {

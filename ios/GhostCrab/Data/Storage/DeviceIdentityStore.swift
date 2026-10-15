@@ -26,12 +26,13 @@ extension DeviceIdentityProviding {
 ///
 /// Recovery, as on Android (`DeviceIdentityStore.kt`): a failed Keychain read is retried once after
 /// ``readRetryDelay`` (Keychain errors are often transient). Only a seed that is provably unusable (an item the
-/// Keychain cannot decode, `errSecDecode`; bad base64; wrong length) is removed and a new identity generated; once the
-/// new seed is stored ``regenerated`` turns `true` and a type-name-only warning is logged. That is the only recovery a
-/// lost seed allows: every gateway then shows a new pairing request for this device. A read that still fails for any
-/// other reason (locked device `errSecInteractionNotAllowed`, `errSecNotAvailable`, `errSecAuthFailed`, a missing
-/// entitlement) throws: the seed may well be intact, so replacing it would orphan every pairing for a temporary
-/// condition.
+/// Keychain cannot decode, `errSecDecode`; bad base64; wrong length) is overwritten by a new identity; once the new seed
+/// is stored ``regenerated`` turns `true` and a type-name-only warning is logged. The unusable item is never deleted
+/// first, so when the store fails and the app dies the next launch finds it again and still reports the replacement.
+/// That is the only recovery a lost seed allows: every gateway then shows a new pairing request for this device. A
+/// read that still fails for any other reason (locked device `errSecInteractionNotAllowed`, `errSecNotAvailable`,
+/// `errSecAuthFailed`, a missing entitlement) throws: the seed may well be intact, so replacing it would orphan every
+/// pairing for a temporary condition.
 ///
 /// Concurrent first-use calls share one load, so they can never generate two identities. Temporary seed copies are
 /// zeroed after use (the base64 text the Keychain API exchanges is a Swift `String` and cannot be).
@@ -130,12 +131,12 @@ public actor DeviceIdentityStore: DeviceIdentityProviding {
         throw GatewayError.deviceCredentialStorage(operation: "read the device identity", underlying: Self.sendable(failure))
     }
 
-    /// Removes the unusable item (best effort: ``Keychain/setToken(_:for:)`` overwrites it anyway) and records why.
+    /// Records that the unusable item is being replaced, and why. The item stays until the new seed overwrites it
+    /// (``Keychain/setToken(_:for:)`` updates in place), so a failed store leaves it for the next launch to find.
     /// ``regenerated`` turns `true` only once the new seed is stored.
     private func replaceUnusableSeed(reason: String) {
         replacingUnusableSeed = true
         Self.log.warning("Device identity unreadable (\(reason)); generating a new one. Gateways will ask to pair again.")
-        try? secrets.deleteToken(for: Self.account)
     }
 
     /// Keychain errors are `Sendable` (`KeychainError`); anything else is dropped rather than cast unchecked.

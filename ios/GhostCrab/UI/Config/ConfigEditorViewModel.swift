@@ -199,7 +199,8 @@ public final class ConfigEditorViewModel {
     /// Writes the pending change for `section` to the gateway, then re-reads
     /// config.
     ///
-    /// - On success: transitions to a fresh ready state with `saveSuccess = true`.
+    /// - On success: shows the re-read config with `saveSuccess = true`; drops `section`'s pending edit unless it was
+    ///   re-edited during the save. Other sections' pending edits stay.
     /// - On HTTP 412 (stale `baseHash`): reloads config, keeps every pending edit (the conflicting one included,
     ///   so ``forceOverwrite(_:)`` can re-send it against the fresh hash) and surfaces a concurrent-edit warning.
     /// - On `configValidation`: sets the field error inline.
@@ -221,7 +222,7 @@ public final class ConfigEditorViewModel {
             do {
                 try await self.configRepository.updateConfig(section: section, value: newValue)
                 let updated = try await self.configRepository.getConfig()
-                self.state = .ready(config: updated, saveSuccess: true)
+                self.applySaved(section: section, savedValue: newValue, updated: updated)
             } catch GatewayError.api(_, let statusCode, let body) where statusCode == 412 {
                 // Concurrent edit. Reload (the repository now holds the fresh hash) + surface dialog. The latest
                 // state's edits survive, including any made while the save was in flight.
@@ -269,6 +270,29 @@ public final class ConfigEditorViewModel {
                 self.state = .error(message: "Save failed: \(error.localizedDescription)")
             }
         }
+    }
+
+    /// Publishes a successful save of `savedValue` to `section`, re-read as `updated` (port of Android's `afterSave`).
+    /// The section's pending edit and field errors are dropped only while the edit still equals what was saved, so a
+    /// re-edit made during the save survives; other sections' edits, the diff sheet and the conflict dialog are kept.
+    /// No-op unless the editor is ``ConfigEditorUiState/ready(config:pendingChanges:fieldErrors:pendingSaveSection:saveSuccess:concurrentEditSection:)``
+    /// (e.g. it went ``ConfigEditorUiState/disconnected`` during the save).
+    private func applySaved(section: String, savedValue: AnyCodable, updated: OpenClawConfig) {
+        guard case .ready(_, var pending, var fieldErrors, let saveSection, _, let concurrent) = state else {
+            return
+        }
+        if pending[section] == savedValue {
+            pending.removeValue(forKey: section)
+            fieldErrors = fieldErrors.filter { !$0.key.hasPrefix("\(section).") }
+        }
+        state = .ready(
+            config: updated,
+            pendingChanges: pending,
+            fieldErrors: fieldErrors,
+            pendingSaveSection: saveSection,
+            saveSuccess: true,
+            concurrentEditSection: concurrent
+        )
     }
 
     /// Discards all pending edits for a section, including associated field
