@@ -3,6 +3,7 @@ package com.openclaw.ghostcrab.data.gateway
 import com.google.crypto.tink.subtle.Ed25519Verify
 import com.openclaw.ghostcrab.testutil.RFC8032_DEVICE_ID
 import com.openclaw.ghostcrab.testutil.RFC8032_SEED
+import org.junit.jupiter.api.Assertions.assertArrayEquals
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotEquals
@@ -46,6 +47,15 @@ class DeviceIdentityTest {
         val text = DeviceIdentity.fromSeed(RFC8032_SEED).toString()
         assertEquals("DeviceIdentity(deviceId=$RFC8032_DEVICE_ID)", text)
         assertFalse(text.contains("9d61"))
+    }
+
+    @Test fun `fromSeed leaves the caller's seed intact and seedForStorage hands out a copy`() {
+        val seed = RFC8032_SEED.copyOf()
+        val identity = DeviceIdentity.fromSeed(seed)
+        assertArrayEquals(RFC8032_SEED, seed)
+        identity.seedForStorage().fill(0)
+        assertArrayEquals(RFC8032_SEED, identity.seedForStorage())
+        assertEquals(RFC8032_DEVICE_ID, identity.deviceId)
     }
 
     @Test fun `a seed that is not 32 bytes is rejected`() {

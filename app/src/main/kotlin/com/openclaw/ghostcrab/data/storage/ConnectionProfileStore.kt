@@ -12,9 +12,12 @@ import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import com.openclaw.ghostcrab.data.gateway.DeviceTokenStore
 import com.openclaw.ghostcrab.data.gateway.StoredDeviceToken
+import com.openclaw.ghostcrab.data.gateway.gatewayKeyOf
+import com.openclaw.ghostcrab.domain.exception.DeviceCredentialStorageException
 import com.openclaw.ghostcrab.domain.exception.ProfileNeedsReauthException
 import com.openclaw.ghostcrab.domain.exception.TokenWipeFailedException
 import com.openclaw.ghostcrab.domain.exception.ProfileStoreCorruptedException
+import com.openclaw.ghostcrab.domain.util.GatewayUrl
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -145,12 +148,28 @@ class ConnectionProfileStore private constructor(
         }
     }
 
+    /**
+     * Removes the profile, its token and, when no other saved profile uses the same gateway, that gateway's device
+     * token. Token removal is best effort (the contract has no failure path); a leftover entry stays encrypted and
+     * Clear all wipes it.
+     *
+     * @param profileId The profile to delete; no-op for an unknown id.
+     */
     suspend fun deleteProfile(profileId: String) {
+        var orphanedGateway: String? = null
         context.profileDataStore.edit { prefs ->
             val current = prefs.profilesForWrite()
+            orphanedGateway = orphanedGatewayKey(current, profileId)
             prefs[KEY_PROFILES] = profileJson.encodeToString(current.filter { it.id != profileId })
         }
         clearToken(profileId)
+        orphanedGateway?.let { key ->
+            try {
+                clearDeviceToken(key)
+            } catch (ignored: DeviceCredentialStorageException) {
+                // Best effort, like clearToken: deleting the profile must not fail on the Keystore.
+            }
+        }
     }
 
     /**
@@ -237,28 +256,48 @@ private class EncryptedDeviceTokenStore(
     override suspend fun loadDeviceToken(gatewayKey: String): StoredDeviceToken? = withContext(ioDispatcher) {
         // Keystore loss (typed in keystoreReadOrNull) reads as no token: the gateway re-issues one on the next
         // shared-token connect.
-        val raw = keystoreReadOrNull { prefs.getString(deviceTokenKey(gatewayKey), null) }
+        var unreadable = false
+        val raw = keystoreReadOrNull(onFailure = { unreadable = true }) {
+            prefs.getString(deviceTokenKey(gatewayKey), null)
+        }
         val decoded = raw?.let(::decodeDeviceToken)
-        if (raw != null && decoded == null) remove(gatewayKey)
+        if (unreadable || (raw != null && decoded == null)) {
+            // Best effort: when the file itself will not open, the removal fails too and the read stays null.
+            keystoreReadOrNull { prefs.edit().remove(deviceTokenKey(gatewayKey)).apply() }
+        }
         decoded
     }
 
     override suspend fun saveDeviceToken(gatewayKey: String, token: StoredDeviceToken): Unit =
         withContext(ioDispatcher) {
             val json = profileJson.encodeToString(StoredDeviceToken.serializer(), token)
-            prefs.edit().putString(deviceTokenKey(gatewayKey), json).apply()
+            keystoreWrite("save the device token for ${gatewayForMessages(gatewayKey)}") {
+                prefs.edit().putString(deviceTokenKey(gatewayKey), json).apply()
+            }
         }
 
     override suspend fun clearDeviceToken(gatewayKey: String): Unit = withContext(ioDispatcher) {
-        remove(gatewayKey)
-    }
-
-    private fun remove(gatewayKey: String) {
-        prefs.edit().remove(deviceTokenKey(gatewayKey)).apply()
+        keystoreWrite("remove the device token for ${gatewayForMessages(gatewayKey)}") {
+            prefs.edit().remove(deviceTokenKey(gatewayKey)).apply()
+        }
     }
 }
 
 private fun deviceTokenKey(gatewayKey: String) = "device_token_$gatewayKey"
+
+/** The key as a URL when it is one ([GatewayUrl] rejects userinfo); unparsed input may hold anything. */
+private fun gatewayForMessages(gatewayKey: String): String = GatewayUrl.parse(gatewayKey)?.toString() ?: "this gateway"
+
+/**
+ * @param profiles The stored profiles before a delete.
+ * @param profileId The profile being deleted.
+ * @return The deleted profile's [gatewayKeyOf] when no other profile uses that gateway (its device token is then
+ *   orphaned), else `null` (also for an unknown [profileId]).
+ */
+internal fun orphanedGatewayKey(profiles: List<StoredProfile>, profileId: String): String? {
+    val key = profiles.firstOrNull { it.id == profileId }?.let { gatewayKeyOf(it.url) }
+    return key?.takeIf { profiles.none { other -> other.id != profileId && gatewayKeyOf(other.url) == key } }
+}
 
 /** Decodes a stored device token; `null` for undecodable data (the caller removes the entry). */
 internal fun decodeDeviceToken(json: String): StoredDeviceToken? = try {

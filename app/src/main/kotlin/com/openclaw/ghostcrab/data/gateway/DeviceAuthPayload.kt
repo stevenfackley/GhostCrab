@@ -26,7 +26,10 @@ data class DeviceAuthPayload(
     val platform: String,
     val deviceFamily: String?,
 ) {
-    /** @return `v3|deviceId|clientId|mode|role|scopes|signedAt|token|nonce|platform|deviceFamily`. */
+    /**
+     * @return `v3|deviceId|clientId|mode|role|scopes|signedAt|token|nonce|platform|deviceFamily`. Contains the
+     *   cleartext [token]: sign it and drop it, never log or persist it.
+     */
     fun v3(): String = listOf(
         "v3",
         deviceId,

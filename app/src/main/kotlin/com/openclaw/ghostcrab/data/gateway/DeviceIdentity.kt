@@ -1,6 +1,9 @@
 package com.openclaw.ghostcrab.data.gateway
 
 import com.google.crypto.tink.subtle.Ed25519Sign
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import java.security.MessageDigest
 import java.util.Base64
 
@@ -36,20 +39,16 @@ class DeviceIdentity private constructor(seed: ByteArray, publicKey: ByteArray) 
         const val SEED_BYTES: Int = 32
 
         /** @return A fresh random identity. */
-        fun generate(): DeviceIdentity {
-            val pair = Ed25519Sign.KeyPair.newKeyPair()
-            return DeviceIdentity(pair.privateKey, pair.publicKey)
-        }
+        fun generate(): DeviceIdentity = identityOf(Ed25519Sign.KeyPair.newKeyPair())
 
         /**
-         * @param seed The 32-byte seed from [seedForStorage].
+         * @param seed The 32-byte seed from [seedForStorage]. Left untouched; the caller zeroes its own copy.
          * @return The identity for that seed.
          * @throws IllegalArgumentException if [seed] is not [SEED_BYTES] long.
          */
         fun fromSeed(seed: ByteArray): DeviceIdentity {
             require(seed.size == SEED_BYTES) { "Ed25519 seed must be $SEED_BYTES bytes, was ${seed.size}" }
-            val pair = Ed25519Sign.KeyPair.newKeyPairFromSeed(seed)
-            return DeviceIdentity(pair.privateKey, pair.publicKey)
+            return identityOf(Ed25519Sign.KeyPair.newKeyPairFromSeed(seed))
         }
 
         /**
@@ -59,6 +58,16 @@ class DeviceIdentity private constructor(seed: ByteArray, publicKey: ByteArray) 
          */
         fun deviceIdForPublicKey(publicKeyBase64Url: String): String =
             sha256Hex(Base64.getUrlDecoder().decode(publicKeyBase64Url))
+
+        /** Builds the identity, then zeroes the temporary private-key copy Tink handed out. */
+        private fun identityOf(pair: Ed25519Sign.KeyPair): DeviceIdentity {
+            val privateKey = pair.privateKey
+            return try {
+                DeviceIdentity(privateKey, pair.publicKey)
+            } finally {
+                privateKey.fill(0)
+            }
+        }
     }
 }
 
@@ -66,10 +75,21 @@ class DeviceIdentity private constructor(seed: ByteArray, publicKey: ByteArray) 
 interface DeviceIdentityProvider {
     /**
      * @return The identity, created and persisted on first use.
-     * @throws Exception if the encrypted store cannot be written (the connect then fails with that cause).
+     * @throws com.openclaw.ghostcrab.domain.exception.DeviceCredentialStorageException if the encrypted store cannot
+     *   be opened or written (the connect then fails with that cause).
      */
     suspend fun identity(): DeviceIdentity
+
+    /**
+     * `true` once the stored identity was replaced because it could not be read (Keystore loss, corrupt value):
+     * every gateway this phone was paired with then shows a new pairing request, which the UI should explain. A
+     * first install is not a replacement. Defaults to a flow that stays `false`.
+     */
+    val regenerated: StateFlow<Boolean>
+        get() = NEVER_REGENERATED
 }
+
+private val NEVER_REGENERATED: StateFlow<Boolean> = MutableStateFlow(false).asStateFlow()
 
 /** base64url without padding, as the gateway expects for keys and signatures. */
 internal fun base64Url(bytes: ByteArray): String = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)

@@ -332,3 +332,19 @@ class GatewayConnectionClosedException(
 ) {
     override val isRetryable: Boolean = false
 }
+
+/**
+ * This phone's encrypted storage (Android Keystore + EncryptedSharedPreferences) refused to read or write the
+ * gateway device identity or a device token (ADR-0007). Retryable: Keystore errors are often transient (for
+ * example right after boot); a lasting one needs the app's storage cleared.
+ *
+ * @param operation What could not be done, e.g. `save the device token for http://gw.local:18789`. Never holds a
+ *   secret.
+ * @param cause The Keystore or preferences failure.
+ */
+class DeviceCredentialStorageException(
+    val operation: String,
+    cause: Throwable,
+) : GatewayException("Could not $operation in this phone's encrypted storage.", cause) {
+    override val isRetryable: Boolean = true
+}
