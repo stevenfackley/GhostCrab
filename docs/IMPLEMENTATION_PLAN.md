@@ -620,12 +620,12 @@ WebSocket streaming · offline config cache · iOS · agent runtime on-device ·
 ADRs live under `docs/adr/NNNN-title.md`. IDs in use, plus the one still reserved:
 
 - ADR-001 — Kotlin + Compose over React Native
-- ADR-002 — Auth-mode probing via `/health` + `/status` asymmetry (superseded by ADR-007 once the M7 plans land)
+- ADR-002 — Auth-mode probing via `/health` + `/status` asymmetry (superseded by ADR-0007; the Android plan's Task 27 flips its status line, the iOS plan does not touch it)
 - ADR-003 — Stateless client; no offline config cache
-- ADR-004 — Gateway-proxied AI vs direct LLM API
+- ADR-004 — Gateway-proxied AI vs direct LLM API (amended by ADR-0007; status line flipped in the Android plan's Task 27)
 - ADR-005 — Additive methods on frozen repository interfaces (`0005-additive-repository-methods.md`, written 2026-10-14)
 - ADR-006 — iOS App Transport Security: local networking only, no arbitrary loads (`0006-ios-ats-local-networking.md`, written 2026-10-14)
-- ADR-007 — Align both clients with the real OpenClaw gateway protocol (WS protocol 4, device pairing) (`0007-gateway-protocol-alignment.md`, written 2026-10-14; plans `docs/superpowers/plans/2026-10-15-protocol-alignment-{android,ios}.md`)
+- ADR-0007 — Align both clients with the real OpenClaw gateway protocol (WS protocol 4, device pairing) (`0007-gateway-protocol-alignment.md`, written 2026-10-15; plans `docs/superpowers/plans/2026-10-15-protocol-alignment-{android,ios}.md`)
 - Reserved, not yet written — Onboarding does not execute privileged actions on user machines. Takes the next free number (ADR-008 or later) when written; it originally held ADR-005.
 
 Backfilled in Phase 10; created earlier if a deviation forces the decision sooner.

@@ -39,7 +39,7 @@
 2. Task 9 switches `GatewayConnectionManagerImpl` to the WS handshake (repositories still compile through `requireClient()`).
 3. Tasks 10–14 move scopes, skills, config, models and AI onto the session socket.
 4. Tasks 15–19 are the UI (pairing loop, approval card on both screens, setup-code explanation, discovery copy).
-5. Task 20 deletes the dead REST code. Task 21 is the ⚠ manual real-gateway pass. Task 22 is docs.
+5. Task 20 deletes the dead REST code. Its Step 7 also retires the `LEGACY_REST` mock mode that the Android plan's Task 25 keeps for `ios-screenshots.yml`, so it needs that task on `main` (roadmap M7 merges the Android PR first). Task 21 is the ⚠ manual real-gateway pass. Task 22 is docs.
 
 If the Android plan already ran, `fixtures/gateway-protocol/2026.10.3/` and `scripts/mock-gateway` (protocol 4) exist; Task 21 can also use the mock.
 
@@ -243,6 +243,7 @@ Expected: FAIL to compile, `cannot find 'GatewayFixtures' in scope`.
 ```swift
 import CryptoKit
 import Foundation
+import Testing
 @testable import GhostCrab
 
 /// Frames captured from `ghcr.io/openclaw/openclaw` 2026.10.3 during roadmap M5 (`docs/QA_REAL_GATEWAY_2026-10.md`) and
@@ -1664,12 +1665,19 @@ public struct DeviceAuthPayload: Sendable {
     }
 }
 
-extension DeviceAuthPayload: CustomStringConvertible, CustomDebugStringConvertible {
+extension DeviceAuthPayload: CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
     public var description: String {
         "DeviceAuthPayload(deviceId: \(deviceId), clientId: \(clientId), role: \(role), scopes: \(scopes), "
             + "signedAtMs: \(signedAtMs), token: \(token == nil ? "nil" : "<redacted>"), nonce: \(nonce))"
     }
     public var debugDescription: String { description }
+    /// `dump` and debugger views see the redacted token only.
+    public var customMirror: Mirror {
+        Mirror(self, children: [
+            "deviceId": deviceId, "clientId": clientId, "clientMode": clientMode, "role": role, "scopes": scopes,
+            "signedAtMs": signedAtMs, "token": token == nil ? "nil" : "<redacted>", "nonce": nonce,
+        ], displayStyle: .struct)
+    }
 }
 ```
 
@@ -1927,6 +1935,7 @@ public enum GatewayKey {
 `ios/GhostCrabTests/Support/GatewayTestDoubles.swift`:
 ```swift
 import Foundation
+import Testing
 @testable import GhostCrab
 
 /// Always returns the RFC 8032 TEST 1 identity.
@@ -2136,6 +2145,32 @@ struct GatewayHandshakeTests {
             return
         }
     }
+
+    @Test func secretsNeverReachDescriptionsOrDumps() throws {
+        guard case .response(let response)? = GatewayFrameCodec.decode(try GatewayFixtures.text("hello-ok-paired")) else {
+            Issue.record("fixture is not a response")
+            return
+        }
+        let hello = try GatewayHandshake.parseHello(endpoint: "ws://gw/ws", payload: response.payload)
+        let identity = try DeviceIdentity(seed: TestKeys.rfcSeed)
+        let shared = GatewayConnectAuth.sharedToken("shared-token")
+        let params = try GatewayHandshake.connectParams(client: client, auth: shared, identity: identity,
+                                                        challenge: ConnectChallenge(nonce: "n", ts: 1))
+        let payload = DeviceAuthPayload(
+            deviceId: identity.deviceId, clientId: client.id, clientMode: client.mode, role: "operator", scopes: [],
+            signedAtMs: 1, token: "shared-token", nonce: "n", platform: client.platform, deviceFamily: nil
+        )
+        let device = GatewayConnectAuth.deviceToken("dt-test-0001", scopes: [])
+        let values: [Any] = [params, params.auth as Any, shared, device, hello, payload]
+        for value in values {
+            var dumped = ""
+            dump(value, to: &dumped)
+            for rendered in [String(describing: value), String(reflecting: value), dumped] {
+                #expect(!rendered.contains("shared-token"), "\(type(of: value)) leaks the shared token")
+                #expect(!rendered.contains("dt-test-0001"), "\(type(of: value)) leaks the device token")
+            }
+        }
+    }
 }
 ```
 (`AuthRequirement` already conforms to `Equatable`; if it does not, compare with `if case .token = …`.)
@@ -2229,7 +2264,7 @@ public enum GatewayConnectAuth: Sendable {
     }
 }
 
-extension GatewayConnectAuth: CustomStringConvertible, CustomDebugStringConvertible {
+extension GatewayConnectAuth: CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
     public var description: String {
         switch self {
         case .sharedToken: return "sharedToken(<redacted>)"
@@ -2238,6 +2273,8 @@ extension GatewayConnectAuth: CustomStringConvertible, CustomDebugStringConverti
         }
     }
     public var debugDescription: String { description }
+    /// The default enum mirror would expose the associated token to `dump` and the debugger.
+    public var customMirror: Mirror { Mirror(self, children: ["credential": description], displayStyle: .enum) }
 }
 
 /// `connect.challenge` payload.
@@ -2292,11 +2329,19 @@ public struct GatewayHello: Sendable, Equatable {
     }
 }
 
-extension GatewayHello: CustomStringConvertible {
+extension GatewayHello: CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
     public var description: String {
         "GatewayHello(serverVersion: \(serverVersion), methods: \(methods.count), authMethod: \(authMethod ?? "nil"), "
             + "scopes: \(scopes), deviceToken: \(deviceToken == nil ? "nil" : "<redacted>"), "
             + "gatewayAuthMode: \(gatewayAuthMode ?? "nil"), gatewayHost: \(gatewayHost ?? "nil"))"
+    }
+    public var debugDescription: String { description }
+    public var customMirror: Mirror {
+        Mirror(self, children: [
+            "serverVersion": serverVersion, "methods": methods.count, "authMethod": authMethod ?? "nil", "role": role,
+            "scopes": scopes, "deviceToken": deviceToken == nil ? "nil" : "<redacted>",
+            "gatewayAuthMode": gatewayAuthMode ?? "nil", "gatewayHost": gatewayHost ?? "nil",
+        ], displayStyle: .struct)
     }
 }
 
@@ -2333,6 +2378,29 @@ struct ConnectParams: Encodable, Sendable {
     let locale: String
     let userAgent: String
     let device: Device
+}
+
+// `connect.params` carries the credential: descriptions and mirrors never show it.
+extension ConnectParams: CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
+    var description: String {
+        "ConnectParams(client: \(client.id)/\(client.platform)/\(client.mode), role: \(role), scopes: \(scopes), "
+            + "auth: \(auth?.description ?? "nil"), device: \(device.id))"
+    }
+    var debugDescription: String { description }
+    var customMirror: Mirror {
+        Mirror(self, children: [
+            "client": client, "role": role, "scopes": scopes, "auth": auth?.description ?? "nil", "locale": locale,
+            "userAgent": userAgent, "device": device.id,
+        ], displayStyle: .struct)
+    }
+}
+
+extension ConnectParams.Auth: CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
+    var description: String {
+        "Auth(token: \(token == nil ? "nil" : "<redacted>"), deviceToken: \(deviceToken == nil ? "nil" : "<redacted>"))"
+    }
+    var debugDescription: String { description }
+    var customMirror: Mirror { Mirror(self, children: ["auth": description], displayStyle: .struct) }
 }
 
 /// The `connect` exchange (ADR-0007 decision 3).
@@ -2429,7 +2497,7 @@ public enum GatewayHandshake {
 
 - [ ] **Step 4: Run the test to verify it passes** ⚠ must run on the Mac Mini (steve-mac-mini, Xcode)
 
-Expected: PASS (10 tests).
+Expected: PASS (11 tests).
 
 - [ ] **Step 5: Commit**
 
@@ -3116,6 +3184,22 @@ with
             deviceTokens: DeviceTokenStore(),
             settingsRepository: self.settings
         )
+```
+In the same file reword the two comments that name `requireClient()` (Task 20 Step 1 expects that name nowhere but its definition). Replace
+```swift
+    // because they reach into `requireClient()`, which isn't on the public
+```
+with
+```swift
+    // because they reach into `requireSession()` / `grantedScopes()`, which aren't on the public
+```
+and
+```swift
+        // repositories that need `requireClient()` access.
+```
+with
+```swift
+        // repositories that need `requireSession()` access.
 ```
 
 In `GatewayConnectionManagerCancellationTests.swift` replace
@@ -5462,6 +5546,8 @@ git commit -m "docs(ios): tell Linux/Docker users to enable Bonjour on the gatew
 - Delete: `ios/GhostCrabTests/Api/OpenClawAPIClientDecodingTests.swift`
 - Rewrite: `ios/GhostCrabTests/Api/OpenClawAPIClientTests.swift`, `ios/GhostCrabTests/Api/OpenClawAPIClientTimeoutTests.swift`
 - Modify: `ios/GhostCrabTests/Api/GatewayConnectionManagerCancellationTests.swift`, `ios/GhostCrabTests/Support/GatewayTestDoubles.swift`, `ios/GhostCrabTests/Gateway/GatewayErrorCasesTests.swift`
+- Modify: `.github/workflows/ios-screenshots.yml`, `scripts/mock-gateway/server.mjs`, `scripts/mock-gateway/README.md`
+- Delete: `scripts/mock-gateway/legacy-rest.mjs` (the Android plan's Task 25 kept it for `ios-screenshots.yml` only)
 
 After Tasks 9–14 nothing calls `status()`, `getConfig()`, `updateConfig`, `getModels()`, `setActiveModel`, `getAIRecommendation`, `getInstalledSkills()`, `installSkill`, `uninstallSkill`, `whoami()` or `requireClient()`. Verify before deleting:
 
@@ -5844,17 +5930,46 @@ git rm -r ios/GhostCrab/Domain/Model/Config
 git rm ios/GhostCrabTests/Api/OpenClawAPIClientDecodingTests.swift
 ```
 
-- [ ] **Step 7: Run everything** ⚠ must run on the Mac Mini (steve-mac-mini, Xcode)
+- [ ] **Step 7: Retire the legacy REST mock**
+
+Needs the Android plan's Task 25 on `main` (roadmap M7 merges the Android PR first); if `scripts/mock-gateway/legacy-rest.mjs` does not exist, rebase on `main` first. The app now speaks protocol 4, so the store-screenshot job moves to the protocol-4 mock. In `.github/workflows/ios-screenshots.yml` replace
+```yaml
+          # LEGACY_REST: the iOS app speaks the pre-ADR-0007 REST contract until the iOS protocol-alignment plan
+          # lands (its Task 20 removes this). STATUS_AUTH: that app probes /status without the token.
+          LEGACY_REST=1 PORT=$PORT HOST=127.0.0.1 TOKEN="$GATEWAY_TOKEN" STATUS_AUTH=1 \
+            MOCK_DISPLAY_NAME="$GATEWAY_NAME" MOCK_VERSION="2026.10.1" \
+            MOCK_HARDWARE="arm64 · 32 GB · Ubuntu 24.04" \
+```
+with
+```yaml
+          # AUTO_APPROVE: the simulator is a new device; skip the pairing approval for screenshots.
+          PORT=$PORT HOST=127.0.0.1 TOKEN="$GATEWAY_TOKEN" AUTO_APPROVE=1 \
+            MOCK_DISPLAY_NAME="$GATEWAY_NAME" MOCK_VERSION="2026.10.1" \
+```
+Then remove the legacy mode:
+```bash
+git rm scripts/mock-gateway/legacy-rest.mjs
+```
+In `scripts/mock-gateway/server.mjs`, replace the entry point's `if (process.env.LEGACY_REST === "1") { … } else { … }` with the body of its `else` branch (dedented) and delete the two header-comment lines from `//      LEGACY_REST=1` to `until the iOS plan's Task 20 removes it).`, ending the `MOCK_VERSION (server.version),` line with `.` again. In `scripts/mock-gateway/README.md`, delete the `LEGACY_REST` row.
+
+Run: `git grep -n "LEGACY_REST\|legacy-rest\|STATUS_AUTH\|MOCK_HARDWARE" -- . ':!docs'`
+Expected: no output.
+
+Run: `cd scripts/mock-gateway && npm test`
+Expected: PASS (10 tests). The iOS screenshot workflow itself is run in Task 21 (item 13).
+
+- [ ] **Step 8: Run everything** ⚠ must run on the Mac Mini (steve-mac-mini, Xcode)
 
 Run: `cd ios && xcodegen generate && xcodebuild test -project GhostCrab.xcodeproj -scheme GhostCrab -destination 'platform=iOS Simulator,name=iPhone 16' -only-testing:GhostCrabTests -quiet`
 Expected: PASS. Then the Mac Catalyst compile the PR lane runs: `xcodebuild build -project GhostCrab.xcodeproj -scheme GhostCrab -destination 'platform=macOS,variant=Mac Catalyst' CODE_SIGNING_ALLOWED=NO -quiet` → BUILD SUCCEEDED.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
 git checkout -- ios/GhostCrab/App/BuildInfo.swift
 git add -A ios
-git commit -m "refactor(ios): delete the speculative REST client paths" -m "Only GET /health stays on HTTP and it carries no credential; /status, /config, /api/models/*, /api/ai/recommend, /api/skills/* and their DTOs are gone, as are the unused typed config sections (ADR-0007)."
+git add .github/workflows/ios-screenshots.yml scripts/mock-gateway/server.mjs scripts/mock-gateway/README.md
+git commit -m "refactor(ios): delete the speculative REST client paths" -m "Only GET /health stays on HTTP and it carries no credential; /status, /config, /api/models/*, /api/ai/recommend, /api/skills/* and their DTOs are gone, as are the unused typed config sections. ios-screenshots.yml moves to the protocol-4 mock and its LEGACY_REST mode is deleted (ADR-0007)."
 ```
 (`git add -A ios` is safe here: `BuildInfo.swift` was just restored; check `git status` first and unstage anything that is not part of this task.)
 
@@ -5865,6 +5980,7 @@ git commit -m "refactor(ios): delete the speculative REST client paths" -m "Only
 **Files:**
 - Modify: `docs/QA_REAL_GATEWAY_2026-10.md` (append to §10, or create it if the Android pass has not run yet)
 - Possibly modify (only if the gateway release differs from 2026.10.3): `ios/GhostCrab/Data/Impl/ConfigWrites.swift`, `ios/GhostCrab/Data/Impl/InstalledSkillRepositoryImpl.swift`, `fixtures/gateway-protocol/`
+- Possibly modify (only if the Step 2 no-token check contradicts ADR-0007 item 8): `ios/GhostCrab/Data/Impl/GatewayConnectionManagerImpl.swift`, `ios/GhostCrabTests/Gateway/GatewayConnectionManagerImplTests.swift`
 
 Needs the Mac Mini (simulator), an iPhone for the camera step, a Docker host on the same LAN, and a human. The gateway must see the app as a remote client, so point the app at the Docker host's LAN IP, not `127.0.0.1`.
 
@@ -5881,8 +5997,16 @@ docker inspect --format '{{index .Config.Labels "org.opencontainers.image.versio
 ```
 Record the version. If it is not `2026.10.3`, diff fresh frames against `fixtures/gateway-protocol/2026.10.3/` before going on (the Android plan's `scripts/mock-gateway/probe-real.mjs` prints them, tokens redacted).
 
-- [ ] **Step 2: Re-check the pinned behaviour on a different release** ⚠ manual, only if the version is not `2026.10.3`
+- [ ] **Step 2: Check the uncaptured no-token ordering; re-check the rest on a different release** ⚠ manual
 
+Unless the Android pass (its Task 26 Step 2) already recorded the answer for this gateway version in `docs/QA_REAL_GATEWAY_2026-10.md`, run (needs the Android plan's `scripts/mock-gateway` on `main`):
+```bash
+cd scripts/mock-gateway && npm install
+node probe-real.mjs ws://<docker host LAN IP>:18789/ws '<token>' no-token
+```
+`probeAuth` assumes `AUTH_TOKEN_MISSING` (token gateway → `.token`). If the answer is `PAIRING_REQUIRED`, apply the mapping the Android plan's Task 26 Step 2 describes to `GatewayConnectionManagerImpl.probeAuth`, save the frame(s) under `fixtures/gateway-protocol/2026.10.3/` (tokens replaced) and pin the mapping in `GatewayConnectionManagerImplTests`.
+
+Only if the version is not `2026.10.3`:
 The frames this plan relies on were pinned against `2026.10.3` (M5 plus the 2026-10-15 verification run, ADR-0007). For another release, reuse the Android pass (its Task 26 Step 2) or run `scripts/mock-gateway/probe-real.mjs` (`pair`, `config`, `skills` with `INSTALL_SLUG=@steipete/weather`) and compare with `fixtures/gateway-protocol/2026.10.3/`. On any difference, add a `fixtures/gateway-protocol/<version>/` set (tokens replaced with `dt-test-0001`), adapt `ConfigWrites.mapRejection`, `SkillSource.from(statusSource:bundled:clawhub:)` or the mock, and record it.
 
 - [ ] **Step 3: Run the app against it** ⚠ manual (simulator on the Mac Mini, then a device)
@@ -5900,7 +6024,7 @@ The frames this plan relies on were pinned against `2026.10.3` (M5 plus the 2026
 10. `docker stop openclaw-qa` → the Dashboard leaves Connected (the session socket drop ends in `.error`).
 11. Device (camera): `docker exec openclaw-qa node openclaw.mjs qr --url ws://<docker host LAN IP>:18789/ws` → scan it → the scanner explains that setup codes pair node apps, names `http://<docker host LAN IP>:18789` and points to the gateway token and `openclaw devices approve`; nothing connects, nothing is stored.
 12. Mac Catalyst: paste the same setup code (or an `oc-pair://` link) into Manual Entry's Pairing link field → the same explanation under the field; the form stays empty.
-13. Store screenshots (needs the protocol-4 mock from the Android plan's Task 25 on `main`, which also switches `ios-screenshots.yml` to `AUTO_APPROVE=1`): `gh workflow run ios-screenshots.yml`, then check the artifact: `06-dashboard` shows the gateway name and version from `hello-ok`, the AI screenshot is skipped (tile hidden), `10-skills` lists the mock's skills with Disable instead of Uninstall. Commit refreshed PNGs under `screenshots/store/ios/` only if they look right.
+13. Store screenshots (the protocol-4 mock from the Android plan's Task 25; Task 20 Step 7 switched `ios-screenshots.yml` to it with `AUTO_APPROVE=1`): `gh workflow run ios-screenshots.yml`, then check the artifact: `06-dashboard` shows the gateway name and version from `hello-ok`, the AI screenshot is skipped (tile hidden), `10-skills` lists the mock's skills with Disable instead of Uninstall. Commit refreshed PNGs under `screenshots/store/ios/` only if they look right.
 
 - [ ] **Step 4: Record and commit**
 
@@ -5970,13 +6094,19 @@ Instances on `feat/protocol-alignment-ios` (ADR-0007, iOS):
 - `InstalledSkill.disabled` (additive model field with a default)
 ```
 
-- [ ] **Step 4: Implementation plan ledger**
+- [ ] **Step 4: Implementation plan bookkeeping**
 
-In `docs/IMPLEMENTATION_PLAN.md`, Progress Ledger, add the row:
+In `docs/IMPLEMENTATION_PLAN.md`:
+- Progress Ledger: add the row
 ```markdown
 | — | Protocol alignment, iOS (roadmap M7) | 🟢 Done | <start> | <end> | PR #<n> | — | Plan `docs/superpowers/plans/2026-10-15-protocol-alignment-ios.md`, ADR-0007. |
 ```
-(If the Android plan has not run yet, also make its §5 and §6 edits from the Android plan's Task 27 Step 4, worded for iOS.)
+- §5: Open Questions 1, 2 and 5 already end with ` — **Resolved by ADR-0007** (2026-10-15).` once the Android plan's Task 27 has run. Append exactly that text to any of the three that does not.
+- §6: if the Deviations Log has no row starting `| 2026-10-15 | 2, 6, 7, 8, 12 | Clients move to the real WS protocol 4 (ADR-0007)` (the Android plan's Task 27 adds it), add
+```markdown
+| 2026-10-15 | iOS (roadmap M7) | The iOS client moves to the real WS protocol 4 (ADR-0007): handshake + device pairing, `config.get`/`config.patch`, `models.list` + `agents.defaults.model.primary`, `skills.status`/`install`/`update`; AI recommendations report unavailable. | M5 showed every speculative REST path fails against `ghcr.io/openclaw/openclaw` 2026.10.3 (`docs/QA_REAL_GATEWAY_2026-10.md`). | stevenfackley |
+```
+- Leave the status lines of ADR-002 and ADR-004 alone: the Android plan's Task 27 flips them, and only there.
 
 - [ ] **Step 5: Commit, push, PR**
 
@@ -6013,6 +6143,8 @@ Coverage of every M5 mismatch (`docs/QA_REAL_GATEWAY_2026-10.md` §2, §3, §8) 
 | Bearer on HTTP; no credential may leave over HTTP | 9, 20 |
 | Behaviour pinned by the 2026-10-15 verification run: client-id/mode allow-list and platform pinning; stable `requestId`, 1008 after `PAIRING_REQUIRED`; node-only bootstrap tokens; `baseHash` errors, validation `issues`, `config.patch` success; `skills.update` + `config.changed`; ClawHub install entry | 1, 5, 8, 11, 12, 15, 18 |
 | A new gateway release | 21 (probe-real.mjs re-check) |
+| New device without a credential: `AUTH_TOKEN_MISSING` before `PAIRING_REQUIRED` (assumed, ADR-0007 item 8) | 21 (Step 2, `no-token`) |
+| `ios-screenshots.yml` on the old REST mock (`LEGACY_REST=1`, Android plan Task 25) | 20 (Step 7) |
 
 Placeholder scan: the only `<…>` left are values a person supplies at run time (gateway token, LAN IP, request id, dates and the PR number in the ledger row).
 

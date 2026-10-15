@@ -34,11 +34,13 @@
 
 ## Task order
 
-1. Tasks 1–9 build the protocol layer bottom-up. Nothing in the app uses it until Task 10, so the app compiles and behaves as today after each of them.
+Run the tasks in numeric order; every task assumes the ones before it. The dependencies that are not obvious from the numbering:
+
+1. Tasks 1–9 build the protocol layer bottom-up. Nothing in the app uses it until Task 10, so the app compiles and behaves as today after each of them. Task 8's tests use `OPERATOR_SCOPES` and the RFC 8032 keys from Task 5's `TestKeys.kt`; every test from Task 2 on reads Task 1's fixtures.
 2. Task 10 switches the connection manager to the WS handshake (repositories still compile through `requireClient()`).
-3. Task 11 pins the allow-listed client identity; Tasks 12–18 move one feature at a time onto the session socket.
-4. Tasks 19–23 are the UI (pairing panel, setup-code explanation, discovery copy).
-5. Task 24 deletes the dead REST/JSON-RPC code (needs 10–18). Task 25 (mock gateway) is independent after Task 1. Task 26 is the ⚠ manual real-gateway pass. Task 27 is docs.
+3. Task 11 pins the allow-listed client identity; Tasks 12–18 move one feature at a time onto the session socket. Task 13 introduces `liveSession()` in `DataModule.kt`, which Tasks 15 and 17 use; Task 17 also uses Task 15's `ConfigWrites.kt`.
+4. Tasks 19–23 are the UI (pairing panel, setup-code explanation, discovery copy). Task 21 reuses Task 20's `PairingApprovalCard`.
+5. Task 24 deletes the dead REST/JSON-RPC code and needs Tasks 10–18. Task 25 (mock gateway) needs Task 1's fixtures and nothing else from the app, so it can be done any time after Task 1. Task 26 (⚠ manual real-gateway pass) needs everything before it. Task 27 is docs.
 
 ## File structure
 
@@ -1625,6 +1627,7 @@ git commit -m "feat(gateway): v3 device-auth signature payload" -m "Matches upst
 
 **Files:**
 - Create: `app/src/main/kotlin/com/openclaw/ghostcrab/data/storage/DeviceIdentityStore.kt`
+- Create: `app/src/main/kotlin/com/openclaw/ghostcrab/data/storage/KeystoreReads.kt`
 - Create: `app/src/test/kotlin/com/openclaw/ghostcrab/testutil/InMemorySharedPreferences.kt`
 - Test: `app/src/test/kotlin/com/openclaw/ghostcrab/data/storage/DeviceIdentityStoreTest.kt`
 
@@ -1772,6 +1775,35 @@ Expected: FAIL, `Unresolved reference 'DeviceIdentityStore'`.
 
 - [ ] **Step 4: Implement the store**
 
+`app/src/main/kotlin/com/openclaw/ghostcrab/data/storage/KeystoreReads.kt`:
+```kotlin
+package com.openclaw.ghostcrab.data.storage
+
+import java.io.IOException
+import java.security.GeneralSecurityException
+
+/**
+ * Runs [read] against EncryptedSharedPreferences and maps the failures a lost or reset Keystore key and a corrupt
+ * value produce to `null`: [GeneralSecurityException] (key or keyset unusable), [SecurityException] (the prefs'
+ * wrapper for a failed decrypt), [IOException] (unreadable keyset) and [IllegalArgumentException] (bad Base64 /
+ * JSON). Anything else is a bug and propagates.
+ *
+ * @param read The read; must not have side effects that a retry would repeat.
+ * @return The value, or `null` when it is unreadable.
+ */
+internal inline fun <T> keystoreReadOrNull(read: () -> T?): T? = try {
+    read()
+} catch (_: GeneralSecurityException) {
+    null
+} catch (_: SecurityException) {
+    null
+} catch (_: IOException) {
+    null
+} catch (_: IllegalArgumentException) {
+    null
+}
+```
+
 `app/src/main/kotlin/com/openclaw/ghostcrab/data/storage/DeviceIdentityStore.kt`:
 ```kotlin
 package com.openclaw.ghostcrab.data.storage
@@ -1843,11 +1875,8 @@ class DeviceIdentityStore(
 
     /** The stored seed, or `null` when absent or unusable (an unusable entry is removed first). */
     private fun readSeed(): ByteArray? {
-        val seed = try {
-            prefs.getString(KEY_SEED, null)?.let { Base64.getDecoder().decode(it) }
-        } catch (ignored: Exception) { // Keystore loss surfaces as runtime exceptions; recovery is a new identity
-            null
-        }
+        // Keystore loss or a corrupt value: recovery is a new identity (the gateway then shows a new pairing request).
+        val seed = keystoreReadOrNull { prefs.getString(KEY_SEED, null)?.let { Base64.getDecoder().decode(it) } }
         if (seed?.size == DeviceIdentity.SEED_BYTES) return seed
         prefs.edit().remove(KEY_SEED).commit()
         return null
@@ -1868,7 +1897,7 @@ Expected: PASS (4 tests).
 - [ ] **Step 6: Commit**
 
 ```bash
-git add app/src/main/kotlin/com/openclaw/ghostcrab/data/storage/DeviceIdentityStore.kt app/src/test/kotlin/com/openclaw/ghostcrab/testutil/InMemorySharedPreferences.kt app/src/test/kotlin/com/openclaw/ghostcrab/data/storage/DeviceIdentityStoreTest.kt
+git add app/src/main/kotlin/com/openclaw/ghostcrab/data/storage/DeviceIdentityStore.kt app/src/main/kotlin/com/openclaw/ghostcrab/data/storage/KeystoreReads.kt app/src/test/kotlin/com/openclaw/ghostcrab/testutil/InMemorySharedPreferences.kt app/src/test/kotlin/com/openclaw/ghostcrab/data/storage/DeviceIdentityStoreTest.kt
 git commit -m "feat(storage): encrypted Ed25519 device identity store" -m "Own EncryptedSharedPreferences file so Clear all keeps the pairing valid; an unreadable seed is replaced (new pairing request) instead of blocking every connect."
 ```
 
@@ -2034,11 +2063,9 @@ Insert this block directly before `private val encryptedPrefs: SharedPreferences
     // Same encrypted file as the profile tokens, so clearAll()/wipeTokens() removes them too.
 
     override suspend fun loadDeviceToken(gatewayKey: String): StoredDeviceToken? = withContext(ioDispatcher) {
-        val raw = try {
-            encryptedPrefs.getString(deviceTokenKey(gatewayKey), null)
-        } catch (ignored: Exception) { // Keystore loss: the gateway re-issues a token on the next shared-token connect
-            null
-        }
+        // Keystore loss (typed in keystoreReadOrNull, Task 7): the gateway re-issues a token on the next shared-token
+        // connect.
+        val raw = keystoreReadOrNull { encryptedPrefs.getString(deviceTokenKey(gatewayKey), null) }
         val decoded = raw?.let(::decodeDeviceToken)
         if (raw != null && decoded == null) removeDeviceToken(gatewayKey)
         decoded
@@ -2675,7 +2702,7 @@ Expected: PASS.
 
 - [ ] **Step 5: Rewrite the manager test (failing)**
 
-Replace `app/src/test/kotlin/com/openclaw/ghostcrab/data/GatewayConnectionManagerImplTest.kt` entirely:
+Replace `app/src/test/kotlin/com/openclaw/ghostcrab/data/GatewayConnectionManagerImplTest.kt` with the file below. It keeps, adapted to the WebSocket flow, the six tests on `main` that still apply (concurrent connects, the unclassified-exception wrap, the redacted `toString`, the injected IO dispatcher, the live cleartext opt-in, the fail-closed settings read); the other `main` tests exercise the `/status` probe and the REST session client that this task removes.
 ```kotlin
 package com.openclaw.ghostcrab.data
 
@@ -2691,9 +2718,11 @@ import com.openclaw.ghostcrab.data.ws.WsSession
 import com.openclaw.ghostcrab.domain.exception.GatewayConnectAuthException
 import com.openclaw.ghostcrab.domain.exception.GatewayNotConnectedException
 import com.openclaw.ghostcrab.domain.exception.GatewayPairingRequiredException
+import com.openclaw.ghostcrab.domain.exception.GatewayProtocolException
 import com.openclaw.ghostcrab.domain.exception.GatewayUnreachableException
 import com.openclaw.ghostcrab.domain.model.AuthRequirement
 import com.openclaw.ghostcrab.domain.model.GatewayConnection
+import com.openclaw.ghostcrab.domain.repository.SettingsRepository
 import com.openclaw.ghostcrab.testutil.InMemoryDeviceTokenStore
 import com.openclaw.ghostcrab.testutil.OPERATOR_SCOPES
 import com.openclaw.ghostcrab.testutil.RFC8032_SEED
@@ -2703,7 +2732,19 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.slot
+import io.mockk.verify
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runCurrent
@@ -2715,12 +2756,14 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertInstanceOf
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
+import kotlin.coroutines.CoroutineContext
 
 class GatewayConnectionManagerImplTest {
 
@@ -2736,20 +2779,35 @@ class GatewayConnectionManagerImplTest {
         displayName = "GhostCrab (Android)",
     )
     private val tokens = InMemoryDeviceTokenStore()
+    private val blockCleartext = object : SettingsRepository {
+        override val allowCleartextPublicIPs: Flow<Boolean> = flowOf(false)
+        override suspend fun setAllowCleartextPublicIPs(enabled: Boolean) = Unit
+    }
     private lateinit var rest: OpenClawApiClient
+    private lateinit var factory: OpenClawApiClientFactory
 
-    private fun TestScope.manager(session: WsSession?): GatewayConnectionManagerImpl {
-        rest = mockk(relaxed = true)
-        coEvery { rest.health() } returns HealthResponse("live")
-        if (session != null) coEvery { rest.openWsSession() } returns session
-        every { rest.webSocketUrl() } returns "ws://192.168.1.50:18789/ws"
-        val factory = mockk<OpenClawApiClientFactory> { every { unauthenticated(any(), any()) } returns rest }
+    private fun restClient(session: WsSession?, wsUrl: String): OpenClawApiClient {
+        val client = mockk<OpenClawApiClient>(relaxed = true)
+        coEvery { client.health() } returns HealthResponse("live")
+        if (session != null) coEvery { client.openWsSession() } returns session
+        every { client.webSocketUrl() } returns wsUrl
+        return client
+    }
+
+    private fun TestScope.manager(
+        session: WsSession?,
+        settings: SettingsRepository = blockCleartext,
+        ioDispatcher: CoroutineDispatcher = UnconfinedTestDispatcher(testScheduler),
+    ): GatewayConnectionManagerImpl {
+        rest = restClient(session, "ws://192.168.1.50:18789/ws")
+        factory = mockk { every { unauthenticated(any(), any()) } returns rest }
         return GatewayConnectionManagerImpl(
             identityProvider = identityProvider,
             deviceTokens = tokens,
             clientInfo = clientInfo,
             clientFactory = factory,
-            ioDispatcher = UnconfinedTestDispatcher(testScheduler),
+            settingsRepository = settings,
+            ioDispatcher = ioDispatcher,
         )
     }
 
@@ -2892,6 +2950,109 @@ class GatewayConnectionManagerImplTest {
         assertTrue(session.closedByClient)
         assertEquals(GatewayConnection.Disconnected, m.connectionState.value)
         assertThrows<GatewayNotConnectedException> { m.check() }
+    }
+
+    // ── Kept from main, adapted to the WebSocket flow ────────────────────────
+
+    @Test fun `two concurrent connect calls result in exactly one Connected state`() = runTest {
+        val url2 = "http://192.168.1.51:18789"
+        val first = ScriptedWsSession(respond = fixtures("connect" to "hello-ok-paired"))
+        val second = ScriptedWsSession(respond = fixtures("connect" to "hello-ok-paired"))
+        val m = manager(first)
+        every { factory.unauthenticated(url2, any()) } returns restClient(second, "ws://192.168.1.51:18789/ws")
+
+        val job1 = async { runCatching { m.connect(url, "shared-token") } }
+        val job2 = async { runCatching { m.connect(url2, "shared-token") } }
+        awaitAll(job1, job2)
+
+        // The mutex serialises them: whichever ran first had its socket closed by the second.
+        val finalUrl = (m.connectionState.value as GatewayConnection.Connected).url
+        assertTrue(if (finalUrl == url) second.closedByClient else first.closedByClient)
+    }
+
+    @Test fun `connect wraps an unclassified exception and lands in Error, never stuck Connecting`() = runTest {
+        val m = manager(session = null)
+        coEvery { rest.openWsSession() } throws IllegalStateException("engine rejected URL")
+
+        val exception = runCatching { m.connect(url, null) }.exceptionOrNull()
+
+        assertInstanceOf(GatewayProtocolException::class.java, exception)
+        assertInstanceOf(IllegalStateException::class.java, exception!!.cause)
+        assertEquals(url, (m.connectionState.value as GatewayConnection.Error).url)
+        verify { rest.close() }
+    }
+
+    @Test fun `Connected toString never contains the token`() = runTest {
+        val secret = "super-secret-bearer-value"
+        val m = manager(ScriptedWsSession(respond = fixtures("connect" to "hello-ok-paired")))
+
+        m.connect(url, secret)
+
+        val rendered = m.connectionState.value.toString()
+        assertTrue(rendered.startsWith("Connected("), rendered)
+        assertFalse(rendered.contains(secret), rendered)
+        assertTrue(rendered.contains("tokenOrNull=[REDACTED]"), rendered)
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test fun `connect runs on the injected IO dispatcher`() = runTest {
+        val io = CountingDispatcher(StandardTestDispatcher(testScheduler))
+        val m = manager(ScriptedWsSession(respond = fixtures("connect" to "hello-ok-paired")), ioDispatcher = io)
+        val before = io.dispatches
+
+        m.connect(url, "shared-token")
+
+        assertTrue(io.dispatches > before)
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test fun `turning the cleartext opt-in off applies to the live session`() = runTest {
+        val setting = MutableStateFlow(true)
+        val settings = object : SettingsRepository {
+            override val allowCleartextPublicIPs: Flow<Boolean> = setting
+            override suspend fun setAllowCleartextPublicIPs(enabled: Boolean) {
+                setting.value = enabled
+            }
+        }
+        val m = manager(ScriptedWsSession(respond = fixtures("connect" to "hello-ok-paired")), settings)
+        val policy = slot<() -> Boolean>()
+        every { factory.unauthenticated(any(), capture(policy)) } returns rest
+
+        m.connect(url, "shared-token")
+        assertTrue(policy.captured())
+
+        setting.value = false
+        assertFalse(policy.captured())
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test fun `a settings read error fails closed and does not propagate`() = runTest {
+        val source = MutableSharedFlow<Boolean>(replay = 1)
+        val settings = object : SettingsRepository {
+            override val allowCleartextPublicIPs: Flow<Boolean> =
+                source.map { if (it) true else throw java.io.IOException("datastore gone") }
+            override suspend fun setAllowCleartextPublicIPs(enabled: Boolean) = Unit
+        }
+        source.tryEmit(true)
+        val m = manager(ScriptedWsSession(respond = fixtures("connect" to "hello-ok-paired")), settings)
+        val policy = slot<() -> Boolean>()
+        every { factory.unauthenticated(any(), capture(policy)) } returns rest
+
+        m.connect(url, "shared-token")
+        assertTrue(policy.captured())
+
+        source.tryEmit(false)
+        assertFalse(policy.captured())
+    }
+}
+
+private class CountingDispatcher(private val delegate: CoroutineDispatcher) : CoroutineDispatcher() {
+    var dispatches = 0
+        private set
+
+    override fun dispatch(context: CoroutineContext, block: Runnable) {
+        dispatches++
+        delegate.dispatch(context, block)
     }
 }
 ```
@@ -3164,6 +3325,64 @@ object DefaultClientFactory : OpenClawApiClientFactory {
 }
 ```
 
+Then update the KDoc of the frozen interfaces to the new transport (signatures unchanged, as ADR-0007 promises). In `domain/repository/GatewayConnectionManager.kt` replace
+```kotlin
+     * Probes `GET /health` (unauthenticated) then `GET /status` (unauthenticated).
+     * - `/health` fails → [GatewayUnreachableException]
+     * - `/status` returns 401 or 403 → [AuthRequirement.Token]
+     * - `/status` returns 2xx → [AuthRequirement.None]
+```
+with
+```kotlin
+     * Probes `GET /health`, then a credential-less signed WebSocket `connect` (ADR-0007); the socket is closed
+     * before returning.
+     * - `/health` fails → [GatewayUnreachableException]
+     * - `AUTH_TOKEN_MISSING` / `AUTH_PASSWORD_MISSING` / `AUTH_REQUIRED` → [AuthRequirement.Token]
+     * - `hello-ok` → its auth mode; `PAIRING_REQUIRED` → [AuthRequirement.None] (only the device approval is missing)
+```
+replace
+```kotlin
+     * 2. Calls [probeAuth] to determine auth mode.
+     * 3. Instantiates an authenticated Ktor client.
+     * 4. Fetches `/status` to read version and capabilities.
+     * 5. Emits [GatewayConnection.Connected] on success.
+     * 6. On any failure: emits [GatewayConnection.Error] **and** rethrows the exception.
+```
+with
+```kotlin
+     * 2. Checks `GET /health`.
+     * 3. Opens the control-plane WebSocket and sends a signed `connect` (ADR-0007).
+     * 4. Reads version, auth mode and capabilities from `hello-ok`.
+     * 5. Emits [GatewayConnection.Connected] on success.
+     * 6. On any failure: emits [GatewayConnection.Error] **and** rethrows the exception
+     *    ([com.openclaw.ghostcrab.domain.exception.GatewayPairingRequiredException] while the device awaits approval).
+```
+replace
+```kotlin
+     * @param token Bearer token for authentication. Pass `null` for unauthenticated gateways.
+     * @throws GatewayUnreachableException if the host is not reachable.
+     * @throws GatewayAuthException if authentication fails.
+```
+with
+```kotlin
+     * @param token Shared gateway token, sent in the `connect` frame (never over HTTP). Pass `null` to use this
+     *   gateway's stored device token, or no credential.
+     * @throws GatewayUnreachableException if the host is not reachable.
+     * @throws com.openclaw.ghostcrab.domain.exception.GatewayConnectAuthException if the gateway rejects the
+     *   credential or the device proof.
+```
+and `Cancels the held Ktor client, emits [GatewayConnection.Disconnected].` with `Closes the session's WebSocket, emits [GatewayConnection.Disconnected].`; then delete the now-unused `import com.openclaw.ghostcrab.domain.exception.GatewayAuthException`. In `domain/repository/GatewayHealthChecker.kt` replace
+```kotlin
+ * Liveness probe against the gateway of the **current** session. Uses the live session client, so
+ * it honours the same cleartext policy, timeouts and origin-scoped auth as every other call.
+```
+with
+```kotlin
+ * Liveness probe against the gateway of the **current** session. Uses the live session's control-plane socket
+ * (ADR-0007), so it fails as soon as that socket is gone.
+```
+and `     * Performs one `GET /health` on the active session.` with `     * Performs one `health` RPC on the active session's socket.`. Add both files to this task's `git add`.
+
 - [ ] **Step 8: Wire it in Koin**
 
 In `app/src/main/kotlin/com/openclaw/ghostcrab/di/DataModule.kt`, add imports:
@@ -3223,7 +3442,7 @@ and, after `assertNotNull(koin.get<GatewayHealthChecker>())`:
 - [ ] **Step 10: Run the tests**
 
 Run: `./gradlew testDebugUnitTest --tests "com.openclaw.ghostcrab.data.GatewayConnectionManagerImplTest" --tests "com.openclaw.ghostcrab.di.KoinModulesTest"`
-Expected: PASS (14 + 2 tests).
+Expected: PASS (20 + 2 tests).
 
 - [ ] **Step 11: Full gate**
 
@@ -3233,7 +3452,7 @@ Expected: BUILD SUCCESSFUL. (`DashboardViewModelTest` and the picker/manual-entr
 - [ ] **Step 12: Commit**
 
 ```bash
-git add app/src/main/kotlin/com/openclaw/ghostcrab/data/api/OpenClawApiClient.kt app/src/main/kotlin/com/openclaw/ghostcrab/data/impl/GatewayConnectionManagerImpl.kt app/src/main/kotlin/com/openclaw/ghostcrab/di/DataModule.kt app/src/test/kotlin/com/openclaw/ghostcrab/data/OpenClawApiClientErrorMappingTest.kt app/src/test/kotlin/com/openclaw/ghostcrab/data/GatewayConnectionManagerImplTest.kt app/src/test/kotlin/com/openclaw/ghostcrab/di/KoinModulesTest.kt
+git add app/src/main/kotlin/com/openclaw/ghostcrab/data/api/OpenClawApiClient.kt app/src/main/kotlin/com/openclaw/ghostcrab/data/impl/GatewayConnectionManagerImpl.kt app/src/main/kotlin/com/openclaw/ghostcrab/di/DataModule.kt app/src/main/kotlin/com/openclaw/ghostcrab/domain/repository/GatewayConnectionManager.kt app/src/main/kotlin/com/openclaw/ghostcrab/domain/repository/GatewayHealthChecker.kt app/src/test/kotlin/com/openclaw/ghostcrab/data/OpenClawApiClientErrorMappingTest.kt app/src/test/kotlin/com/openclaw/ghostcrab/data/GatewayConnectionManagerImplTest.kt app/src/test/kotlin/com/openclaw/ghostcrab/di/KoinModulesTest.kt
 git commit -m "feat(connection): connect over the protocol-4 WS handshake" -m "Replaces the /status auth probe (ADR-002, superseded by ADR-0007) with /health plus a signed connect. Auth mode, version, host and capabilities come from hello-ok; device tokens are stored per gateway and reused; health polling uses the health RPC on the session socket. No credential goes over HTTP any more."
 ```
 
@@ -3965,7 +4184,7 @@ Expected: FAIL, `Unresolved reference 'setSkillEnabled'`.
 
 - [ ] **Step 3: Add the additive member and implement it**
 
-In `domain/repository/InstalledSkillRepository.kt`, replace the KDoc lines 3–8 of the interface with
+In `domain/repository/InstalledSkillRepository.kt`, replace the interface KDoc (lines 7–12, starting `Frozen v1.1 contract — additive only. Install + list + uninstall via gateway WebSocket.`) with
 ```kotlin
 /**
  * Frozen v1.1 contract — additive only. Lists, installs and enables/disables gateway skills over the session
@@ -6468,8 +6687,8 @@ Expected: no output.
 
 - [ ] **Step 7: Full gate, release build**
 
-Run: `./gradlew testDebugUnitTest detekt lintDebug assembleRelease`
-Expected: BUILD SUCCESSFUL. If R8 warns about a removed DTO in `app/proguard-rules.pro`, delete that rule.
+Run: `./gradlew testDebugUnitTest detekt lintDebug assembleRelease :app:assembleDebugAndroidTest`
+Expected: BUILD SUCCESSFUL (`assembleDebugAndroidTest` compiles `StoreScreenshotTest` and the other instrumented tests against the slimmed client). If R8 warns about a removed DTO in `app/proguard-rules.pro`, delete that rule.
 
 - [ ] **Step 8: Commit**
 
@@ -6486,6 +6705,7 @@ git commit -m "refactor: remove the speculative REST and JSON-RPC client paths" 
 - Create: `scripts/mock-gateway/lib/device.mjs`, `scripts/mock-gateway/lib/client.mjs`, `scripts/mock-gateway/test/conformance.test.mjs`, `scripts/mock-gateway/probe-real.mjs`
 - Rewrite: `scripts/mock-gateway/server.mjs`, `scripts/mock-gateway/README.md`, `scripts/mock-gateway/package.json`
 - Modify: `scripts/mock-gateway/.gitignore`, `.github/workflows/ci.yml`, `.github/workflows/android-screenshots.yml`, `.github/workflows/ios-screenshots.yml` (the store-screenshot jobs from PR #131 start this mock)
+- Rename: `scripts/mock-gateway/server.mjs` → `scripts/mock-gateway/legacy-rest.mjs` (today's REST + JSON-RPC mock, byte-for-byte; `server.mjs` serves it with `LEGACY_REST=1` until the iOS plan's Task 20 deletes it, because `ios-screenshots.yml` drives the not-yet-aligned iOS app)
 - Delete: `scripts/mock-gateway/smoke-ws.mjs`
 
 The mock is what on-device QA and the conformance tests run against, so it must reject everything the real gateway rejects. Error and success shapes are compared against the fixtures from Task 1, including the frames pinned on 2026-10-15 (client-id allow-list, platform pinning, stable `requestId`, operator-refused bootstrap tokens, `config.patch` errors and success, `skills.update` + `config.changed`, ClawHub install entries). Node 24 (built-in `WebSocket` client, `node:test`).
@@ -6779,6 +6999,12 @@ Expected: FAIL (`createMockGateway` is not exported by the old `server.mjs`).
 
 - [ ] **Step 4: Rewrite the server**
 
+Keep today's mock for the store-screenshot job of the iOS app, which speaks the old REST contract until the iOS plan lands:
+```bash
+git mv scripts/mock-gateway/server.mjs scripts/mock-gateway/legacy-rest.mjs
+```
+Then write the new server.
+
 `scripts/mock-gateway/server.mjs`:
 ```js
 #!/usr/bin/env node
@@ -6790,7 +7016,9 @@ Expected: FAIL (`createMockGateway` is not exported by the old `server.mjs`).
 //   Mock-only routes (never on a real gateway): POST /__mock/devices/approve, POST /__mock/setup-code.
 // Env: PORT (18790), HOST (0.0.0.0), TOKEN (shared token; unset = auth mode none), SCOPES (granted subset),
 //      AUTO_APPROVE=1 (approve new devices at once), FAIL_MODE (comma list: install-unavailable),
-//      MOCK_DISPLAY_NAME (presence host = the app's gateway name), MOCK_VERSION (server.version).
+//      MOCK_DISPLAY_NAME (presence host = the app's gateway name), MOCK_VERSION (server.version),
+//      LEGACY_REST=1 (serve the pre-ADR-0007 REST mock in legacy-rest.mjs instead; ios-screenshots.yml only,
+//      until the iOS plan's Task 20 removes it).
 import http from "node:http";
 import { createHash, randomUUID } from "node:crypto";
 import { pathToFileURL } from "node:url";
@@ -7192,17 +7420,23 @@ export function createMockGateway({
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const gateway = createMockGateway({
-    token: process.env.TOKEN || null,
-    scopes: (process.env.SCOPES || ALL_SCOPES.join(",")).split(",").map((s) => s.trim()).filter(Boolean),
-    autoApprove: process.env.AUTO_APPROVE === "1",
-    failModes: (process.env.FAIL_MODE || "").split(",").map((s) => s.trim()).filter(Boolean),
-    displayName: process.env.MOCK_DISPLAY_NAME || "mock-gateway",
-    version: process.env.MOCK_VERSION || MOCK_VERSION,
-  });
-  const address = await gateway.listen(Number(process.env.PORT || 18790), process.env.HOST || "0.0.0.0");
-  console.log(`mock OpenClaw gateway (protocol ${PROTOCOL}) on ${address.address}:${address.port}`);
-  console.log(`approve pending devices: curl -X POST http://127.0.0.1:${address.port}/__mock/devices/approve`);
+  if (process.env.LEGACY_REST === "1") {
+    // Today's REST + JSON-RPC mock (it listens on import), kept only for ios-screenshots.yml until the iOS app
+    // speaks protocol 4; the iOS plan's Task 20 deletes legacy-rest.mjs and this branch.
+    await import("./legacy-rest.mjs");
+  } else {
+    const gateway = createMockGateway({
+      token: process.env.TOKEN || null,
+      scopes: (process.env.SCOPES || ALL_SCOPES.join(",")).split(",").map((s) => s.trim()).filter(Boolean),
+      autoApprove: process.env.AUTO_APPROVE === "1",
+      failModes: (process.env.FAIL_MODE || "").split(",").map((s) => s.trim()).filter(Boolean),
+      displayName: process.env.MOCK_DISPLAY_NAME || "mock-gateway",
+      version: process.env.MOCK_VERSION || MOCK_VERSION,
+    });
+    const address = await gateway.listen(Number(process.env.PORT || 18790), process.env.HOST || "0.0.0.0");
+    console.log(`mock OpenClaw gateway (protocol ${PROTOCOL}) on ${address.address}:${address.port}`);
+    console.log(`approve pending devices: curl -X POST http://127.0.0.1:${address.port}/__mock/devices/approve`);
+  }
 }
 ```
 
@@ -7213,8 +7447,10 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
 #!/usr/bin/env node
 // Re-checks a real OpenClaw gateway against the behaviour pinned in fixtures/gateway-protocol/2026.10.3 (run it when a
 // new gateway release ships). Uses the conformance tests' client; prints frames, never tokens.
-// usage: node probe-real.mjs <ws-url> <shared-token> [pair|config|skills]
-//   pair    connect with a persistent identity (.probe-identity.json, gitignored) and print hello-ok.auth
+// usage: node probe-real.mjs <ws-url> <shared-token> [pair|no-token|config|skills]
+//   pair      connect with a persistent identity (.probe-identity.json, gitignored) and print hello-ok.auth
+//   no-token  credential-less connect from a never-seen device: does the gateway answer AUTH_TOKEN_MISSING (what
+//             probeAuth assumes) or PAIRING_REQUIRED first? Not captured so far.
 //   config  config.patch with a wrong and with no baseHash (both rejected; nothing changes)
 //   skills  skills.update disable+enable of SKILL_KEY (default browser-automation) with the config.changed timing;
 //           optional INSTALL_SLUG install
@@ -7223,8 +7459,14 @@ import { connect } from "./lib/client.mjs";
 import { newIdentity } from "./lib/device.mjs";
 const [url, token, scenario = "pair"] = process.argv.slice(2);
 if (!url || !token) {
-  console.error("usage: node probe-real.mjs <ws-url> <shared-token> [pair|config|skills]");
+  console.error("usage: node probe-real.mjs <ws-url> <shared-token> [pair|no-token|config|skills]");
   process.exit(2);
+}
+if (scenario === "no-token") {
+  const probe = await connect(url, { identity: newIdentity() });
+  console.log("credential-less connect, new device:", JSON.stringify(probe.hello ? probe.hello.auth : probe.error));
+  probe.close();
+  process.exit(0);
 }
 const identityFile = new URL("./.probe-identity.json", import.meta.url); // holds a private key: gitignored
 const identity = fs.existsSync(identityFile) ? JSON.parse(fs.readFileSync(identityFile, "utf8")) : newIdentity();
@@ -7334,6 +7576,7 @@ curl -X POST http://127.0.0.1:18790/__mock/setup-code
 | `FAIL_MODE` | *(none)* | `install-unavailable`: every `skills.install` fails like an unknown ClawHub slug |
 | `MOCK_DISPLAY_NAME` | `mock-gateway` | gateway host in `hello-ok` presence: the name the apps show (store screenshots use `Home Lab`) |
 | `MOCK_VERSION` | `2026.10.3-mock` | `hello-ok.server.version` |
+| `LEGACY_REST` | *(off)* | `1` serves the pre-ADR-0007 REST mock (`legacy-rest.mjs`, with its old `STATUS_AUTH` / `MOCK_HARDWARE` switches) for `ios-screenshots.yml` until the iOS plan's Task 20 removes it |
 
 Methods: `health`, `status`, `models.list`, `skills.status`, `skills.install`, `skills.update`, `config.get`,
 `config.patch` (`baseHash` required; `gateway.port` validated; `__OPENCLAW_REDACTED__` restores the secret).
@@ -7352,7 +7595,7 @@ CI runs them in the `mock-gateway` job of `.github/workflows/ci.yml`.
 
 ## Probing a real gateway
 
-`node probe-real.mjs ws://<host>:18789/ws <token> [pair|config|skills]` connects with a persistent device
+`node probe-real.mjs ws://<host>:18789/ws <token> [pair|no-token|config|skills]` connects with a persistent device
 identity (`.probe-identity.json`, gitignored) and prints frames with device tokens redacted. Run it when a new
 gateway release ships, to re-check what the fixtures pin (`baseHash` errors, `skills.update` and the
 `config.changed` timing, ClawHub skill entries).
@@ -7367,6 +7610,14 @@ scope/role upgrade requests, and `role: "node"` clients (the only ones setup cod
 
 Run: `cd scripts/mock-gateway && npm install && npm test`
 Expected: PASS (10 tests).
+
+Then check the legacy mode still serves the old REST surface:
+```bash
+cd scripts/mock-gateway
+LEGACY_REST=1 PORT=18795 node server.mjs & MOCK_PID=$!
+sleep 2; curl -fsS http://127.0.0.1:18795/status; kill "$MOCK_PID"
+```
+Expected: the old `/status` JSON (`{"displayName":"Mock OpenClaw Gateway",…}`).
 
 - [ ] **Step 8: Add the CI job**
 
@@ -7393,7 +7644,7 @@ In `.github/workflows/ci.yml`, add under `jobs:` after the `ci:` job:
 
 - [ ] **Step 9: Keep the store-screenshot jobs working**
 
-`android-screenshots.yml` and `ios-screenshots.yml` (PR #131) start this mock with the old REST-only switches. `STATUS_AUTH` and `MOCK_HARDWARE` no longer exist (the protocol has no `/status` probe and no hardware line), and without `AUTO_APPROVE=1` the app would sit on the approval panel instead of reaching the Dashboard.
+`android-screenshots.yml` and `ios-screenshots.yml` (PR #131) start this mock with the old REST-only switches. The Android app is aligned in this same PR, so its job moves to the protocol-4 mock: `STATUS_AUTH` and `MOCK_HARDWARE` no longer exist (no `/status` probe, no hardware line), and without `AUTO_APPROVE=1` the app would sit on the approval panel instead of reaching the Dashboard. The iOS app still speaks REST until the iOS plan lands, so its job keeps today's mock through `LEGACY_REST=1`.
 
 In `.github/workflows/android-screenshots.yml`, replace
 ```yaml
@@ -7417,17 +7668,19 @@ In `.github/workflows/ios-screenshots.yml`, replace
 ```
 with
 ```yaml
-          # AUTO_APPROVE: the simulator is a new device; skip the pairing approval for screenshots.
-          PORT=$PORT HOST=127.0.0.1 TOKEN="$GATEWAY_TOKEN" AUTO_APPROVE=1 \
+          # LEGACY_REST: the iOS app speaks the pre-ADR-0007 REST contract until the iOS protocol-alignment plan
+          # lands (its Task 20 removes this). STATUS_AUTH: that app probes /status without the token.
+          LEGACY_REST=1 PORT=$PORT HOST=127.0.0.1 TOKEN="$GATEWAY_TOKEN" STATUS_AUTH=1 \
             MOCK_DISPLAY_NAME="$GATEWAY_NAME" MOCK_VERSION="2026.10.1" \
+            MOCK_HARDWARE="arm64 · 32 GB · Ubuntu 24.04" \
 ```
-Both workflows keep their `curl …/health` readiness check (still JSON). Until the iOS plan lands, the iOS app still speaks the old REST contract, so `ios-screenshots.yml` cannot reach the Dashboard against this mock: run it only after the iOS plan merges (it is `workflow_dispatch`-only; note this in the PR description). The AI screenshot step is skipped by both tests once the AI entry points are hidden (the Android test's `waitForText` returns `false` without recording a miss; the iOS step is `required: false`).
+Both workflows keep their `curl …/health` readiness check (JSON in both modes). The Android AI screenshot step is skipped once the AI entry points are hidden (the test's `waitForText` returns `false` without recording a miss).
 
 - [ ] **Step 10: Commit**
 
 ```bash
 cd scripts/mock-gateway && npm install --package-lock-only && cd ../..
-git add -A scripts/mock-gateway .github/workflows/ci.yml .github/workflows/android-screenshots.yml .github/workflows/ios-screenshots.yml
+git add -A scripts/mock-gateway .github/workflows/ci.yml .github/workflows/android-screenshots.yml .github/workflows/ios-screenshots.yml   # includes the legacy-rest.mjs rename
 git commit -m "test(mock-gateway): speak the real OpenClaw protocol 4" -m "Challenge, Ed25519-signed connect with the client-id/mode allow-lists, pairing approval with a stable requestId and platform pinning, device tokens, operator-refused setup codes, string error codes, skills.status/install/update with config.changed, config.get/patch with the verified baseHash errors. Conformance tests compare shapes with the captured 2026.10.3 frames and run in CI; probe-real.mjs re-checks a new gateway release."
 ```
 
@@ -7453,7 +7706,14 @@ docker inspect --format '{{index .Config.Labels "org.opencontainers.image.versio
 ```
 Record the version. The frames the plan relies on were pinned against `2026.10.3` (M5 plus the 2026-10-15 verification run, ADR-0007), so Step 2 is needed only for a different release.
 
-- [ ] **Step 2: Re-check the pinned behaviour on a different release** ⚠ manual, only if the version is not `2026.10.3`
+- [ ] **Step 2: Check the one ordering never captured, and re-check the rest on a different release** ⚠ manual
+
+Always run (a fresh identity each time; the gateway has never seen it):
+```bash
+cd scripts/mock-gateway
+node probe-real.mjs ws://127.0.0.1:18789/ws '<token>' no-token
+```
+`probeAuth` assumes the answer is `AUTH_TOKEN_MISSING` (token gateway → Token). If it is `PAIRING_REQUIRED` instead, the probe would report None for a token gateway. In that case run the same mode against a gateway with `gateway.auth.mode: none` and compare the two `PAIRING_REQUIRED` frames: map on whatever differs (`details.reason`, say); if nothing differs, map `PAIRING_REQUIRED` to `AuthRequirement.Token` (asking for a token an open gateway does not need is the safe error). Save the frame(s) under `fixtures/gateway-protocol/2026.10.3/` as `err-no-token-new-device*.json` (tokens replaced) and pin the mapping in `GatewayConnectionManagerImplTest`. Then, only if the version is not `2026.10.3`:
 
 ```bash
 cd scripts/mock-gateway
@@ -7496,15 +7756,15 @@ git commit -m "docs: verify the protocol alignment against the real gateway" -m 
 **Files:**
 - Modify: `docs/adr/0002-auth-mode-probing.md`, `docs/adr/0004-gateway-proxied-ai.md`, `docs/adr/0005-additive-repository-methods.md`, `CHANGELOG.md`, `CLAUDE.md`, `docs/IMPLEMENTATION_PLAN.md`
 
-- [ ] **Step 1: Mark the superseded decisions**
+- [ ] **Step 1: Mark the superseded decisions** (the only place the ADR-002 / ADR-004 status lines change; the iOS plan does not touch them)
 
 In `docs/adr/0002-auth-mode-probing.md` replace `**Status:** Accepted` with:
 ```markdown
-**Status:** Superseded by ADR-007 (2026-10-14). The real gateway serves HTML at `/status` to every caller; auth is detected from the WS `connect` outcome instead.
+**Status:** Superseded by ADR-0007 (2026-10-15). The real gateway serves HTML at `/status` to every caller; auth is detected from the WS `connect` outcome instead.
 ```
 In `docs/adr/0004-gateway-proxied-ai.md` replace `**Status:** Accepted` with:
 ```markdown
-**Status:** Accepted; amended by ADR-007 (2026-10-14): OpenClaw has no recommendation API, so the feature is disabled (`AI_PRO_ENABLED = false`) until a `chat.send`-based design gets its own ADR. The rule "no provider keys on the device" stands.
+**Status:** Accepted; amended by ADR-0007 (2026-10-15): OpenClaw has no recommendation API, so the feature is disabled (`AI_PRO_ENABLED = false`) until a `chat.send`-based design gets its own ADR. The rule "no provider keys on the device" stands.
 ```
 In `docs/adr/0005-additive-repository-methods.md`, after the last instance list, add:
 ```markdown
@@ -7569,10 +7829,10 @@ Replace the "BuildConfig fields" bullet with:
 - [ ] **Step 4: Implementation plan bookkeeping**
 
 In `docs/IMPLEMENTATION_PLAN.md`:
-- §5: append ` — **Resolved by ADR-007** (2026-10-14).` to Open Questions 1, 2 and 5.
+- §5: append ` — **Resolved by ADR-0007** (2026-10-15).` to Open Questions 1, 2 and 5.
 - §6: add the row
 ```markdown
-| 2026-10-14 | 2, 6, 7, 8, 12 | Clients move to the real WS protocol 4 (ADR-0007): handshake + device pairing, `config.get`/`config.patch`, `models.list` + `agents.defaults.model.primary`, `skills.status`/`install`/`update`; AI recommendations disabled; mock gateway rewritten. | M5 showed every speculative REST/JSON-RPC path fails against `ghcr.io/openclaw/openclaw` 2026.10.3 (`docs/QA_REAL_GATEWAY_2026-10.md`). | stevenfackley |
+| 2026-10-15 | 2, 6, 7, 8, 12 | Clients move to the real WS protocol 4 (ADR-0007): handshake + device pairing, `config.get`/`config.patch`, `models.list` + `agents.defaults.model.primary`, `skills.status`/`install`/`update`; AI recommendations disabled; mock gateway rewritten. | M5 showed every speculative REST/JSON-RPC path fails against `ghcr.io/openclaw/openclaw` 2026.10.3 (`docs/QA_REAL_GATEWAY_2026-10.md`). | stevenfackley |
 ```
 - Progress Ledger: add the row
 ```markdown
@@ -7613,3 +7873,5 @@ Coverage of every M5 mismatch (`docs/QA_REAL_GATEWAY_2026-10.md` §2, §3, §8):
 | Bearer on the WS upgrade is useless; logcat bearer check | 10, 24 |
 | Behaviour pinned by the 2026-10-15 verification run: client-id/mode allow-list and platform pinning; stable `requestId`, 1008 after `PAIRING_REQUIRED`; node-only bootstrap tokens; `baseHash` errors, validation `issues`, `config.patch` success; `skills.update` + `config.changed`; ClawHub install entry | 1, 11, 13, 14, 15, 19, 22, 25 |
 | A new gateway release | 26 (probe-real.mjs re-check) |
+| New device without a credential: `AUTH_TOKEN_MISSING` before `PAIRING_REQUIRED` (assumed, ADR-0007 item 8) | 26 (Step 2, `no-token`) |
+| `ios-screenshots.yml` still needs the REST mock until the iOS plan lands | 25 (`LEGACY_REST=1`; the iOS plan's Task 20 removes it) |
