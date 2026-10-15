@@ -26,7 +26,7 @@ public final class AIRecommendationServiceImpl: AIRecommendationService, Sendabl
     /// - Throws: ``GatewayError/aiServiceUnavailable(url:)`` naming the connected gateway (not retryable);
     ///   ``GatewayError/unreachable(url:underlying:)`` while disconnected.
     public func getRecommendation(query: String, context: RecommendationContext) async throws -> AIRecommendation {
-        guard case let .connected(url, _, _, _, _, _, _, _) = connectionManager.currentState else {
+        guard case let .connected(url, _, _, _, _, _, _, _, _, _) = connectionManager.currentState else {
             throw GatewayError.unreachable(url: "<no active connection>", underlying: nil)
         }
         throw GatewayError.aiServiceUnavailable(url: url)

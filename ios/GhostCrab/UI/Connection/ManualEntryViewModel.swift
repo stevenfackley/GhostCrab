@@ -364,7 +364,7 @@ public final class ManualEntryViewModel {
             let displayName: String
             if let pairedName = self.pairedName {
                 displayName = pairedName
-            } else if case let .connected(_, name, _, _, _, _, _, _) = self.connectionManager.currentState {
+            } else if case let .connected(_, name, _, _, _, _, _, _, _, _) = self.connectionManager.currentState {
                 displayName = name
             } else {
                 displayName = url

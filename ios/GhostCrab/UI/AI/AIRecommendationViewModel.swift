@@ -191,7 +191,7 @@ public final class AIRecommendationViewModel {
     private func buildContext() async -> RecommendationContext {
         let conn = gateway.currentState
         var hardwareInfo: String?
-        if case .connected(_, _, _, _, _, _, let hw, _) = conn {
+        if case .connected(_, _, _, _, _, _, let hw, _, _, _) = conn {
             hardwareInfo = hw
         }
 

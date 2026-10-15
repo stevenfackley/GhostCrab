@@ -66,7 +66,7 @@ public struct DashboardScreen: View {
         VStack(alignment: .leading, spacing: DesignTokens.Spacing.md) {
 
             // Security banners come before the body content — same order as Android.
-            if case .connected(_, _, _, let authReq, let isHttps, _, _, _) = vm.connection {
+            if case .connected(_, _, _, let authReq, let isHttps, _, _, _, _, _) = vm.connection {
                 if !isHttps {
                     HttpSecurityBanner(httpWithoutAuth: authReq == .none)
                 }
@@ -111,6 +111,8 @@ public struct DashboardScreen: View {
                     let version,
                     _,
                     let isHttps,
+                    _,
+                    _,
                     _,
                     _,
                     _

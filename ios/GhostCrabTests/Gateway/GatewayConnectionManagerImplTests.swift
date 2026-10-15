@@ -19,7 +19,8 @@ struct GatewayConnectionManagerImplTests {
         healthy: Bool = true,
         identity: FixedIdentityProvider = FixedIdentityProvider(),
         deviceTokens: (any DeviceTokenStoring)? = nil,
-        challengeTimeout: Duration = GatewayHandshake.challengeTimeout
+        challengeTimeout: Duration = GatewayHandshake.challengeTimeout,
+        clock: any Clock<Duration> = ContinuousClock()
     ) -> (GatewayConnectionManagerImpl, String) {
         let base = MockURLProtocol.uniqueBaseURL()
         if healthy {
@@ -31,7 +32,8 @@ struct GatewayConnectionManagerImplTests {
             clientInfo: Self.clientInfo,
             clientFactory: MockRESTFactory(),
             socketFactory: FixedSocketFactory(sockets: sockets),
-            challengeTimeout: challengeTimeout
+            challengeTimeout: challengeTimeout,
+            clock: clock
         )
         return (manager, base.absoluteString)
     }
@@ -58,6 +60,13 @@ struct GatewayConnectionManagerImplTests {
         Issue.record("the manager stayed connected")
     }
 
+    /// A socket whose handshake fails at once with a transport error (`.unreachable`): a reconnect onto it fails.
+    private static func deadSocket() async throws -> ScriptedGatewayWebSocket {
+        let socket = try ScriptedGatewayWebSocket(challenge: false)
+        await socket.failTransport(URLError(.networkConnectionLost))
+        return socket
+    }
+
     // MARK: connect
 
     @Test func sharedTokenConnectSignsTheHandshakeAndLandsConnected() async throws {
@@ -65,10 +74,13 @@ struct GatewayConnectionManagerImplTests {
         let (manager, url) = makeManager(socket)
         try await manager.connect(url: url, token: "shared-token")
 
-        guard case let .connected(stateURL, name, version, auth, isHttps, capabilities, hardware, token) = manager.currentState else {
+        guard case let .connected(stateURL, name, version, auth, isHttps, capabilities, hardware, token, reconnecting,
+                                  generation) = manager.currentState else {
             Issue.record("expected connected, got \(manager.currentState)")
             return
         }
+        #expect(!reconnecting)
+        #expect(generation == 1)
         #expect(stateURL == url)
         #expect(name == "ecb0a0611ff5")
         #expect(version == "2026.10.3")
@@ -327,9 +339,10 @@ struct GatewayConnectionManagerImplTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func aDroppedSessionSocketEndsInErrorAndIsClosedOnce() async throws {
+    func aDroppedSocketWhoseReconnectFailsEndsInTheEndCauseAndClosesEverySocketOnce() async throws {
         let socket = try ScriptedGatewayWebSocket(replies: try .fixtures(["connect": "hello-ok-paired"]))
-        let (manager, url) = makeManager(socket)
+        let dead = try await Self.deadSocket()
+        let (manager, url) = makeManager([socket, dead])
         try await manager.connect(url: url, token: "shared-token")
         await socket.drop()
         try await waitUntilNotConnected(manager)
@@ -339,14 +352,16 @@ struct GatewayConnectionManagerImplTests {
         }
         #expect(await manager.grantedScopes() == nil)
         #expect(await socket.closeCount == 1)
+        #expect(await dead.closeCount == 1)
         await manager.disconnect()
         #expect(await socket.closeCount == 1)
+        #expect(await dead.closeCount == 1)
     }
 
     @Test(.timeLimit(.minutes(1)))
     func aPolicyCloseOfTheSessionSocketKeepsItsCloseCode() async throws {
         let socket = try ScriptedGatewayWebSocket(replies: try .fixtures(["connect": "hello-ok-paired"]))
-        let (manager, url) = makeManager(socket)
+        let (manager, url) = makeManager([socket, try await Self.deadSocket()])
         try await manager.connect(url: url, token: "shared-token")
         await socket.drop(closeCode: 1008, reason: "device removed")
         try await waitUntilNotConnected(manager)
@@ -355,5 +370,149 @@ struct GatewayConnectionManagerImplTests {
             return
         }
         #expect(await socket.closeCount == 1)
+    }
+
+    // MARK: silent reconnect
+
+    @Test(.timeLimit(.minutes(1)))
+    func aDroppedSocketReconnectsSilentlyWithTheStoredDeviceTokenAsANewSession() async throws {
+        let first = try ScriptedGatewayWebSocket(replies: try .fixtures(["connect": "hello-ok-paired"]))
+        let second = try ScriptedGatewayWebSocket(replies: try .fixtures(["connect": "hello-ok-paired", "health": "res-health"]))
+        let (manager, url) = makeManager([first, second])
+        try await manager.connect(url: url, token: "shared-token")
+        var states = manager.connectionStates().makeAsyncIterator()
+        let replayed = await states.next() // the live session
+        #expect(replayed?.sessionGeneration == 1)
+
+        await first.drop()
+
+        let blip = await states.next()
+        #expect(blip?.isReconnecting == true)
+        #expect(blip?.sessionGeneration == 1)
+        let reconnected = await states.next()
+        #expect(reconnected?.isReconnecting == false)
+        #expect(reconnected?.sessionGeneration == 2)
+        guard case let .connected(stateURL, _, _, _, _, capabilities, _, token, _, _)? = reconnected else {
+            Issue.record("expected connected, got \(String(describing: reconnected))")
+            return
+        }
+        #expect(stateURL == url)
+        #expect(capabilities == ["config", "models", "skills"])
+        #expect(token == "shared-token") // the session keeps the user's token for the next connect
+        // Same identity, the device token the first hello-ok issued, no shared token.
+        let auth = try #require(try await sentParams(second, "connect")["auth"] as? [String: Any])
+        #expect(auth["deviceToken"] as? String == "dt-test-0001")
+        #expect(auth["token"] == nil)
+        #expect((try await sentParams(second, "connect")["device"] as? [String: Any])?["id"] as? String == TestKeys.rfcDeviceId)
+        #expect(await first.closeCount == 1)
+        #expect(await second.closeCount == 0)
+        _ = try await manager.requireSession().request("health")
+        #expect(await second.sentMethods() == ["connect", "health"])
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func aSecondDropWithinTheRearmIntervalEndsInError() async throws {
+        let clock = TestClock()
+        let first = try ScriptedGatewayWebSocket(replies: try .fixtures(["connect": "hello-ok-paired"]))
+        let second = try ScriptedGatewayWebSocket(replies: try .fixtures(["connect": "hello-ok-paired"]))
+        let third = try ScriptedGatewayWebSocket(replies: try .fixtures(["connect": "hello-ok-paired"]))
+        let (manager, url) = makeManager([first, second, third], clock: clock)
+        try await manager.connect(url: url, token: "shared-token")
+        var states = manager.connectionStates().makeAsyncIterator()
+        _ = await states.next()
+        await first.drop()
+        _ = await states.next() // reconnecting
+        let reconnected = await states.next()
+        #expect(reconnected?.sessionGeneration == 2)
+
+        clock.advance(by: GatewayConnectionManagerImpl.reconnectRearmInterval - .seconds(1))
+        await second.drop()
+
+        let ended = await states.next()
+        guard case .error(let errorURL, .unreachable)? = ended else {
+            Issue.record("expected error(unreachable), got \(manager.currentState)")
+            return
+        }
+        #expect(errorURL == url)
+        #expect(await third.sentMethods().isEmpty) // no second reconnect
+        #expect(await second.closeCount == 1)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func aReconnectedSessionThatStayedLiveEarnsAnotherSilentReconnect() async throws {
+        let clock = TestClock()
+        let first = try ScriptedGatewayWebSocket(replies: try .fixtures(["connect": "hello-ok-paired"]))
+        let second = try ScriptedGatewayWebSocket(replies: try .fixtures(["connect": "hello-ok-paired"]))
+        let third = try ScriptedGatewayWebSocket(replies: try .fixtures(["connect": "hello-ok-paired"]))
+        let (manager, url) = makeManager([first, second, third], clock: clock)
+        try await manager.connect(url: url, token: "shared-token")
+        var states = manager.connectionStates().makeAsyncIterator()
+        _ = await states.next()
+        await first.drop()
+        _ = await states.next() // reconnecting
+        let reconnected = await states.next()
+        #expect(reconnected?.sessionGeneration == 2)
+
+        clock.advance(by: GatewayConnectionManagerImpl.reconnectRearmInterval)
+        await second.drop()
+
+        let blip = await states.next()
+        #expect(blip?.isReconnecting == true)
+        let again = await states.next()
+        #expect(again?.isReconnecting == false)
+        #expect(again?.sessionGeneration == 3)
+        #expect(await third.sentMethods() == ["connect"])
+        #expect(await second.closeCount == 1)
+        #expect(await third.closeCount == 0)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func aPairingRequiredReconnectEndsInErrorWithThePairingCause() async throws {
+        let first = try ScriptedGatewayWebSocket(replies: try .fixtures(["connect": "hello-ok-paired"]))
+        let pairing = try ScriptedGatewayWebSocket(replies: try .fixtures(["connect": "err-pairing-required"]), closeAfterReplyTo: ["connect"])
+        let spare = try ScriptedGatewayWebSocket(replies: try .fixtures(["connect": "hello-ok-paired"]))
+        let (manager, url) = makeManager([first, pairing, spare])
+        try await manager.connect(url: url, token: "shared-token")
+        var states = manager.connectionStates().makeAsyncIterator()
+        _ = await states.next()
+        await first.drop()
+        _ = await states.next() // reconnecting
+
+        let ended = await states.next()
+        guard case .error(_, .pairingRequired(_, "af0b5d81-7bd2-4b86-80b0-4a489b541974", _, _))? = ended else {
+            Issue.record("expected error(pairingRequired), got \(manager.currentState)")
+            return
+        }
+        #expect(await spare.sentMethods().isEmpty) // never retried
+        #expect(await pairing.closeCount == 1)
+        #expect(await manager.grantedScopes() == nil)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func aDisconnectDuringTheReconnectWinsAndClosesEverySocketOnce() async throws {
+        let first = try ScriptedGatewayWebSocket(replies: try .fixtures(["connect": "hello-ok-paired"]))
+        let stuck = try ScriptedGatewayWebSocket() // the reconnect's `connect` is never answered
+        let (manager, url) = makeManager([first, stuck])
+        try await manager.connect(url: url, token: "shared-token")
+        await first.drop()
+        try await waitUntilSent(stuck, "connect")
+
+        await manager.disconnect()
+
+        guard case .disconnected = manager.currentState else {
+            Issue.record("expected disconnected, got \(manager.currentState)")
+            return
+        }
+        // The abandoned reconnect fails once its socket is closed; it must publish nothing and close nothing again.
+        for _ in 0..<20 { await Task.yield() }
+        try await Task.sleep(for: .milliseconds(50))
+        guard case .disconnected = manager.currentState else {
+            Issue.record("the abandoned reconnect published \(manager.currentState)")
+            return
+        }
+        #expect(await first.closeCount == 1)
+        #expect(await stuck.closeCount == 1)
+        #expect(await manager.grantedScopes() == nil)
+        await #expect(throws: GatewayError.self) { _ = try await manager.requireSession() }
     }
 }
