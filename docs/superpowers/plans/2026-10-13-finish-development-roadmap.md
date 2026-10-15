@@ -111,9 +111,9 @@ Both clients move to the real gateway protocol: frame codec and RPC client, Ed25
 | # | Item | Plan | Size | Status |
 |---|---|---|---|---|
 | 7.1 | Android protocol alignment, incl. `scripts/mock-gateway` rewritten to protocol 4 with conformance tests in CI | [`2026-10-15-protocol-alignment-android.md`](2026-10-15-protocol-alignment-android.md) | L | Android done, pending 7.3 device verification (branch `feat/protocol-alignment-android`) |
-| 7.2 | iOS / Mac Catalyst protocol alignment (first WebSocket client on iOS) | [`2026-10-15-protocol-alignment-ios.md`](2026-10-15-protocol-alignment-ios.md) | L | Open |
-| 7.3 | ⚠ manual: real-gateway and device pass for both apps; closes the open M5 device items (the protocol unknowns were pinned on 2026-10-15; `probe-real.mjs` re-checks them only for a new gateway release) | Android Task 26, iOS Task 21 | M | Android Task 26 pending (not yet run); iOS not started |
-| 7.4 | README / CLAUDE.md / CHANGELOG feature claims match the aligned clients | Android Task 27, iOS Task 22 | S | Android docs done; iOS not started |
+| 7.2 | iOS / Mac Catalyst protocol alignment (first WebSocket client on iOS) | [`2026-10-15-protocol-alignment-ios.md`](2026-10-15-protocol-alignment-ios.md) | L | iOS code done (PR #134, 452 unit tests at `26c98c5`), pending 7.3 device verification |
+| 7.3 | ⚠ manual: real-gateway and device pass for both apps; closes the open M5 device items (the protocol unknowns were pinned on 2026-10-15; `probe-real.mjs` re-checks them only for a new gateway release) | Android Task 26, iOS Task 21 | M | Android Task 26 and iOS Task 21 pending (not yet run against a real gateway/device) |
+| 7.4 | README / CLAUDE.md / CHANGELOG feature claims match the aligned clients | Android Task 27, iOS Task 22 | S | Android and iOS docs done (iOS Task 22); claims to re-check after 7.3 |
 
 ## M6 — Docs & release
 
