@@ -1,6 +1,6 @@
 import Foundation
 
-/// Runs `auth.whoami` over WebSocket to learn what scopes the current token carries.
+/// Reports the operator scopes the gateway granted the live session (`hello-ok.auth.scopes`, ADR-0007).
 ///
 /// Treats "unknown" (old gateways without the method) as a distinct state so callers
 /// can fall back to the Phase-4 copy-paste install instructions instead of showing a
