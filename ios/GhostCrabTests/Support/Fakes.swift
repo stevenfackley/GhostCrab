@@ -19,20 +19,32 @@ final class FakeGatewayConnectionManager: GatewayConnectionManager, @unchecked S
     private let lock = NSLock()
     private let connectError: GatewayError?
     private let probeResult: Result<AuthRequirement, GatewayError>
+    private let warnings: [ConnectionWarning]
+    private var queuedFailures: [any Error]
     private var state: GatewayConnection = .disconnected
     private var connectLog: [(url: String, token: String?)] = []
     private var probeLog: [String] = []
     private var disconnects = 0
 
     /// - Parameters:
-    ///   - connectError: When set, every `connect(url:token:)` throws it.
+    ///   - connectError: When set, every `connect(url:token:)` throws it (after `failFirst` is used up).
     ///   - probeResult: What every `probeAuth(url:)` returns or throws.
+    ///   - failFirst: Thrown by the first connects, one per call, in order (e.g. `PAIRING_REQUIRED` twice, or a
+    ///     `CancellationError` for a connect a newer one superseded).
+    ///   - warnings: What every `connectionWarnings()` reports.
+    ///
+    /// Like the real manager, a connect that throws a ``GatewayError`` leaves the state `.error(url, cause)`; one
+    /// that throws anything else (a superseded connect) leaves the state alone.
     init(
         connectError: GatewayError? = nil,
-        probeResult: Result<AuthRequirement, GatewayError> = .success(AuthRequirement.none)
+        probeResult: Result<AuthRequirement, GatewayError> = .success(AuthRequirement.none),
+        failFirst: [any Error] = [],
+        warnings: [ConnectionWarning] = []
     ) {
         self.connectError = connectError
         self.probeResult = probeResult
+        self.queuedFailures = failFirst
+        self.warnings = warnings
     }
 
     var probedURLs: [String] { lock.withLock { probeLog } }
@@ -56,8 +68,17 @@ final class FakeGatewayConnectionManager: GatewayConnectionManager, @unchecked S
     }
 
     func connect(url: String, token: String?) async throws {
-        lock.withLock { connectLog.append((url: url, token: token)) }
-        if let connectError { throw connectError }
+        let failure = lock.withLock { () -> (any Error)? in
+            connectLog.append((url: url, token: token))
+            if queuedFailures.isEmpty { return connectError }
+            return queuedFailures.removeFirst()
+        }
+        if let failure {
+            if let gatewayError = failure as? GatewayError {
+                lock.withLock { state = .error(url: url, cause: gatewayError) }
+            }
+            throw failure
+        }
         lock.withLock {
             state = .connected(
                 url: url,
@@ -75,6 +96,10 @@ final class FakeGatewayConnectionManager: GatewayConnectionManager, @unchecked S
             disconnects += 1
             state = .disconnected
         }
+    }
+
+    func connectionWarnings() async -> [ConnectionWarning] {
+        warnings
     }
 }
 
