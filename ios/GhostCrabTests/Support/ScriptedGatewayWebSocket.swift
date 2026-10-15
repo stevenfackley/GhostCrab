@@ -25,6 +25,9 @@ actor ScriptedGatewayWebSocket: GatewayWebSocket {
     /// `true` once the client called `close()`.
     private(set) var closedByClient = false
 
+    /// How many times the client called `close()` (each owner must close exactly once).
+    private(set) var closeCount = 0
+
     init(
         challenge: Bool = true,
         replies: [String: [String]] = [:],
@@ -88,6 +91,7 @@ actor ScriptedGatewayWebSocket: GatewayWebSocket {
 
     func close() async {
         closedByClient = true
+        closeCount += 1
         deliver(.success(nil))
     }
 
@@ -140,6 +144,8 @@ final class FixedSocketFactory: GatewaySocketFactory, @unchecked Sendable {
     private var sockets: [ScriptedGatewayWebSocket]
 
     init(_ sockets: ScriptedGatewayWebSocket...) { self.sockets = sockets }
+
+    init(sockets: [ScriptedGatewayWebSocket]) { self.sockets = sockets }
 
     func makeSocket(url: URL) -> any GatewayWebSocket {
         lock.withLock { sockets.count > 1 ? sockets.removeFirst() : sockets[0] }

@@ -60,8 +60,10 @@ public final class URLSessionGatewayWebSocket: GatewayWebSocket, @unchecked Send
 
     /// - Parameters:
     ///   - url: `ws(s)://host:port/ws`.
-    ///   - timeout: Idle timeout for the opening handshake.
-    public init(url: URL, timeout: TimeInterval = 15) {
+    ///   - timeout: `timeoutIntervalForRequest`, which URLSession also applies as an idle timer between received
+    ///     frames. The gateway sends a `tick` every 30 s, so this stays well above that; the handshake itself is
+    ///     bounded by ``GatewayHandshake/challengeTimeout`` and ``GatewayHandshake/connectTimeout``.
+    public init(url: URL, timeout: TimeInterval = 75) {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = timeout
         configuration.waitsForConnectivity = false

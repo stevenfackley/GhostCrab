@@ -39,7 +39,11 @@ struct GatewayConnectionManagerCancellationTests {
     /// "Error connecting to …" for a connect the user abandoned.
     @Test(.timeLimit(.minutes(1)))
     func cancelledConnectEndsDisconnectedWithoutAnError() async {
-        let manager = GatewayConnectionManagerImpl(clientFactory: NeverRespondingClientFactory())
+        let manager = GatewayConnectionManagerImpl(
+            identityProvider: FixedIdentityProvider(),
+            deviceTokens: InMemoryDeviceTokenStore(),
+            clientFactory: NeverRespondingClientFactory()
+        )
         let url = MockURLProtocol.uniqueBaseURL().absoluteString
 
         let connect = Task { try await manager.connect(url: url, token: nil) }

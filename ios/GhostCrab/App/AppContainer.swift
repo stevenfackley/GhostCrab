@@ -24,7 +24,7 @@ public final class AppContainer {
     // MARK: - Concrete connection manager (also exposed via the protocol below)
     //
     // Several gateway-backed impls need the *concrete* `GatewayConnectionManagerImpl`
-    // because they reach into `requireClient()`, which isn't on the public
+    // because they reach into `requireSession()` / `grantedScopes()`, which aren't on the public
     // `GatewayConnectionManager` protocol. The protocol property below is the
     // same instance, just downcast for consumers that should depend on the
     // contract only.
@@ -65,8 +65,10 @@ public final class AppContainer {
         self.onboarding = OnboardingRepositoryImpl(store: settingsStore)
 
         // Gateway connection manager — concrete instance is shared with
-        // repositories that need `requireClient()` access.
+        // repositories that need `requireSession()` access.
         let gatewayImpl = GatewayConnectionManagerImpl(
+            identityProvider: DeviceIdentityStore(),
+            deviceTokens: DeviceTokenStore(),
             settingsRepository: self.settings
         )
         self.connectionManagerImpl = gatewayImpl

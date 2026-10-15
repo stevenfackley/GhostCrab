@@ -49,6 +49,10 @@ public actor GatewayRPCClient {
     /// `true` once the socket has ended or ``close()`` was called.
     public var isClosed: Bool { closedError != nil }
 
+    /// Why the session ended (see the type's documentation), or `nil` while it is live. ``close()`` records
+    /// ``GatewayError/unreachable(url:underlying:)`` unless the socket had already ended.
+    public var endCause: GatewayError? { closedError }
+
     /// Requests still waiting for a response. Visible for tests.
     var pendingRequestCount: Int { pending.count }
 

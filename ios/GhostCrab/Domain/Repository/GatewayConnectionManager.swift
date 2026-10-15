@@ -54,4 +54,18 @@ public protocol GatewayConnectionManager: Sendable {
     /// Cancels the held API client, emits `GatewayConnection.disconnected`.
     /// No-op if already disconnected.
     func disconnect() async
+
+    /// Problems that did not fail the current connection, or context for the current error (e.g. the device token
+    /// could not be stored, or this device's identity was replaced and needs approving again). Empty while
+    /// disconnected and when there is nothing to report. The default implementation reports nothing.
+    ///
+    /// Additive (v1.1) — see docs/adr/0005-additive-repository-methods.md
+    ///
+    /// - Returns: The warnings for the latest connection state.
+    func connectionWarnings() async -> [ConnectionWarning]
+}
+
+extension GatewayConnectionManager {
+    /// Additive (v1.1) default: no warnings.
+    public func connectionWarnings() async -> [ConnectionWarning] { [] }
 }
