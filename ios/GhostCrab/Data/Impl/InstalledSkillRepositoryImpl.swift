@@ -10,7 +10,7 @@ public final class InstalledSkillRepositoryImpl: InstalledSkillRepository, Senda
     static let installTimeoutMs = 120_000
     private static let installMargin: Duration = .seconds(10)
     /// `config.changed` follows a write within ~80 ms; without it the list is re-read anyway after this long.
-    public static let configChangedWait: Duration = .seconds(2)
+    public static let defaultConfigChangedWait: Duration = .seconds(2)
     private static let configChangedEvent = "config.changed"
     private static let notConnectedURL = "<no active connection>"
 
@@ -23,7 +23,7 @@ public final class InstalledSkillRepositoryImpl: InstalledSkillRepository, Senda
     ///   - configChangedWait: How long ``setSkillEnabled(skillKey:enabled:)`` waits for `config.changed`.
     public init(
         session: @escaping @Sendable () async throws -> GatewayRPCClient,
-        configChangedWait: Duration = InstalledSkillRepositoryImpl.configChangedWait
+        configChangedWait: Duration = InstalledSkillRepositoryImpl.defaultConfigChangedWait
     ) {
         self.session = session
         self.configChangedWait = configChangedWait

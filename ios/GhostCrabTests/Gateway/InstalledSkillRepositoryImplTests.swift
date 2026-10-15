@@ -9,7 +9,7 @@ struct InstalledSkillRepositoryImplTests {
         _ replies: [String: [String]],
         eventsBeforeReply: [String: [String]] = [:],
         closeAfterReplyTo: Set<String> = [],
-        configChangedWait: Duration = InstalledSkillRepositoryImpl.configChangedWait
+        configChangedWait: Duration = InstalledSkillRepositoryImpl.defaultConfigChangedWait
     ) async throws -> (InstalledSkillRepositoryImpl, ScriptedGatewayWebSocket) {
         let socket = try ScriptedGatewayWebSocket(
             challenge: false,
