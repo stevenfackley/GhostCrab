@@ -3,12 +3,16 @@
 //
 // Endpoints (HTTP):
 //   GET    /health
-//   GET    /status
+//   GET    /status                        → token-protected only with STATUS_AUTH=1
 //   GET    /config                        → JSON body + ETag header
 //   PATCH  /config/{section}              → If-Match supported; 412/422 on mismatch/invalid
 //   GET    /api/models/status             → ModelDto[]
 //   POST   /api/models/active             → {id}
 //   POST   /api/ai/recommend              → {query, context}
+//   GET    /api/skills                    → {skills}           (iOS client; Android uses WS)
+//   POST   /api/skills/install            → InstalledSkill     (iOS client)
+//   POST   /api/skills/uninstall          → 204                (iOS client)
+//   POST   /api/auth/whoami               → {scopes}           (iOS client)
 //
 // WebSocket JSON-RPC 2.0 at /ws:
 //   auth.whoami               → {scopes}
@@ -22,6 +26,10 @@
 //   TOKEN      if set, requires `Authorization: Bearer <TOKEN>` for /api/*, /config*, /ws
 //   SCOPES     comma-separated; default "operator.read,operator.admin"
 //   FAIL_MODE  comma-separated: "models-404" "ai-404" "ai-429" "install-unauth" "install-notfound"
+//   STATUS_AUTH  "1": /status also requires the token, so clients detect an
+//              auth-required gateway (they probe /status without one)
+//   MOCK_DISPLAY_NAME / MOCK_VERSION / MOCK_HARDWARE
+//              override the /status identity (store screenshots use neutral values)
 
 import http from "node:http";
 import { randomUUID, createHash } from "node:crypto";
@@ -32,11 +40,15 @@ const HOST = process.env.HOST ?? "0.0.0.0";
 const TOKEN = process.env.TOKEN ?? null;
 const SCOPES = (process.env.SCOPES ?? "operator.read,operator.admin").split(",").map(s => s.trim()).filter(Boolean);
 const FAIL = new Set((process.env.FAIL_MODE ?? "").split(",").map(s => s.trim()).filter(Boolean));
+const STATUS_AUTH = process.env.STATUS_AUTH === "1";
+const DISPLAY_NAME = process.env.MOCK_DISPLAY_NAME ?? "Mock OpenClaw Gateway";
+const VERSION = process.env.MOCK_VERSION ?? "mock-0.1.0";
+const HARDWARE = process.env.MOCK_HARDWARE ?? "x86_64 · 32GB · Windows 11 (mock)";
 
 // ── In-memory state ────────────────────────────────────────────────────────
 const state = {
   config: {
-    gateway: { port: 18790, cleartext: true, bind: "0.0.0.0" },
+    gateway: { port: PORT, cleartext: true, bind: "0.0.0.0" },
     models: { active: "claude-sonnet-4-6", timeout_ms: 30000 },
     skills: { autoUpdate: false, watch: true },
   },
@@ -116,12 +128,14 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { ok: true, status: "live" });
     }
     if (method === "GET" && path === "/status") {
+      const statusAuthErr = STATUS_AUTH ? requiresAuth(req) : null;
+      if (statusAuthErr) { log("→ 401"); return json(res, 401, { error: statusAuthErr.error }); }
       log("→ 200");
       return json(res, 200, {
-        displayName: "Mock OpenClaw Gateway",
-        version: "mock-0.1.0",
+        displayName: DISPLAY_NAME,
+        version: VERSION,
         capabilities: ["models", "config", "ai.recommend", "skills.install"],
-        hardware: "x86_64 · 32GB · Windows 11 (mock)",
+        hardware: HARDWARE,
       });
     }
 
@@ -195,6 +209,34 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
+    // HTTP skill + whoami routes (the iOS client's shape of the WS methods below)
+    if (method === "GET" && path === "/api/skills") {
+      log("→ 200 skills=" + state.skills.length);
+      return json(res, 200, { skills: state.skills });
+    }
+    if (method === "POST" && path === "/api/skills/install") {
+      if (FAIL.has("install-unauth")) { log("→ 403 (FAIL_MODE)"); return json(res, 403, { error: "operator.admin required" }); }
+      if (FAIL.has("install-notfound")) { log("→ 404 (FAIL_MODE)"); return json(res, 404, { error: "unknown slug" }); }
+      const body = await readBody(req) ?? {};
+      if (!body.slug) { log("→ 422"); return json(res, 422, { error: "slug required" }); }
+      const installed = { slug: body.slug, installed_version: body.version ?? "latest", source: "clawhub", installed_at: Date.now() };
+      state.skills = state.skills.filter(s => s.slug !== body.slug).concat(installed);
+      log("→ 200 installed=" + body.slug);
+      return json(res, 200, installed);
+    }
+    if (method === "POST" && path === "/api/skills/uninstall") {
+      const body = await readBody(req) ?? {};
+      const before = state.skills.length;
+      state.skills = state.skills.filter(s => s.slug !== body.slug);
+      if (state.skills.length === before) { log("→ 404"); return json(res, 404, { error: "skill not installed" }); }
+      log("→ 204 uninstalled=" + body.slug);
+      res.writeHead(204); res.end(); return;
+    }
+    if (method === "POST" && path === "/api/auth/whoami") {
+      log("→ 200");
+      return json(res, 200, { scopes: SCOPES, nodeId: "mock-node", version: VERSION });
+    }
+
     log("→ 404 (no route)");
     text(res, 404, "not found");
   } catch (err) {
@@ -240,7 +282,7 @@ wss.on("connection", ws => {
 
     switch (method) {
       case "auth.whoami":
-        reply({ scopes: SCOPES, nodeId: "mock-node", version: "mock-0.1.0" });
+        reply({ scopes: SCOPES, nodeId: "mock-node", version: VERSION });
         break;
 
       case "skills.list":

@@ -1,10 +1,15 @@
 package com.openclaw.ghostcrab.ui.onboarding
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.openclaw.ghostcrab.R
@@ -46,75 +51,85 @@ public fun OnboardingScreen(
         if (step == OnboardingStep.Completed) onDone()
     }
 
-    when (step) {
-        OnboardingStep.Welcome -> OnboardingScaffold(
-            step = step,
-            onBack = null,
-            onSkip = { viewModel.skip() },
-            title = stringResource(R.string.onboarding_welcome_title),
-        ) {
-            WelcomeStep(
-                onNext = { viewModel.next() },
+    val error by viewModel.error.collectAsStateWithLifecycle()
+    LaunchedEffect(error) {
+        val message = error ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(message)
+        viewModel.clearError()
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        when (step) {
+            OnboardingStep.Welcome -> OnboardingScaffold(
+                step = step,
+                onBack = null,
                 onSkip = { viewModel.skip() },
-            )
-        }
+                title = stringResource(R.string.onboarding_welcome_title),
+            ) {
+                WelcomeStep(
+                    onNext = { viewModel.next() },
+                    onSkip = { viewModel.skip() },
+                )
+            }
 
-        OnboardingStep.WhatIsOpenClaw -> OnboardingScaffold(
-            step = step,
-            onBack = { viewModel.back() },
-            onSkip = { viewModel.skip() },
-            title = stringResource(R.string.onboarding_what_title),
-        ) {
-            WhatIsOpenClawStep(onNext = { viewModel.next() })
-        }
+            OnboardingStep.WhatIsOpenClaw -> OnboardingScaffold(
+                step = step,
+                onBack = { viewModel.back() },
+                onSkip = { viewModel.skip() },
+                title = stringResource(R.string.onboarding_what_title),
+            ) {
+                WhatIsOpenClawStep(onNext = { viewModel.next() })
+            }
 
-        OnboardingStep.InstallGateway -> OnboardingScaffold(
-            step = step,
-            onBack = { viewModel.back() },
-            onSkip = { viewModel.skip() },
-            title = stringResource(R.string.onboarding_install_title),
-        ) {
-            InstallGatewayStep(
-                snackbarHostState = snackbarHostState,
-                onNext = { viewModel.next() },
-            )
-        }
+            OnboardingStep.InstallGateway -> OnboardingScaffold(
+                step = step,
+                onBack = { viewModel.back() },
+                onSkip = { viewModel.skip() },
+                title = stringResource(R.string.onboarding_install_title),
+            ) {
+                InstallGatewayStep(
+                    snackbarHostState = snackbarHostState,
+                    onNext = { viewModel.next() },
+                )
+            }
 
-        OnboardingStep.StartGateway -> OnboardingScaffold(
-            step = step,
-            onBack = { viewModel.back() },
-            onSkip = { viewModel.skip() },
-            title = stringResource(R.string.onboarding_start_title),
-        ) {
-            val token by viewModel.suggestedToken.collectAsStateWithLifecycle()
-            StartGatewayStep(
-                token = token,
-                onRegenerateToken = { viewModel.regenerateToken() },
-                onNext = { viewModel.next() },
-            )
-        }
+            OnboardingStep.StartGateway -> OnboardingScaffold(
+                step = step,
+                onBack = { viewModel.back() },
+                onSkip = { viewModel.skip() },
+                title = stringResource(R.string.onboarding_start_title),
+            ) {
+                val token by viewModel.suggestedToken.collectAsStateWithLifecycle()
+                StartGatewayStep(
+                    token = token,
+                    onRegenerateToken = { viewModel.regenerateToken() },
+                    onNext = { viewModel.next() },
+                )
+            }
 
-        OnboardingStep.VerifyRunning -> OnboardingScaffold(
-            step = step,
-            onBack = { viewModel.back() },
-            onSkip = { viewModel.skip() },
-            title = stringResource(R.string.onboarding_verify_title),
-        ) {
-            VerifyRunningStep(onNext = { viewModel.next() })
-        }
+            OnboardingStep.VerifyRunning -> OnboardingScaffold(
+                step = step,
+                onBack = { viewModel.back() },
+                onSkip = { viewModel.skip() },
+                title = stringResource(R.string.onboarding_verify_title),
+            ) {
+                VerifyRunningStep(onNext = { viewModel.next() })
+            }
 
-        OnboardingStep.FindOnNetwork -> OnboardingScaffold(
-            step = step,
-            onBack = { viewModel.back() },
-            onSkip = { viewModel.skip() },
-            title = stringResource(R.string.onboarding_find_title),
-        ) {
-            FindOnNetworkStep(
-                onScan = onScan,
-                onManualEntry = onManualEntry,
-            )
-        }
+            OnboardingStep.FindOnNetwork -> OnboardingScaffold(
+                step = step,
+                onBack = { viewModel.back() },
+                onSkip = { viewModel.skip() },
+                title = stringResource(R.string.onboarding_find_title),
+            ) {
+                FindOnNetworkStep(
+                    onScan = onScan,
+                    onManualEntry = onManualEntry,
+                )
+            }
 
-        OnboardingStep.Completed -> ConnectedStep(onDone = onDone)
+            OnboardingStep.Completed -> ConnectedStep(onDone = onDone)
+        }
+        SnackbarHost(snackbarHostState, modifier = Modifier.align(Alignment.BottomCenter))
     }
 }
