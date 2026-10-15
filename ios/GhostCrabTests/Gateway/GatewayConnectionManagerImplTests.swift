@@ -484,7 +484,7 @@ struct GatewayConnectionManagerImplTests {
             return
         }
         #expect(await spare.sentMethods().isEmpty) // never retried
-        #expect(await pairing.closeCount == 1)
+        #expect(await pairing.closeCount == 1) // closed before `.error` is published, so no wait is needed
         #expect(await manager.grantedScopes() == nil)
     }
 

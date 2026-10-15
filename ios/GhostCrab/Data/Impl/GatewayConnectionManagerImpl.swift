@@ -446,9 +446,11 @@ public actor GatewayConnectionManagerImpl: GatewayConnectionManager {
         _ = await goLive(session, attempt: attempt)
     }
 
-    /// A failed silent reconnect: publishes `.error` (unless superseded) and closes what the attempt opened. The
-    /// gateway's own refusal (`.pairingRequired`, `.connectRejected`) is the actionable error, so it is reported;
-    /// any other failure (transport, `.deviceCredentialStorage`) reports the lost socket's `cause`.
+    /// A failed silent reconnect: closes what the attempt opened, then publishes `.error` (unless superseded, before
+    /// or while closing). Closing first means whoever observes the `.error` finds the attempt's socket already closed,
+    /// like Android, which releases before it sets Error. The gateway's own refusal (`.pairingRequired`,
+    /// `.connectRejected`) is the actionable error, so it is reported; any other failure (transport,
+    /// `.deviceCredentialStorage`) reports the lost socket's `cause`.
     private func reconnectFailed(_ attempt: ConnectAttempt, lost: ActiveSession, cause: GatewayError,
                                  error: any Error) async {
         let regenerated = await identityProvider.regenerated
@@ -467,9 +469,10 @@ public actor GatewayConnectionManagerImpl: GatewayConnectionManager {
         if case let .connectRejected(_, detailCode, _, _, _, _) = reported, detailCode == Self.deviceTokenMismatch {
             deviceTokens.clear(gatewayKey: lost.key) // revoked: the next connect falls back to the shared token or pairing
         }
+        await release(opened)
+        guard attempt.id == generation else { return } // a connect or disconnect took over while the socket closed
         warnings = regenerated && !reapprovedGateways.contains(lost.key) ? [.deviceIdentityRegenerated] : []
         publish(.error(url: lost.url, cause: reported))
-        await release(opened)
     }
 
     /// - Returns: Whether `error` is the gateway refusing this device or its credential (not a transport failure).
