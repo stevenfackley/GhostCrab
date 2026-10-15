@@ -54,6 +54,7 @@ This plan is designed for **stateless execution**. Each phase below is a self-co
 | 14 | Release Signing | 🟢 Done | — | — | — | — | Signing config reads `local.properties` then env vars; release APK verified with `apksigner` (per `docs/HANDOFF.md`); see `docs/RELEASE_SIGNING.md` |
 | — | Hardening + refactor (v0.2.0) | 🟢 Done | 2026-10-13 | 2026-10-14 | PR #125 | — | Branch `refactor/finish-dev-plan`: AI redaction + security confirmations, token masking, live cleartext opt-in, WS timeouts + typed errors, `suspendRunCatching`, `GatewayUrl`, screen splits, lifecycle-aware collection, Koin graph tests, lint wiring, `ghostcrab://pair` deep links; 401 unit tests. See `CHANGELOG.md` |
 | — | iOS finish (roadmap M4 4.1–4.11) | 🟢 Done | 2026-10-14 | 2026-10-14 | PR #127 | — | Branch `feat/ios-finish`, plan `docs/superpowers/plans/2026-10-13-ios-finish.md`: QR + `ghostcrab://pair` deep-link pairing through the in-memory `PairingHandoff` (token never in `Route`), model-activation confirm, bundled Inter + JetBrains Mono, `PrivacyInfo.xcprivacy`, ATS local networking only (ADR-006), tracked VM tasks, typed errors instead of `try?`, per-request timeouts, per-client cleartext guard, Settings clear-all (ADR-005), export-then-`altool` TestFlight upload, version 0.2.0. New `ios-pr.yml` lane on the Mac Mini: 223 tests on the iOS simulator plus a Mac Catalyst compile. Open: 4.12 ⚠ manual (App Store Connect record, ASC secrets, first TestFlight upload). See `CHANGELOG.md` `[Unreleased]` → iOS |
+| — | Protocol alignment, Android (roadmap M7) | 🟡 Code done, pending device QA | 2026-10-15 | 2026-10-15 | branch `feat/protocol-alignment-android` (no PR yet) | — | Plan `docs/superpowers/plans/2026-10-15-protocol-alignment-android.md`, ADR-0007. Tasks 1–25 and 27 committed; ~590 unit tests. Task 26 (device + real-gateway pass) pending: not yet run. Phases 2, 6, 7, 8, 12 now run over the WS protocol; AI recommendations disabled. iOS protocol plan not started. |
 
 **Status legend:** ⬜ Not Started · 🟡 In Progress · 🟢 Done · 🔴 Blocked · ⚪ Skipped (with rationale)
 
@@ -597,11 +598,11 @@ WebSocket streaming · offline config cache · iOS · agent runtime on-device ·
 
 ## 5. Open Questions (track and resolve as phases progress)
 
-1. Exact endpoint for model swap. — **UNRESOLVED.** Phase 7 coded `GET /api/models/status` + `POST /api/models/active`; never verified against a real gateway. Audit on 2026-04-20 confirmed `ghcr.io/openclaw/openclaw` does not implement these paths (or any of `/api/*`). See §6.
-2. Does an `skill-ai-recommend` exist or must we build it? — **UNRESOLVED.** Phase 8 assumed `POST /api/ai/recommend`; same gap as #1.
+1. Exact endpoint for model swap. — **UNRESOLVED.** Phase 7 coded `GET /api/models/status` + `POST /api/models/active`; never verified against a real gateway. Audit on 2026-04-20 confirmed `ghcr.io/openclaw/openclaw` does not implement these paths (or any of `/api/*`). See §6. — **Resolved by ADR-0007** (2026-10-15).
+2. Does an `skill-ai-recommend` exist or must we build it? — **UNRESOLVED.** Phase 8 assumed `POST /api/ai/recommend`; same gap as #1. — **Resolved by ADR-0007** (2026-10-15).
 3. Gateway version negotiation strategy. — Resolve in Phase 4 (probably a `min_supported` constant + warning banner).
 4. Distribution channel (sideload vs Play Store) — defer to post-v1.0.
-5. Gateway-parity: does upstream intend to implement GhostCrab's expected HTTP/WS surface, or should we rewrite against `connect.challenge` + `device.pair.*` + `skills.status`/`skills.update`? — **Open post-v0.1.0.** See §6.
+5. Gateway-parity: does upstream intend to implement GhostCrab's expected HTTP/WS surface, or should we rewrite against `connect.challenge` + `device.pair.*` + `skills.status`/`skills.update`? — **Open post-v0.1.0.** See §6. — **Resolved by ADR-0007** (2026-10-15).
 
 ---
 
@@ -612,6 +613,7 @@ WebSocket streaming · offline config cache · iOS · agent runtime on-device ·
 | Date | Phase | Deviation | Rationale | Approved by |
 |------|-------|-----------|-----------|-------------|
 | 2026-04-20 | 6, 7, 8, 12 | Gateway API surface the app targets does not exist upstream. `ghcr.io/openclaw/openclaw` v2026.4.11: no `/api/*` JSON routes; `/ws` uses an event-envelope + `connect.challenge` + `device.pair.*` pairing protocol, not raw JSON-RPC; skill methods are `skills.status`/`skills.update`, not `skills.list`/`skills.uninstall`. GH code search across `openclaw/*` for `api/models/status` and `skills.uninstall`: 0 hits. | Phases 6–8 and 12 were built to a speculative spec from the plan (Open Questions #1–#2) that nobody ever validated. Landing on-device QA via a mock gateway at `scripts/mock-gateway/` (port 18790) instead. Real gateway integration deferred until upstream ships a compatible API or we rewrite the client against the envelope protocol. | stevenfackley |
+| 2026-10-15 | 2, 6, 7, 8, 12 | Clients move to the real WS protocol 4 (ADR-0007): handshake + device pairing, `config.get`/`config.patch`, `models.list` + `agents.defaults.model.primary`, `skills.status`/`install`/`update`; AI recommendations disabled; mock gateway rewritten. | M5 showed every speculative REST/JSON-RPC path fails against `ghcr.io/openclaw/openclaw` 2026.10.3 (`docs/QA_REAL_GATEWAY_2026-10.md`). | stevenfackley |
 
 ---
 
