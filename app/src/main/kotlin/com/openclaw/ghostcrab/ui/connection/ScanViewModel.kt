@@ -2,13 +2,13 @@ package com.openclaw.ghostcrab.ui.connection
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.openclaw.ghostcrab.domain.exception.GatewayException
 import com.openclaw.ghostcrab.domain.model.DiscoveredGateway
 import com.openclaw.ghostcrab.domain.repository.ConnectionProfileRepository
 import com.openclaw.ghostcrab.domain.repository.DiscoveryService
 import com.openclaw.ghostcrab.domain.repository.GatewayConnectionManager
 import com.openclaw.ghostcrab.ui.toUserMessage
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
@@ -72,11 +72,14 @@ sealed interface ScanEvent {
  * @param discoveryService NsdManager-backed mDNS scanner.
  * @param profileRepository Used to match discovered gateways against saved profiles.
  * @param connectionManager Used to connect to previously seen gateways without re-entering creds.
+ * @param cleanupScope Where the approval wait's disconnect runs once this ViewModel is cleared (see
+ *   [PairingWait.release]); tests inject a test scope.
  */
 class ScanViewModel(
     private val discoveryService: DiscoveryService,
     private val profileRepository: ConnectionProfileRepository,
     private val connectionManager: GatewayConnectionManager,
+    cleanupScope: CoroutineScope = pairingCleanupScope(),
 ) : ViewModel() {
 
     private val _state = MutableStateFlow<ScanState>(ScanState.Idle)
@@ -89,7 +92,24 @@ class ScanViewModel(
     /** One-shot navigation events, buffered so an event sent during rotation is delivered once a collector returns. */
     val events: Flow<ScanEvent> = _events.receiveAsFlow()
 
+    private val _pairingPrompt = MutableStateFlow<PairingPrompt?>(null)
+
+    /** Set while a saved gateway waits for this device to be approved (ADR-0007); the screen shows the panel. */
+    val pairingPrompt: StateFlow<PairingPrompt?> = _pairingPrompt.asStateFlow()
+
+    /**
+     * The saved gateway's connect and its approval wait: one at a time. The approval panel's Check now / Cancel go
+     * here, and the screen cancels it before it navigates away.
+     */
+    val pairing: PairingWait =
+        PairingWait(viewModelScope, connectionManager, cleanupScope) { _pairingPrompt.value = null }
+
     private var scanJob: Job? = null
+
+    init {
+        // The screen leaves the back stack mid-wait (e.g. system Back): same cleanup as PairingWait.cancel.
+        addCloseable { pairing.release() }
+    }
 
     /**
      * Starts a fresh scan, cancelling any scan that is currently in progress.
@@ -150,7 +170,9 @@ class ScanViewModel(
      * Handles a gateway selection from the results list.
      *
      * - If [gateway] matches a saved profile by URL, connects with stored credentials and emits
-     *   [ScanEvent.NavigateToDashboard].
+     *   [ScanEvent.NavigateToDashboard]. On `PAIRING_REQUIRED` (e.g. a regenerated device identity or a scope
+     *   upgrade) sets [pairingPrompt] and retries until the device is approved, the pending request expires (an
+     *   explicit [ScanState.Error]) or [PairingWait.cancel]. Ignored while such a connect is already running.
      * - Otherwise emits [ScanEvent.NavigateToManualEntry] so the user can confirm the URL and
      *   optionally supply a token.
      *
@@ -162,20 +184,33 @@ class ScanViewModel(
             val match = profiles.find { it.url == gateway.url }
 
             if (match != null) {
-                try {
-                    val token = if (match.hasToken) profileRepository.getToken(match.id) else null
-                    connectionManager.connect(match.url, token)
-                    _events.send(ScanEvent.NavigateToDashboard)
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: GatewayException) {
-                    // connect() and getToken() both report failures as GatewayException
-                    // (ProfileNeedsReauthException after a Keystore reset).
-                    _state.value = ScanState.Error(e.toUserMessage())
-                }
+                pairing.start(
+                    url = match.url,
+                    onPrompt = { _pairingPrompt.value = it },
+                    connect = {
+                        // getToken() fails with ProfileNeedsReauthException after a Keystore reset.
+                        val token = if (match.hasToken) profileRepository.getToken(match.id) else null
+                        connectionManager.connect(match.url, token)
+                    },
+                    onFinished = ::onConnectFinished,
+                )
             } else {
                 _events.send(ScanEvent.NavigateToManualEntry(gateway.url))
             }
+        }
+    }
+
+    /** Navigates on success; otherwise shows the expired approval window or the failure. */
+    private suspend fun onConnectFinished(result: Result<Boolean>) {
+        _pairingPrompt.value = null
+        result.onSuccess { approved ->
+            if (approved) {
+                _events.send(ScanEvent.NavigateToDashboard)
+            } else {
+                _state.value = ScanState.Error(PAIRING_TIMEOUT_MESSAGE)
+            }
+        }.onFailure { e ->
+            _state.value = ScanState.Error(e.toUserMessage())
         }
     }
 

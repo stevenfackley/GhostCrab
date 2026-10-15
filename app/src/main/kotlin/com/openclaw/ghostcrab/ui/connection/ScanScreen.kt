@@ -56,7 +56,8 @@ import org.koin.androidx.compose.koinViewModel
  *
  * Auto-starts a 10 s mDNS scan on entry. Discovered gateways appear in real time as glass cards.
  * Tapping a result either connects immediately (known profile) or navigates to ManualEntry with
- * the URL pre-filled.
+ * the URL pre-filled. A known gateway that answers `PAIRING_REQUIRED` shows the approval panel until the device
+ * is approved, the request expires, or the user cancels.
  *
  * @param onNavigateBack Navigate up to ConnectionPicker.
  * @param onNavigateToManualEntry Navigate to ManualEntry with [prefillUrl] pre-populated.
@@ -73,6 +74,7 @@ fun ScanScreen(
     viewModel: ScanViewModel = koinViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val pairingPrompt by viewModel.pairingPrompt.collectAsStateWithLifecycle()
 
     LaunchedEffect(Unit) { viewModel.startScan() }
 
@@ -117,13 +119,41 @@ fun ScanScreen(
                 .fillMaxSize()
                 .padding(innerPadding),
         ) {
-            ScanScreenBody(
+            ScanContent(
                 state = state,
-                onGatewaySelected = viewModel::onGatewaySelected,
-                onStartScan = viewModel::startScan,
+                pairingPrompt = pairingPrompt,
+                viewModel = viewModel,
                 onEnterManually = onEnterManually,
             )
         }
+    }
+}
+
+/**
+ * The approval panel while a saved gateway waits for approval (it replaces the results: one connect at a time),
+ * else the scan state. Leaving the screen clears the ViewModel, which stops the wait.
+ */
+@Composable
+private fun ScanContent(
+    state: ScanState,
+    pairingPrompt: PairingPrompt?,
+    viewModel: ScanViewModel,
+    onEnterManually: () -> Unit,
+) {
+    if (pairingPrompt != null) {
+        PairingApprovalCard(
+            prompt = pairingPrompt,
+            onCheckNow = viewModel.pairing::checkNow,
+            onCancel = viewModel.pairing::cancel,
+            modifier = Modifier.padding(Spacing.md),
+        )
+    } else {
+        ScanScreenBody(
+            state = state,
+            onGatewaySelected = viewModel::onGatewaySelected,
+            onStartScan = viewModel::startScan,
+            onEnterManually = onEnterManually,
+        )
     }
 }
 

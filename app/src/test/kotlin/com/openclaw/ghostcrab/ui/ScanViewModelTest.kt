@@ -1,15 +1,23 @@
 package com.openclaw.ghostcrab.ui
 
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.ViewModelStore
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
 import app.cash.turbine.test
 import com.openclaw.ghostcrab.domain.exception.GatewayException
+import com.openclaw.ghostcrab.domain.exception.GatewayPairingRequiredException
 import com.openclaw.ghostcrab.domain.exception.GatewayTimeoutException
 import com.openclaw.ghostcrab.domain.exception.ProfileNeedsReauthException
+import com.openclaw.ghostcrab.domain.model.AuthRequirement
 import com.openclaw.ghostcrab.domain.model.ConnectionProfile
 import com.openclaw.ghostcrab.domain.model.DiscoveredGateway
 import com.openclaw.ghostcrab.domain.model.GatewayConnection
 import com.openclaw.ghostcrab.domain.repository.ConnectionProfileRepository
 import com.openclaw.ghostcrab.domain.repository.DiscoveryService
 import com.openclaw.ghostcrab.domain.repository.GatewayConnectionManager
+import com.openclaw.ghostcrab.ui.connection.PAIRING_RETRY_INTERVAL_MS
+import com.openclaw.ghostcrab.ui.connection.PAIRING_TIMEOUT_MS
 import com.openclaw.ghostcrab.ui.connection.ScanEvent
 import com.openclaw.ghostcrab.ui.connection.ScanState
 import com.openclaw.ghostcrab.ui.connection.ScanViewModel
@@ -21,13 +29,16 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertInstanceOf
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -245,6 +256,114 @@ class ScanViewModelTest {
             assertInstanceOf(ScanEvent.NavigateToManualEntry::class.java, awaitItem())
         }
     }
+
+    // ── Pairing approval of a saved gateway (ADR-0007) ────────────────────────
+
+    private fun savedGatewayVm(manager: GatewayConnectionManager): Pair<ScanViewModel, DiscoveredGateway> {
+        val gw = gateway()
+        return ScanViewModel(FakeDiscoveryService(), FakeProfileRepository(listOf(profile(gw.url))), manager) to gw
+    }
+
+    /** Clears [viewModel] the way leaving the screen does: `viewModelScope` is cancelled, then its closeables run. */
+    private fun clear(viewModel: ScanViewModel) {
+        val store = ViewModelStore()
+        ViewModelProvider(store, viewModelFactory { initializer { viewModel } })[ScanViewModel::class.java]
+        store.clear()
+    }
+
+    @Test
+    fun `a saved gateway that needs approval shows the panel and opens the dashboard once approved`() = runTest {
+        val manager = FakeScanPairingManager(refusals = 1)
+        val (vm, gw) = savedGatewayVm(manager)
+
+        vm.events.test {
+            vm.onGatewaySelected(gw)
+            assertEquals("req-9", vm.pairingPrompt.value?.requestId)
+            advanceTimeBy(PAIRING_RETRY_INTERVAL_MS + 1)
+            assertEquals(ScanEvent.NavigateToDashboard, awaitItem())
+        }
+        assertNull(vm.pairingPrompt.value)
+        assertEquals(2, manager.calls)
+    }
+
+    @Test
+    fun `a pairing request is not shown as a scan error`() = runTest {
+        val manager = FakeScanPairingManager()
+        val (vm, gw) = savedGatewayVm(manager)
+        vm.startScan()
+        advanceUntilIdle()
+
+        vm.onGatewaySelected(gw)
+
+        assertInstanceOf(ScanState.Results::class.java, vm.state.value)
+        vm.pairing.cancel()
+    }
+
+    @Test
+    fun `Cancel on the panel clears it, stops the retries and disconnects`() = runTest {
+        val manager = FakeScanPairingManager()
+        val (vm, gw) = savedGatewayVm(manager)
+        vm.onGatewaySelected(gw)
+
+        vm.pairing.cancel()
+        advanceTimeBy(PAIRING_RETRY_INTERVAL_MS * 10)
+
+        assertNull(vm.pairingPrompt.value)
+        assertEquals(1, manager.calls)
+        assertEquals(1, manager.disconnects)
+        assertEquals(GatewayConnection.Disconnected, manager.state.value)
+    }
+
+    @Test
+    fun `Check now retries without waiting`() = runTest {
+        val manager = FakeScanPairingManager(refusals = 1)
+        val (vm, gw) = savedGatewayVm(manager)
+        vm.onGatewaySelected(gw)
+
+        vm.pairing.checkNow()
+        runCurrent()
+
+        assertEquals(2, manager.calls)
+        assertNull(vm.pairingPrompt.value)
+    }
+
+    @Test
+    fun `a second tap while waiting for approval starts no second loop`() = runTest {
+        val manager = FakeScanPairingManager()
+        val (vm, gw) = savedGatewayVm(manager)
+        vm.onGatewaySelected(gw)
+        vm.onGatewaySelected(gw)
+        advanceTimeBy(PAIRING_RETRY_INTERVAL_MS + 1)
+
+        assertEquals(2, manager.calls)
+        vm.pairing.cancel()
+    }
+
+    @Test
+    fun `an expired approval window is an explicit error and leaves no pairing error behind`() = runTest {
+        val manager = FakeScanPairingManager()
+        val (vm, gw) = savedGatewayVm(manager)
+        vm.onGatewaySelected(gw)
+
+        advanceTimeBy(PAIRING_TIMEOUT_MS + 1)
+
+        assertNull(vm.pairingPrompt.value)
+        assertTrue((vm.state.value as ScanState.Error).reason.contains("PAIRING_REQUIRED"))
+        assertEquals(GatewayConnection.Disconnected, manager.state.value)
+    }
+
+    @Test
+    fun `leaving the screen mid-wait stops the retries and disconnects`() = runTest {
+        val manager = FakeScanPairingManager()
+        val (vm, gw) = savedGatewayVm(manager)
+        vm.onGatewaySelected(gw)
+
+        clear(vm)
+        advanceTimeBy(PAIRING_RETRY_INTERVAL_MS * 10)
+
+        assertEquals(1, manager.calls)
+        assertEquals(GatewayConnection.Disconnected, manager.state.value)
+    }
 }
 
 // ── Fakes ─────────────────────────────────────────────────────────────────────
@@ -300,4 +419,41 @@ private class FakeConnectionManager(
     }
 
     override suspend fun disconnect() {}
+}
+
+/**
+ * Refuses the first [refusals] connects for approval (every connect when `null`), like the real manager: it
+ * publishes the `PAIRING_REQUIRED` Error for the URL, then throws the pairing request.
+ */
+private class FakeScanPairingManager(private val refusals: Int? = null) : GatewayConnectionManager {
+    val state = MutableStateFlow<GatewayConnection>(GatewayConnection.Disconnected)
+    var calls = 0
+        private set
+    var disconnects = 0
+        private set
+
+    override val connectionState: StateFlow<GatewayConnection> = state
+    override suspend fun probeAuth(url: String) = AuthRequirement.None
+
+    override suspend fun connect(url: String, token: String?) {
+        calls++
+        if (refusals == null || calls <= refusals) {
+            val refusal = GatewayPairingRequiredException("ws://gw/ws", "req-9", "not-paired", emptyList())
+            state.value = GatewayConnection.Error(url, refusal)
+            throw refusal
+        }
+        state.value = GatewayConnection.Connected(
+            url = url,
+            displayName = "gw1",
+            version = "2026.10.3",
+            authRequirement = AuthRequirement.Token,
+            isHttps = false,
+            capabilities = emptyList(),
+        )
+    }
+
+    override suspend fun disconnect() {
+        disconnects++
+        state.value = GatewayConnection.Disconnected
+    }
 }
