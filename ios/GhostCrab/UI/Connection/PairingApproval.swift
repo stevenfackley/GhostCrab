@@ -21,8 +21,9 @@ public struct PairingPrompt: Equatable, Sendable {
     /// - Parameters:
     ///   - url: The gateway endpoint that asked for the approval.
     ///   - requestId: The pending request. Dropped (`nil`, so the prompt falls back to `openclaw devices list`)
-    ///     unless it is 1–128 ASCII letters, digits, `-`, `_`, `.` or `:`: the approval command is copied into a
-    ///     shell on the gateway host, so a spoofed id must not smuggle shell syntax into it.
+    ///     unless it is 1–128 ASCII letters, digits, `-`, `_`, `.` or `:` starting with a letter or digit: the
+    ///     approval command is copied into a shell on the gateway host, so a spoofed id must not smuggle shell syntax
+    ///     into it, nor turn into an option (`--help`).
     ///   - reason: Why the gateway asks.
     ///   - requestedScopes: The scopes this device asked for.
     ///   - warnings: What explains the request.
@@ -60,7 +61,8 @@ public struct PairingPrompt: Equatable, Sendable {
     }
 
     private static func isShellSafe(_ id: String) -> Bool {
-        !id.isEmpty && id.count <= maxRequestIdLength
+        guard let first = id.first, first.isASCII, first.isLetter || first.isNumber else { return false }
+        return id.count <= maxRequestIdLength
             && id.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || "-_.:".contains($0)) }
     }
 }
@@ -77,39 +79,38 @@ public enum PairingApproval {
         + "On the gateway host run:\nopenclaw devices list\nthen approve this device and connect again (PAIRING_REQUIRED)."
 }
 
-extension ConnectionWarning {
-    /// Plain-text explanation for the approval card and the dashboard (shown amber, as every warning). Names the
-    /// case, never a secret.
-    public var userMessage: String {
-        switch self {
-        case .deviceIdentityRegenerated:
-            return "This device has a new identity; approve it again. Its previous key could not be read from this "
-                + "device's Keychain, so every gateway sees a new device (deviceIdentityRegenerated)."
-        case .deviceTokenNotSaved:
-            return "The gateway's device token could not be saved in this device's Keychain. This session works; "
-                + "later connects need the gateway token until a device token is saved (deviceTokenNotSaved)."
-        }
-    }
-}
-
 /// Result of ``awaitPairingApproval(wakeUp:onPrompt:interval:timeout:attempt:)``.
 public enum PairingOutcome: Equatable, Sendable {
     case approved
     case timedOut
 }
 
-/// "Check now" for the approval loop: ends the current wait early.
+/// "Check now" for the approval loop, and the clock the loop measures time on: ends the current wait early.
+///
+/// Nothing polls: a wait is one continuation that the interval's timer, ``fireNow()`` or the caller's cancellation
+/// resumes, whichever comes first.
 @MainActor
 public final class PairingWakeUp {
 
-    private static let tick: Duration = .milliseconds(100)
+    /// Measures the intervals and the approval window.
+    let clock: any Clock<Duration>
     private var wakeRequested = false
+    /// The suspended ``wait(_:)``, if any.
+    private var waiter: CheckedContinuation<Void, Never>?
+    /// Ends ``waiter`` once its interval has passed on ``clock``.
+    private var timer: Task<Void, Never>?
+    /// Identifies the latest wait, so a late timer or cancellation from an earlier one never ends it.
+    private var waitID: UInt64 = 0
 
-    public init() {}
+    /// - Parameter clock: Measures the intervals and the approval window; tests pass a clock they advance themselves.
+    public init(clock: any Clock<Duration> = ContinuousClock()) {
+        self.clock = clock
+    }
 
     /// Ends the current (or the next) ``wait(_:)`` at once.
     public func fireNow() {
         wakeRequested = true
+        end(waitID)
     }
 
     /// Forgets a ``fireNow()`` nobody waited for, so a "Check now" left over from an earlier run cannot cut the
@@ -118,16 +119,38 @@ public final class PairingWakeUp {
         wakeRequested = false
     }
 
-    /// Sleeps for `interval`, or until ``fireNow()``.
+    /// Sleeps on ``clock`` for `interval`, or until ``fireNow()``.
     ///
     /// - Throws: `CancellationError` when the calling task is cancelled.
     func wait(_ interval: Duration) async throws {
-        let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: interval)
-        while !wakeRequested, clock.now < deadline {
-            try await Task.sleep(for: min(Self.tick, clock.now.duration(to: deadline)))
+        defer { wakeRequested = false }
+        if !wakeRequested {
+            waitID &+= 1
+            let id = waitID
+            let clock = self.clock
+            await withTaskCancellationHandler {
+                await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                    waiter = continuation
+                    timer = Task { @MainActor in
+                        // Cancelled only by end(_:), which has already resumed the wait.
+                        do { try await clock.sleep(for: interval) } catch { return }
+                        self.end(id)
+                    }
+                }
+            } onCancel: {
+                Task { @MainActor in self.end(id) }
+            }
         }
-        wakeRequested = false
+        try Task.checkCancellation()
+    }
+
+    /// Resumes wait `id` if it is still the one suspended, and stops its timer.
+    private func end(_ id: UInt64) {
+        guard id == waitID, let continuation = waiter else { return }
+        waiter = nil
+        timer?.cancel()
+        timer = nil
+        continuation.resume()
     }
 }
 
@@ -137,7 +160,7 @@ public final class PairingWakeUp {
 /// that one.
 ///
 /// - Parameters:
-///   - wakeUp: "Check now".
+///   - wakeUp: "Check now", and the clock that measures `interval` and `timeout`.
 ///   - onPrompt: Receives every prompt the gateway reports while waiting.
 ///   - interval: Delay between attempts.
 ///   - timeout: Overall budget (the pending request's lifetime).
@@ -152,7 +175,22 @@ public func awaitPairingApproval(
     timeout: Duration = PairingApproval.timeout,
     attempt: @MainActor () async throws -> Void
 ) async throws -> PairingOutcome {
-    let clock = ContinuousClock()
+    try await approvalLoop(
+        clock: wakeUp.clock, wakeUp: wakeUp, onPrompt: onPrompt, interval: interval, timeout: timeout, attempt: attempt
+    )
+}
+
+/// ``awaitPairingApproval(wakeUp:onPrompt:interval:timeout:attempt:)`` on the wake-up's clock, opened so its
+/// instants can be compared.
+@MainActor
+private func approvalLoop<C: Clock<Duration>>(
+    clock: C,
+    wakeUp: PairingWakeUp,
+    onPrompt: @MainActor (PairingPrompt) async -> Void,
+    interval: Duration,
+    timeout: Duration,
+    attempt: @MainActor () async throws -> Void
+) async throws -> PairingOutcome {
     let deadline = clock.now.advanced(by: timeout)
     while clock.now < deadline {
         try await wakeUp.wait(min(interval, clock.now.duration(to: deadline)))

@@ -42,6 +42,10 @@ public final class ConnectionPickerViewModel {
     /// ``PairingApprovalCard`` and hides its QR / LAN / Add actions. `nil` otherwise.
     public private(set) var pairingPrompt: PairingPrompt?
 
+    /// `false` while a connect, or the approval wait it turned into, is running: the rows are then inert (dimmed, no
+    /// tap, no swipe-to-delete) rather than taking a tap that ``connect(_:)`` would ignore.
+    public var profilesSelectable: Bool { connectingId == nil }
+
     @ObservationIgnored
     private var observeTask: Task<Void, Never>?
     @ObservationIgnored

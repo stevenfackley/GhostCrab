@@ -108,6 +108,26 @@ struct ConnectionPickerViewModelTests {
         #expect(gateway.connectURLs == [profile.url])
     }
 
+    @Test(.timeLimit(.minutes(1)))
+    func profileRowsAreInertWhileTheApprovalCardShows() async {
+        let profile = FakeConnectionProfileRepository.profile()
+        let gateway = FakeGatewayConnectionManager(connectError: Self.pending)
+        let vm = ConnectionPickerViewModel(
+            profileRepository: FakeConnectionProfileRepository(profiles: [profile]),
+            connectionManager: gateway,
+            pairingRetryInterval: .seconds(60)
+        )
+        #expect(vm.profilesSelectable)
+
+        vm.connect(profile)
+        #expect(!vm.profilesSelectable)
+        while vm.pairingPrompt == nil { await Task.yield() }
+        #expect(!vm.profilesSelectable)
+
+        vm.cancelPairing()
+        #expect(vm.profilesSelectable)
+    }
+
     @Test func theSavedTokenIsReadOnceForTheWholeWait() async {
         let profile = FakeConnectionProfileRepository.profile(hasToken: true)
         let profiles = FakeConnectionProfileRepository(profiles: [profile], tokens: [profile.id.uuidString: "tok_saved"])

@@ -13,6 +13,8 @@ import SwiftUI
 /// - `PAIRING_REQUIRED` → ``PairingApprovalCard`` above the list (instead of the
 ///   status bar) while the VM retries; the QR / LAN / Add actions are hidden
 ///   meanwhile, and leaving the screen cancels the wait.
+/// - While a connect or its approval wait runs, the other rows are dimmed and
+///   take no tap or swipe (``ConnectionPickerViewModel/profilesSelectable``).
 public struct ConnectionPickerScreen: View {
 
     @Environment(\.navigate) private var navigate
@@ -162,10 +164,12 @@ public struct ConnectionPickerScreen: View {
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
                     .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                        Button(role: .destructive) {
-                            vm.delete(profile.id)
-                        } label: {
-                            Label("Delete", systemImage: "trash")
+                        if vm.profilesSelectable {
+                            Button(role: .destructive) {
+                                vm.delete(profile.id)
+                            } label: {
+                                Label("Delete", systemImage: "trash")
+                            }
                         }
                     }
             }
@@ -210,7 +214,9 @@ public struct ConnectionPickerScreen: View {
             }
         }
         .buttonStyle(.plain)
-        .disabled(vm.connectingId != nil)
+        .disabled(!vm.profilesSelectable)
+        // The plain style does not dim a disabled row; the one being connected stays bright beside its spinner.
+        .opacity(vm.profilesSelectable || vm.connectingId == profile.id ? 1.0 : 0.6)
         .padding(.vertical, DesignTokens.Spacing.xs)
     }
 }

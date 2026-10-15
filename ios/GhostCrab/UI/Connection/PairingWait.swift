@@ -37,7 +37,7 @@ public final class PairingWait {
     private let connectionManager: any GatewayConnectionManager
     private let retryInterval: Duration
     private let timeout: Duration
-    private let wakeUp = PairingWakeUp()
+    private let wakeUp: PairingWakeUp
     /// Bumped by every ``start(url:token:onPrompt:onFinished:)`` and ``cancel()``; a run whose id differs is stale.
     private var runID: UInt64 = 0
 
@@ -52,14 +52,17 @@ public final class PairingWait {
     ///     prompt.
     ///   - retryInterval: Delay between connects while the device awaits approval.
     ///   - timeout: How long to wait for approval (upstream expires a pending request after 5 minutes).
+    ///   - clock: Measures `retryInterval` and `timeout`; tests pass a clock they advance themselves.
     public init(
         connectionManager: any GatewayConnectionManager,
         retryInterval: Duration = PairingApproval.retryInterval,
-        timeout: Duration = PairingApproval.timeout
+        timeout: Duration = PairingApproval.timeout,
+        clock: any Clock<Duration> = ContinuousClock()
     ) {
         self.connectionManager = connectionManager
         self.retryInterval = retryInterval
         self.timeout = timeout
+        self.wakeUp = PairingWakeUp(clock: clock)
     }
 
     deinit {

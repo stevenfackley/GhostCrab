@@ -47,7 +47,7 @@ struct PairingApprovalTests {
         #expect(PairingPrompt(error: GatewayError.timeout(url: "u")) == nil)
     }
 
-    @Test(arguments: ["req 9", "req;rm -rf ~", "$(id)", "", String(repeating: "a", count: 129)])
+    @Test(arguments: ["req 9", "req;rm -rf ~", "$(id)", "", String(repeating: "a", count: 129), "--help", "-x", ".x", "_x", ":x"])
     func aRequestIdThatIsNotShellSafeFallsBackToTheListCommand(requestId: String) {
         let error = GatewayError.pairingRequired(url: "u", requestId: requestId, reason: "not-paired", requestedScopes: [])
         let prompt = PairingPrompt(error: error)
@@ -72,11 +72,12 @@ struct PairingApprovalTests {
         #expect(attempts.count == 1)
     }
 
-    @Test func retriesUntilApproved() async throws {
+    @Test(.timeLimit(.minutes(1)))
+    func retriesUntilApproved() async throws {
         let prompts = Prompts()
         let attempts = Attempts(failures: 2)
         let connected = try await connectAwaitingApproval(
-            wakeUp: PairingWakeUp(), onPrompt: { prompts.record($0) }, interval: .milliseconds(10), timeout: .seconds(10)
+            wakeUp: PairingWakeUp(clock: ImmediateClock()), onPrompt: { prompts.record($0) }
         ) {
             try attempts.run()
         }
@@ -85,10 +86,11 @@ struct PairingApprovalTests {
         #expect(prompts.all.count == 2)
     }
 
-    @Test func anyOtherFailureEndsTheWait() async {
+    @Test(.timeLimit(.minutes(1)))
+    func anyOtherFailureEndsTheWait() async {
         let attempts = Attempts(failures: 1)
         await #expect(throws: GatewayError.self) {
-            _ = try await connectAwaitingApproval(wakeUp: PairingWakeUp(), onPrompt: { _ in }, interval: .milliseconds(10)) {
+            _ = try await connectAwaitingApproval(wakeUp: PairingWakeUp(clock: ImmediateClock()), onPrompt: { _ in }) {
                 try attempts.run()
                 throw GatewayError.connectRejected(url: "u", detailCode: "AUTH_TOKEN_MISMATCH", message: "m", recommendedNextStep: nil)
             }
@@ -96,10 +98,11 @@ struct PairingApprovalTests {
         #expect(attempts.count == 2)
     }
 
-    @Test func aKeychainFailureIsNeverRetriedByTheLoop() async {
+    @Test(.timeLimit(.minutes(1)))
+    func aKeychainFailureIsNeverRetriedByTheLoop() async {
         let attempts = Attempts(failures: 1)
         await #expect(throws: GatewayError.self) {
-            _ = try await connectAwaitingApproval(wakeUp: PairingWakeUp(), onPrompt: { _ in }, interval: .milliseconds(10)) {
+            _ = try await connectAwaitingApproval(wakeUp: PairingWakeUp(clock: ImmediateClock()), onPrompt: { _ in }) {
                 try attempts.run()
                 throw GatewayError.deviceCredentialStorage(operation: "read the device identity")
             }
@@ -107,42 +110,67 @@ struct PairingApprovalTests {
         #expect(attempts.count == 2)
     }
 
-    @Test func noApprovalWithinTheWindowTimesOut() async throws {
+    /// Retries at 5 s, 10 s and 12 s (the end of the window), then gives up.
+    @Test(.timeLimit(.minutes(1)))
+    func noApprovalWithinTheWindowTimesOut() async throws {
         let attempts = Attempts(failures: .max)
         let connected = try await connectAwaitingApproval(
-            wakeUp: PairingWakeUp(), onPrompt: { _ in }, interval: .milliseconds(10), timeout: .milliseconds(80)
+            wakeUp: PairingWakeUp(clock: ImmediateClock()), onPrompt: { _ in }, interval: .seconds(5), timeout: .seconds(12)
         ) {
             try attempts.run()
         }
         #expect(!connected)
-        #expect(attempts.count >= 2)
+        #expect(attempts.count == 4)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func theRetryWaitsOnTheClockForTheWholeInterval() async throws {
+        let clock = TestClock()
+        let attempts = Attempts(failures: 1)
+        let loop = Task {
+            try await connectAwaitingApproval(wakeUp: PairingWakeUp(clock: clock), onPrompt: { _ in }, interval: .seconds(5)) {
+                try attempts.run()
+            }
+        }
+        await clock.waitForSleepers()
+        clock.advance(by: .seconds(4))
+        #expect(clock.sleeperCount == 1)
+        #expect(attempts.count == 1)
+
+        clock.advance(by: .seconds(1))
+        #expect(try await loop.value)
+        #expect(attempts.count == 2)
     }
 
     @Test(.timeLimit(.minutes(1)))
     func checkNowRetriesImmediately() async throws {
-        let wakeUp = PairingWakeUp()
+        let clock = TestClock()
+        let wakeUp = PairingWakeUp(clock: clock)
         let attempts = Attempts(failures: 1)
         let loop = Task {
             try await connectAwaitingApproval(wakeUp: wakeUp, onPrompt: { _ in }, interval: .seconds(60), timeout: .seconds(120)) {
                 try attempts.run()
             }
         }
-        while attempts.count < 1 { await Task.yield() }
+        await clock.waitForSleepers()
         wakeUp.fireNow()
         #expect(try await loop.value)
         #expect(attempts.count == 2)
+        #expect(clock.now == TestInstant(offset: .zero))
     }
 
     @Test(.timeLimit(.minutes(1)))
     func cancellingEndsTheWait() async {
+        let clock = TestClock()
         let attempts = Attempts(failures: .max)
         let loop = Task {
-            try await connectAwaitingApproval(wakeUp: PairingWakeUp(), onPrompt: { _ in }, interval: .seconds(60)) {
+            try await connectAwaitingApproval(wakeUp: PairingWakeUp(clock: clock), onPrompt: { _ in }, interval: .seconds(60)) {
                 try attempts.run()
             }
         }
-        while attempts.count < 1 { await Task.yield() }
+        await clock.waitForSleepers()
         loop.cancel()
         await #expect(throws: CancellationError.self) { _ = try await loop.value }
+        #expect(attempts.count == 1)
     }
 }
