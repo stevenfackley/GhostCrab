@@ -23,6 +23,40 @@ struct InstalledSkillsViewModelTests {
         await vm.sessionTask?.value
     }
 
+    @Test func aScreenOpenedDuringTheReconnectRefreshesWhenTheNewSessionArrives() async {
+        let repo = FakeInstalledSkillRepository(skills: [FakeInstalledSkillRepository.skill("weather")])
+        let gateway = ScriptedConnectionManager(ScriptedConnectionManager.connected(generation: 1, reconnecting: true))
+        let vm = InstalledSkillsViewModel(skills: repo, gateway: gateway)
+        vm.start()
+        await waitUntil { gateway.subscriberCount == 1 }
+        try? await Task.sleep(for: .milliseconds(50)) // room for a refresh the reconnecting state should not start
+
+        #expect(repo.refreshCount == 0)
+        #expect(vm.lastError == nil)
+
+        gateway.emit(ScriptedConnectionManager.connected(generation: 2))
+        await waitUntil { repo.refreshCount >= 1 }
+        try? await Task.sleep(for: .milliseconds(50))
+
+        #expect(repo.refreshCount == 1)
+        #expect(vm.lastError == nil)
+        vm.stop()
+        await vm.sessionTask?.value
+    }
+
+    @Test func theErrorClearsAfterASuccessfulRefresh() async {
+        let repo = FakeInstalledSkillRepository(skills: [FakeInstalledSkillRepository.skill("weather")])
+        repo.setRefreshError(GatewayError.unreachable(url: "ws://192.168.1.20:18789/ws"))
+        let vm = InstalledSkillsViewModel(skills: repo)
+
+        await vm.refresh()
+        #expect(vm.lastError != nil)
+
+        repo.setRefreshError(nil)
+        await vm.refresh()
+        #expect(vm.lastError == nil)
+    }
+
     @Test func confirmingRemovalDisablesTheSkillInsteadOfUninstalling() async throws {
         let repo = FakeInstalledSkillRepository(skills: [FakeInstalledSkillRepository.skill("weather")])
         let vm = InstalledSkillsViewModel(skills: repo)

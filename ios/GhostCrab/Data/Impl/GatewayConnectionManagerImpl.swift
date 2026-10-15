@@ -33,7 +33,7 @@ public struct DefaultOpenClawAPIClientFactory: OpenClawAPIClientFactory {
 /// device token (the shared token when none is stored), like Android. Meanwhile the state is `.connected` with
 /// `reconnecting: true` and ``requireSession()`` fails with `.unreachable` naming the URL; a successful reconnect
 /// publishes a new `.connected` (next `sessionGeneration`). If the reconnect fails, the state becomes `.error`: with the
-/// gateway's refusal when it sent one (`.pairingRequired`, so the picker's approval wait can take over, or
+/// gateway's refusal when it sent one (`.pairingRequired`: the dashboard then shows "Connection lost" with the pairing message and a Retry, or
 /// `.connectRejected`), else with the lost socket's end cause (a transport failure, or `.deviceCredentialStorage`
 /// while the Keychain is locked, never retried here). A session the reconnect opened earns another silent reconnect
 /// only after ``reconnectRearmInterval`` live on the injected clock, so a gateway that keeps dropping the socket never

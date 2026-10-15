@@ -104,6 +104,28 @@ struct DashboardViewModelTests {
         vm.onDisappear()
     }
 
+    @Test func aDashboardShownDuringTheReconnectLoadsWhenTheNewSessionArrives() async {
+        let gateway = ScriptedConnectionManager(ScriptedConnectionManager.connected(generation: 1, reconnecting: true))
+        let models = FakeModelRepository(models: [FakeModelRepository.model("m1", active: true)])
+        let vm = DashboardViewModel(gateway: gateway, models: models, ai: FakeAIRecommendationService())
+        vm.onAppear()
+        await waitUntil { gateway.subscriberCount == 1 }
+        await vm.loadTask?.value
+        try? await Task.sleep(for: .milliseconds(50)) // room for a load the reconnecting state should not start
+
+        #expect(models.getModelsCount == 0)
+        #expect(vm.lastError == nil)
+
+        gateway.emit(ScriptedConnectionManager.connected(generation: 2))
+        await waitUntil { models.getModelsCount >= 1 }
+        await vm.loadTask?.value
+
+        #expect(models.getModelsCount == 1)
+        #expect(vm.activeModel?.id == "m1")
+        #expect(vm.lastError == nil)
+        vm.onDisappear()
+    }
+
     @Test func theWarningsAreReReadOnEveryStateChange() async {
         let gateway = ScriptedConnectionManager(ScriptedConnectionManager.connected(generation: 1))
         let vm = DashboardViewModel(gateway: gateway, models: FakeModelRepository(models: []), ai: FakeAIRecommendationService())

@@ -56,6 +56,19 @@ public enum GatewayConnection: Sendable {
     case error(url: String, cause: GatewayError)
 }
 
+// MARK: - Session capabilities
+
+/// Additive (v1.1) — the keys of ``GatewayConnection/sessionCapabilities`` (`.connected(capabilities:)`). The Data layer
+/// puts a key in when the gateway offers the methods and the granted scopes allow them; screens gate on them.
+public enum SessionCapability {
+    /// `config.get` + `config.patch` offered and the socket holds `operator.admin`.
+    public static let config = "config"
+    /// `models.list` offered and the socket holds `operator.read`.
+    public static let models = "models"
+    /// `skills.status` offered and the socket holds `operator.read`.
+    public static let skills = "skills"
+}
+
 // MARK: - Session helpers
 
 extension GatewayConnection {

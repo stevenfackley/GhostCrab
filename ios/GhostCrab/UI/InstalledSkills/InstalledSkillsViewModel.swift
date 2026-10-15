@@ -79,7 +79,8 @@ public final class InstalledSkillsViewModel {
                 self.skills = list
             }
         }
-        Task { await refresh() }
+        // During the silent reconnect no RPC works: the reconnected session's generation refreshes the list.
+        if gateway?.currentState.isReconnecting != true { Task { await refresh() } }
         if let gateway {
             let loadedFor = gateway.currentState
             sessionTask = Task { [weak self] in
@@ -133,7 +134,7 @@ public final class InstalledSkillsViewModel {
         let result = await repo.refreshFromGateway()
         switch result {
         case .success:
-            break
+            lastError = nil
         case .failure(let error):
             lastError = (error as? GatewayError)?.errorDescription ?? error.localizedDescription
         }

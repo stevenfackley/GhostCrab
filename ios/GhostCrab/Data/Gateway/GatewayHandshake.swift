@@ -132,12 +132,6 @@ public struct ConnectChallenge: Sendable, Equatable {
 /// The parts of `hello-ok` GhostCrab uses. `description`, `debugDescription` and the mirror redact the device token.
 public struct GatewayHello: Sendable, Equatable {
 
-    /// Dashboard capability key: `config.get` + `config.patch` offered and the socket holds `operator.admin`.
-    public static let capabilityConfig = "config"
-    /// Dashboard capability key: `models.list` offered and the socket holds `operator.read`.
-    public static let capabilityModels = "models"
-    /// Dashboard capability key: `skills.status` offered and the socket holds `operator.read`.
-    public static let capabilitySkills = "skills"
     /// Scope for read methods (`status`, `models.list`, `skills.status`; ADR-0007).
     public static let scopeOperatorRead = "operator.read"
     /// Scope for `config.*` and `skills.install` (ADR-0007).
@@ -182,9 +176,9 @@ public struct GatewayHello: Sendable, Equatable {
         let admin = scopes.contains(Self.scopeOperatorAdmin)
         let read = scopes.contains(Self.scopeOperatorRead)
         var keys: [String] = []
-        if admin, methods.contains("config.get"), methods.contains("config.patch") { keys.append(Self.capabilityConfig) }
-        if read, methods.contains("models.list") { keys.append(Self.capabilityModels) }
-        if read, methods.contains("skills.status") { keys.append(Self.capabilitySkills) }
+        if admin, methods.contains("config.get"), methods.contains("config.patch") { keys.append(SessionCapability.config) }
+        if read, methods.contains("models.list") { keys.append(SessionCapability.models) }
+        if read, methods.contains("skills.status") { keys.append(SessionCapability.skills) }
         return keys
     }
 }

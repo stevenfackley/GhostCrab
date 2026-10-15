@@ -115,7 +115,7 @@ final class FakeGatewayConnectionManager: GatewayConnectionManager, @unchecked S
 /// publishes the next session (or `.error` with `connectError`); `disconnect` publishes `.disconnected`.
 final class ScriptedConnectionManager: GatewayConnectionManager, @unchecked Sendable {
     static let url = "http://192.168.1.20:18789"
-    static let allCapabilities = [GatewayHello.capabilityConfig, GatewayHello.capabilityModels, GatewayHello.capabilitySkills]
+    static let allCapabilities = [SessionCapability.config, SessionCapability.models, SessionCapability.skills]
 
     private let lock = NSLock()
     private var state: GatewayConnection
@@ -566,6 +566,12 @@ final class FakeInstalledSkillRepository: InstalledSkillRepository, @unchecked S
     private var uninstallLog: [String] = []
     private var refreshCalls = 0
     private var enabledLog: [String] = []
+    private var refreshError: (any Error)?
+
+    /// Makes every `refreshFromGateway()` fail with `error`, or succeed again for `nil`.
+    func setRefreshError(_ error: (any Error)?) {
+        lock.withLock { refreshError = error }
+    }
 
     /// - Parameters:
     ///   - skills: Installed list replayed by `observeInstalled()` and returned by `refreshFromGateway()`.
@@ -600,10 +606,11 @@ final class FakeInstalledSkillRepository: InstalledSkillRepository, @unchecked S
     }
 
     func refreshFromGateway() async -> Result<[InstalledSkill], any Error> {
-        let snapshot: [InstalledSkill] = lock.withLock {
+        let (snapshot, failure): ([InstalledSkill], (any Error)?) = lock.withLock {
             refreshCalls += 1
-            return skills
+            return (skills, refreshError)
         }
+        if let failure { return .failure(failure) }
         return .success(snapshot)
     }
 

@@ -11,12 +11,12 @@ public enum DashboardFeature: CaseIterable, Sendable {
     /// Installed skills: `skills.status`, `operator.read`.
     case skills
 
-    /// The ``GatewayHello`` capability key the entry needs.
+    /// The ``SessionCapability`` key the entry needs.
     var capability: String {
         switch self {
-        case .config: return GatewayHello.capabilityConfig
-        case .models: return GatewayHello.capabilityModels
-        case .skills: return GatewayHello.capabilitySkills
+        case .config: return SessionCapability.config
+        case .models: return SessionCapability.models
+        case .skills: return SessionCapability.skills
         }
     }
 
@@ -143,7 +143,8 @@ public final class DashboardViewModel {
     /// stream, loads the active model, and probes AI availability. Loads that
     /// are already running are not started again.
     public func onAppear() {
-        if loadTask == nil {
+        // During the silent reconnect no RPC works: the reconnected session's generation starts the load.
+        if loadTask == nil, !gateway.currentState.isReconnecting {
             sessions.markLoaded(gateway.currentState)
             startLoad()
         }

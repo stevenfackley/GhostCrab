@@ -74,7 +74,8 @@ public final class ModelManagerViewModel {
         }
         var sessions = SessionTracker()
         sessions.markLoaded(gateway.currentState)
-        await load()
+        // During the silent reconnect no RPC works: the reconnected session's generation loads the list.
+        if !gateway.currentState.isReconnecting { await load() }
         // The stream replays the current state first: a session that went live during the load reloads here.
         for await state in gateway.connectionStates() {
             if Task.isCancelled { return }
