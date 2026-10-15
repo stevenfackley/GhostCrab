@@ -17,6 +17,16 @@
     <string name="config_editor_concurrent_reload">Reload</string>
     <string name="config_editor_concurrent_dismiss">Dismiss</string>
     <string name="config_gateway_untyped_notice">This section contains values GhostCrab cannot model (for example an unknown auth mode). Edit it as raw JSON; nothing is replaced with defaults.</string>
+    <string name="config_gateway_listener_title">Listener</string>
+    <string name="config_gateway_mode_label">Mode (local, remote)</string>
+    <string name="config_gateway_port_label">Port</string>
+    <string name="config_gateway_bind_label">Bind (loopback, lan, tailnet, …)</string>
+    <string name="config_gateway_auth_title">Auth</string>
+    <string name="config_gateway_auth_mode_label">Mode</string>
+    <string name="config_gateway_auth_mode_unset_label">Mode (unset: inferred by the gateway)</string>
+    <string name="config_gateway_auth_token_label">Token</string>
+    <string name="config_gateway_auth_token_redacted_label">Token (set on the gateway; type to replace)</string>
+    <string name="config_gateway_auth_none_warning">The gateway refuses to start with auth mode none unless bind is loopback or a trusted proxy fronts it.</string>
 
     <!-- Dashboard -->
     <string name="dashboard_title">Dashboard</string>
