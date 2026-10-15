@@ -22,6 +22,8 @@
 //   TOKEN      if set, requires `Authorization: Bearer <TOKEN>` for /api/*, /config*, /ws
 //   SCOPES     comma-separated; default "operator.read,operator.admin"
 //   FAIL_MODE  comma-separated: "models-404" "ai-404" "ai-429" "install-unauth" "install-notfound"
+//   MOCK_DISPLAY_NAME / MOCK_VERSION / MOCK_HARDWARE
+//              override the /status identity (store screenshots use neutral values)
 
 import http from "node:http";
 import { randomUUID, createHash } from "node:crypto";
@@ -32,11 +34,14 @@ const HOST = process.env.HOST ?? "0.0.0.0";
 const TOKEN = process.env.TOKEN ?? null;
 const SCOPES = (process.env.SCOPES ?? "operator.read,operator.admin").split(",").map(s => s.trim()).filter(Boolean);
 const FAIL = new Set((process.env.FAIL_MODE ?? "").split(",").map(s => s.trim()).filter(Boolean));
+const DISPLAY_NAME = process.env.MOCK_DISPLAY_NAME ?? "Mock OpenClaw Gateway";
+const VERSION = process.env.MOCK_VERSION ?? "mock-0.1.0";
+const HARDWARE = process.env.MOCK_HARDWARE ?? "x86_64 · 32GB · Windows 11 (mock)";
 
 // ── In-memory state ────────────────────────────────────────────────────────
 const state = {
   config: {
-    gateway: { port: 18790, cleartext: true, bind: "0.0.0.0" },
+    gateway: { port: PORT, cleartext: true, bind: "0.0.0.0" },
     models: { active: "claude-sonnet-4-6", timeout_ms: 30000 },
     skills: { autoUpdate: false, watch: true },
   },
@@ -118,10 +123,10 @@ const server = http.createServer(async (req, res) => {
     if (method === "GET" && path === "/status") {
       log("→ 200");
       return json(res, 200, {
-        displayName: "Mock OpenClaw Gateway",
-        version: "mock-0.1.0",
+        displayName: DISPLAY_NAME,
+        version: VERSION,
         capabilities: ["models", "config", "ai.recommend", "skills.install"],
-        hardware: "x86_64 · 32GB · Windows 11 (mock)",
+        hardware: HARDWARE,
       });
     }
 
@@ -240,7 +245,7 @@ wss.on("connection", ws => {
 
     switch (method) {
       case "auth.whoami":
-        reply({ scopes: SCOPES, nodeId: "mock-node", version: "mock-0.1.0" });
+        reply({ scopes: SCOPES, nodeId: "mock-node", version: VERSION });
         break;
 
       case "skills.list":

@@ -37,6 +37,9 @@ npm start        # listens on :18790 by default
 | `TOKEN`    | *(none — unauth)*               | require `Authorization: Bearer <TOKEN>` |
 | `SCOPES`   | `operator.read,operator.admin`  | controls `auth.whoami` response |
 | `FAIL_MODE`| *(none)*                        | comma list — force failure paths |
+| `MOCK_DISPLAY_NAME` | `Mock OpenClaw Gateway` | `/status` display name |
+| `MOCK_VERSION` | `mock-0.1.0`                 | `/status` and `auth.whoami` version |
+| `MOCK_HARDWARE` | `x86_64 · 32GB · Windows 11 (mock)` | `/status` hardware line |
 
 `FAIL_MODE` values:
 - `models-404` — `GET /api/models/status` → 404 (exercise empty-state UI)
