@@ -34,6 +34,26 @@ struct DashboardViewModelTests {
         #expect(vm.aiTask == nil)
     }
 
+    @Test func aDeviceTokenThatCouldNotBeSavedIsShown() async {
+        let gateway = FakeGatewayConnectionManager(warnings: [.deviceTokenNotSaved])
+        let vm = DashboardViewModel(gateway: gateway, models: FakeModelRepository(models: []), ai: FakeAIRecommendationService())
+
+        vm.onAppear()
+        await vm.loadTask?.value
+
+        #expect(vm.warnings == [.deviceTokenNotSaved])
+        #expect(ConnectionWarning.deviceTokenNotSaved.userMessage.contains("gateway token"))
+    }
+
+    @Test func noWarningsShowNothing() async {
+        let vm = DashboardViewModel(gateway: FakeGatewayConnectionManager(), models: FakeModelRepository(models: []), ai: FakeAIRecommendationService())
+
+        vm.onAppear()
+        await vm.loadTask?.value
+
+        #expect(vm.warnings.isEmpty)
+    }
+
     @Test func leavingCancelsTheLoadAndReturningReloads() async {
         let models = FakeModelRepository(models: [FakeModelRepository.model("m1", active: true)])
         let vm = DashboardViewModel(gateway: FakeGatewayConnectionManager(), models: models, ai: FakeAIRecommendationService())

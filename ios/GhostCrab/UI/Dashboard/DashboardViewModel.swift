@@ -51,6 +51,11 @@ public final class DashboardViewModel {
     /// `true` once the user asked to disconnect; repeat taps are ignored.
     public private(set) var isDisconnecting: Bool = false
 
+    /// Problems that did not fail the live session (``GatewayConnectionManager/connectionWarnings()``), e.g.
+    /// ``ConnectionWarning/deviceTokenNotSaved`` after an approval: the session works, but later connects need the
+    /// gateway token. Shown amber; empty when there is nothing to report.
+    public private(set) var warnings: [ConnectionWarning] = []
+
     // MARK: - Internal tasks
 
     @ObservationIgnored
@@ -88,6 +93,7 @@ public final class DashboardViewModel {
         startObservingConnection()
         if loadTask == nil {
             loadTask = Task {
+                await self.loadWarnings()
                 await self.loadActiveModel()
                 if !Task.isCancelled { self.loadTask = nil }
             }
@@ -113,6 +119,7 @@ public final class DashboardViewModel {
 
     /// Manual refresh — invoked by `.refreshable`. Reloads the model list.
     public func refresh() async {
+        await loadWarnings()
         await loadActiveModel()
     }
 
@@ -167,6 +174,12 @@ public final class DashboardViewModel {
                 self.lastError = "\(type(of: error)): \(error.localizedDescription)"
             }
         }
+    }
+
+    private func loadWarnings() async {
+        let current = await gateway.connectionWarnings()
+        guard !Task.isCancelled else { return }
+        self.warnings = current
     }
 
     private func probeAIAvailability() async {

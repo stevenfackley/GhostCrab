@@ -72,6 +72,10 @@ public struct DashboardScreen: View {
                 }
             }
 
+            ForEach(Array(vm.warnings.enumerated()), id: \.offset) { _, warning in
+                warningBanner(warning.userMessage)
+            }
+
             if let error = vm.lastError {
                 errorBanner(error)
             }
@@ -330,7 +334,32 @@ public struct DashboardScreen: View {
         .buttonStyle(.plain)
     }
 
-    // MARK: - Error banner
+    // MARK: - Warning and error banners
+
+    /// Amber notice for a ``ConnectionWarning`` on the live session: plain copy, no secret.
+    @ViewBuilder
+    private func warningBanner(_ message: String) -> some View {
+        HStack(alignment: .top, spacing: DesignTokens.Spacing.sm) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(DesignTokens.Color.amberWarn)
+                .font(.system(size: 16))
+            Text(verbatim: message)
+                .font(AppFont.body(13))
+                .foregroundStyle(DesignTokens.Color.amberWarn)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, DesignTokens.Spacing.md)
+        .padding(.vertical, DesignTokens.Spacing.sm)
+        .background(
+            DesignTokens.Shape.small
+                .fill(DesignTokens.Color.amberWarn.opacity(0.15))
+        )
+        .overlay(
+            DesignTokens.Shape.small
+                .strokeBorder(DesignTokens.Color.amberWarn, lineWidth: 1)
+        )
+    }
 
     @ViewBuilder
     private func errorBanner(_ message: String) -> some View {
