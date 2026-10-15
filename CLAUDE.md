@@ -40,7 +40,7 @@ Package root: `app/src/main/kotlin/com/openclaw/ghostcrab/`
 | `domain/model/` | Immutable data classes / sealed interfaces (wire types are `@Serializable`) |
 | `domain/exception/` | Sealed `GatewayException` hierarchy — every leaf has `isRetryable: Boolean` |
 | `domain/repository/` | Frozen interfaces — do **not** change signatures without a documented ADR |
-| `domain/util/` | Pure helpers: `ConfigSensitivity` (secret/security-affecting path classification + redaction), `JsonPatch` (`withLeaf`, merge-patch building), `suspendRunCatching`, `GatewayUrl` (IPv6-safe URL parsing), `PairCode` (`ghostcrab://pair` decoding), `TokenUtils` |
+| `domain/util/` | Pure helpers: `ConfigSensitivity` (secret/security-affecting path classification + redaction), `JsonPatch` (`withLeaf`, merge-patch building), `suspendRunCatching`, `GatewayUrl` (IPv6-safe URL parsing), `PairCode` (decodes `ghostcrab://pair` bundles and plain `http(s)://` / `ws(s)://` gateway URLs; `openclaw qr` setup codes are only recognised and explained), `TokenUtils` |
 | `data/api/` | `OpenClawApiClient` (Ktor): the `GET /health` probe and the control-plane WebSocket upgrade only; no credential is ever sent over HTTP (ADR-0007) |
 | `data/gateway/` | Protocol-4 control plane (ADR-0007): `GatewayFrames` codec, `GatewayRpcClient` (string-id correlation, events, challenge), `DeviceIdentity` (Ed25519 via Tink), `DeviceAuthPayload` (v3 signature), `GatewayHandshake` / `GatewayHello` (`hello-ok`), `DeviceTokenStore`, typed `GatewayErrors` |
 | `data/discovery/` | `NsdDiscoveryServiceImpl` |
@@ -51,6 +51,9 @@ Package root: `app/src/main/kotlin/com/openclaw/ghostcrab/`
 | `ui/components/` | Shared composables: `GlassSurface`, `SecurityBanner`, `ObserveAsEvents`, `IntFieldRow`, etc. |
 | `ui/navigation/` | `NavGraph` composable only; routes are string literals in the `composable("...")` calls (no `Routes` class). The `ai_recommendation` route exists only when `BuildConfig.AI_PRO_ENABLED` |
 | `ui/ErrorMessages.kt` | `toUserMessage()` — the single renderer of errors for users |
+| `ui/SessionChanges.kt` | `sessionChanges()`: the connection state minus the silent reconnect's `Connected(reconnecting = true)`, so per-session screens reload only on a new session |
+| `ui/GatewayFeatures.kt` | Which screens (config, models, skills) the session's granted scopes allow; Dashboard and Settings hide the rest |
+| `ui/connection/PairingWait.kt` | One connect at a time per screen, including the `PAIRING_REQUIRED` approval wait (retries, Check now, Cancel, release when the ViewModel clears); used by the picker, Manual Entry and Scan |
 | `ui/connection/PairingHandoff.kt` | In-memory one-shot handoff (2 min expiry) of a decoded `ghostcrab://pair` bundle to ManualEntry; the token never enters a route or saved state |
 | `ui/{connection,dashboard,config,model,airecommend,installedskills,onboarding,settings}/` | Per-feature Compose screens + ViewModels |
 | `app/lint.xml` | Lint suppressions with rationale (icon duplicates, font cert data, deliberate cleartext base-config) |

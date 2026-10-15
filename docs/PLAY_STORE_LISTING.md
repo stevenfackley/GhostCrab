@@ -128,7 +128,7 @@ Skip `02-gateways-empty` (least informative: an empty list). All nine stay captu
 | App info & performance | No | — | — | — |
 | Device or other IDs | No | — | — | — |
 
-**Answer "No" to all collection questions.** No data is collected or shared with third parties.
+**These "No" answers hold only without ML Kit.** The QR scanner's ML Kit library sends Google diagnostics (app info and performance, a per-installation id); declare them or replace ML Kit first. See "Open decision: ML Kit diagnostics" in `docs/DATA_SAFETY.md`. Nothing reaches the developer.
 
 ### Security practices
 

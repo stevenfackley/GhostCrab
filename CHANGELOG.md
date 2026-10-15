@@ -12,12 +12,12 @@ The Android app (`feat/protocol-alignment-android`, ADR-0007) now speaks the rea
 #### Changed
 
 - **Speaks the real OpenClaw gateway protocol** (ADR-0007): one WebSocket control plane per session (`connect.challenge` → Ed25519-signed `connect` → `hello-ok`), `req`/`res`/`event` frames with string ids and string error codes. Only `GET /health` is still HTTP, and no credential is sent over HTTP.
-- **Device pairing**: each install has an Ed25519 identity (Tink, stored encrypted). A new phone shows an approval panel with the request id and `openclaw devices approve <id>`, and polls by reconnecting until approved (5-minute budget, stable request id). The gateway's per-device token is stored per gateway and reused; one silent reconnect with it covers a dropped socket.
+- **Device pairing**: each install has an Ed25519 identity (Tink, stored encrypted). A new phone shows an approval panel with the request id and `openclaw devices approve <id>`, and polls by reconnecting until approved (5-minute budget, stable request id). The gateway's per-device token is stored per gateway and reused; a silent reconnect with it covers a dropped socket, again once the reconnected session has stayed up 5 minutes. Tapping a saved gateway on the LAN scan screen shows the same panel. If the device token cannot be stored, the dashboard says so in an amber banner.
 - **Auth detection** comes from the connect handshake (ADR-002 superseded): token gateways are reported as such, and a wrong token fails with the URL, `AUTH_TOKEN_MISMATCH` and the exception class.
-- **Scopes** from `hello-ok` gate what the app offers (config, models, skills).
+- **Scopes** from `hello-ok` gate what the app offers: Configure and Models on the dashboard, Installed Skills in Settings are hidden when the session's scopes do not allow them.
 - **Config editor** reads `config.get` and writes `config.patch` with a `baseHash` guard; a stale hash asks for a reload. The typed `gateway` form follows the real schema (port, bind, auth mode none/token/password/trusted-proxy); `gateway.mode` is read-only there (change it via the CLI or the raw-JSON section). A single validation issue inside the edited section shows inline on its field.
 - **Models** come from `models.list`; activating one sets `agents.defaults.model.primary`.
-- **Skills** use `skills.status` / `skills.install`; OpenClaw cannot remove skills, so the screen offers Disable (`skills.update`) and re-reads after `config.changed`.
+- **Skills** use `skills.status` / `skills.install`; OpenClaw cannot remove skills, so the screen offers Disable (`skills.update`) and re-reads after `config.changed`. The screen is still debug-only (`SKILLS_INSTALL_ENABLED` is off in release).
 
 #### Added
 
@@ -25,6 +25,7 @@ The Android app (`feat/protocol-alignment-android`, ADR-0007) now speaks the rea
 - Copy telling Linux, Windows and Docker users to run `openclaw plugins enable bonjour`.
 - `scripts/mock-gateway/server.mjs` now speaks protocol 4 (`AUTO_APPROVE=1` skips pairing for emulator screenshots) and has conformance tests in CI. The old REST mock is `legacy-rest.mjs` behind `LEGACY_REST=1`, kept only for `ios-screenshots.yml` until the iOS plan lands.
 - Real-gateway 2026.10.3 protocol fixtures in `fixtures/gateway-protocol/`.
+- `scripts/mock-gateway/probe-real.mjs` re-checks a real gateway; every token and password in its output is redacted.
 
 #### Removed
 
