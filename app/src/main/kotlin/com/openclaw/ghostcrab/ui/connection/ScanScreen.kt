@@ -77,6 +77,8 @@ fun ScanScreen(
     val pairingPrompt by viewModel.pairingPrompt.collectAsStateWithLifecycle()
 
     LaunchedEffect(Unit) { viewModel.startScan() }
+    val back = viewModel.leaving(onNavigateBack)
+    val enterManually = viewModel.leaving(onEnterManually)
 
     ObserveAsEvents(viewModel.events) { event ->
         when (event) {
@@ -99,7 +101,7 @@ fun ScanScreen(
                     )
                 },
                 navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
+                    IconButton(onClick = back) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "Back",
@@ -123,7 +125,7 @@ fun ScanScreen(
                 state = state,
                 pairingPrompt = pairingPrompt,
                 viewModel = viewModel,
-                onEnterManually = onEnterManually,
+                onEnterManually = enterManually,
             )
         }
     }
@@ -412,4 +414,10 @@ private fun ErrorContent(
             Text("Enter URL manually")
         }
     }
+}
+
+/** [navigate] preceded by stopping a running approval wait (a no-op when none runs), as the picker does. */
+private fun ScanViewModel.leaving(navigate: () -> Unit): () -> Unit = {
+    pairing.cancel()
+    navigate()
 }

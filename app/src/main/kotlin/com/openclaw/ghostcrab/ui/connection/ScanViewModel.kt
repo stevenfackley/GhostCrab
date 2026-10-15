@@ -6,6 +6,7 @@ import com.openclaw.ghostcrab.domain.model.DiscoveredGateway
 import com.openclaw.ghostcrab.domain.repository.ConnectionProfileRepository
 import com.openclaw.ghostcrab.domain.repository.DiscoveryService
 import com.openclaw.ghostcrab.domain.repository.GatewayConnectionManager
+import com.openclaw.ghostcrab.domain.util.suspendRunCatching
 import com.openclaw.ghostcrab.ui.toUserMessage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -73,7 +74,7 @@ sealed interface ScanEvent {
  * @param profileRepository Used to match discovered gateways against saved profiles.
  * @param connectionManager Used to connect to previously seen gateways without re-entering creds.
  * @param cleanupScope Where the approval wait's disconnect runs once this ViewModel is cleared (see
- *   [PairingWait.release]); tests inject a test scope.
+ *   [PairingWait.release]); tests keep the default and drive time with `Dispatchers.setMain`.
  */
 class ScanViewModel(
     private val discoveryService: DiscoveryService,
@@ -99,7 +100,7 @@ class ScanViewModel(
 
     /**
      * The saved gateway's connect and its approval wait: one at a time. The approval panel's Check now / Cancel go
-     * here, and the screen cancels it before it navigates away.
+     * here, and the screen cancels it before it navigates away (the wait also ends when the ViewModel is cleared).
      */
     val pairing: PairingWait =
         PairingWait(viewModelScope, connectionManager, cleanupScope) { _pairingPrompt.value = null }
@@ -184,14 +185,18 @@ class ScanViewModel(
             val match = profiles.find { it.url == gateway.url }
 
             if (match != null) {
+                // Read once, before the wait: a Keystore read per retry is wasteful, and a failure mid-wait would
+                // leave a stale PAIRING_REQUIRED error. getToken() fails with ProfileNeedsReauthException after a
+                // Keystore reset; nothing has connected yet, so there is nothing to disconnect.
+                val token = suspendRunCatching { if (match.hasToken) profileRepository.getToken(match.id) else null }
+                    .getOrElse { e ->
+                        _state.value = ScanState.Error(e.toUserMessage())
+                        return@launch
+                    }
                 pairing.start(
                     url = match.url,
                     onPrompt = { _pairingPrompt.value = it },
-                    connect = {
-                        // getToken() fails with ProfileNeedsReauthException after a Keystore reset.
-                        val token = if (match.hasToken) profileRepository.getToken(match.id) else null
-                        connectionManager.connect(match.url, token)
-                    },
+                    connect = { connectionManager.connect(match.url, token) },
                     onFinished = ::onConnectFinished,
                 )
             } else {

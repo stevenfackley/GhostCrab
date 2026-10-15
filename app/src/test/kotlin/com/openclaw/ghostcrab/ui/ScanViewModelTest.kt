@@ -353,6 +353,20 @@ class ScanViewModelTest {
     }
 
     @Test
+    fun `the token is read once across all retry intervals`() = runTest {
+        val gw = gateway()
+        val repo = FakeProfileRepository(listOf(profile(gw.url).copy(hasToken = true)))
+        val manager = FakeScanPairingManager(refusals = 3)
+        val vm = ScanViewModel(FakeDiscoveryService(), repo, manager)
+
+        vm.onGatewaySelected(gw)
+        advanceTimeBy(PAIRING_RETRY_INTERVAL_MS * 3 + 1)
+
+        assertEquals(4, manager.calls)
+        assertEquals(1, repo.getTokenCalls)
+    }
+
+    @Test
     fun `leaving the screen mid-wait stops the retries and disconnects`() = runTest {
         val manager = FakeScanPairingManager()
         val (vm, gw) = savedGatewayVm(manager)
