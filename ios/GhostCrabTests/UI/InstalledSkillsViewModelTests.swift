@@ -23,4 +23,15 @@ struct InstalledSkillsViewModelTests {
         #expect(repo.uninstalledSlugs.isEmpty)
         #expect(vm.lastError == nil)
     }
+
+    /// `skills.status` entries without `clawhub.installedVersion` have no version: the row shows only the source,
+    /// not a bare `v · Local`.
+    @Test(arguments: ["", "  "])
+    func aSkillWithoutAVersionHasNoVersionLabel(version: String) {
+        #expect(InstalledSkillsViewModel.versionLabel(version) == nil)
+    }
+
+    @Test func aSkillWithAVersionIsLabelledWithIt() {
+        #expect(InstalledSkillsViewModel.versionLabel("1.4.2") == "v1.4.2")
+    }
 }

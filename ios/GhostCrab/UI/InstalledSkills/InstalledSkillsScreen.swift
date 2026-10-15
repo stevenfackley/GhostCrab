@@ -137,12 +137,14 @@ public struct InstalledSkillsScreen: View {
                     .foregroundStyle(DesignTokens.Color.textPrimary)
 
                 HStack(spacing: DesignTokens.Spacing.xs) {
-                    Text("v\(skill.installedVersion)")
-                        .font(AppFont.mono(11))
-                        .foregroundStyle(DesignTokens.Color.cyanPulse)
-                    Text("·")
-                        .font(AppFont.body(11))
-                        .foregroundStyle(DesignTokens.Color.textSecondary)
+                    if let version = InstalledSkillsViewModel.versionLabel(skill.installedVersion) {
+                        Text(version)
+                            .font(AppFont.mono(11))
+                            .foregroundStyle(DesignTokens.Color.cyanPulse)
+                        Text("·")
+                            .font(AppFont.body(11))
+                            .foregroundStyle(DesignTokens.Color.textSecondary)
+                    }
                     Text(sourceLabel(skill.source))
                         .font(AppFont.body(11))
                         .foregroundStyle(DesignTokens.Color.textSecondary)

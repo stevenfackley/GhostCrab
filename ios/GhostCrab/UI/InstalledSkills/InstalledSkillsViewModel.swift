@@ -85,6 +85,15 @@ public final class InstalledSkillsViewModel {
         for task in installTasks.values { task.cancel() }
     }
 
+    // MARK: - Row formatting
+
+    /// The row's version label, `v<version>`; `nil` when the gateway reported no version (a `skills.status` entry
+    /// without `clawhub.installedVersion`), so the row shows only the source instead of a bare `v`.
+    nonisolated static func versionLabel(_ version: String) -> String? {
+        let trimmed = version.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : "v" + trimmed
+    }
+
     // MARK: - Public API
 
     /// Triggers a one-shot refresh from `skills.list`. Sets ``lastError`` on
