@@ -1,5 +1,42 @@
 name: iOS + Mac Catalyst Release
 
+# Signing is self-contained: nothing here depends on the macOS login password
+# or on certificates sitting in the login keychain.
+#
+# Why: the runner's LaunchAgent starts every job in a fresh security session,
+# where ~/Library/Keychains/login.keychain-db is LOCKED even while Steve is
+# logged in at the console. The first run (38666179693) died there: Xcode found
+# "Apple Development: Steven Ackley (UGGLSA7625)" in the login keychain and
+# codesign could not use its private key, `errSecInternalComponent`. HaulCall
+# hit the same wall on this Mac on 2026-08-16 (its ios-testflight.yml header).
+#
+# So, the arrangement HaulCall has shipped with since 2026-08-17:
+#   * A throwaway keychain with a random password, made the user default and
+#     the whole search list (+ System.keychain), restored with `if: always()`.
+#   * The TEAM distribution identity "Apple Distribution: Steven Ackley
+#     (QJW4S8BDFX)" imported into it from the .p12 on the runner. Distribution
+#     certificates are team-scoped and the membership is at Apple's cap of 3,
+#     so this lane reuses one rather than minting a fourth. Path is the
+#     IOS_DIST_P12_PATH repo variable, defaulting to HaulCall's stash;
+#     the password sits next to it as <path>.pw.
+#   * Archive UNSIGNED. Automatic signing archives with a development identity,
+#     and minting one per run into a throwaway keychain dead-ends at "revoke
+#     certificate: private key not installed" on the next run (HaulCall runs
+#     32032845201, 32033802773).
+#   * Ad-hoc sign the archived app with the entitlements from project.yml
+#     (.github/scripts/ios-entitle-archive.sh), so export keeps them: App
+#     Sandbox + network.client on Mac Catalyst, keychain-access-groups on both.
+#   * Export with automatic signing driven by the ASC API key
+#     (-allowProvisioningUpdates + -authenticationKey*): Xcode fetches or
+#     creates the App Store profile itself.
+#   * Verify the exported signing (.github/scripts/ios-verify-signed-app.sh),
+#     then upload with altool.
+#
+# The keychain search list is per-user state shared with the HaulCall,
+# square-log-mobile and ClusterOrbit runners on this Mac. Two signing jobs
+# running at the same moment can step on each other; the concurrency group
+# below only serialises this repo's runs.
+
 on:
   workflow_dispatch:
     inputs:
@@ -19,6 +56,11 @@ on:
 permissions:
   contents: read
 
+# One upload at a time: two runs would race for the keychain search list.
+concurrency:
+  group: ios-release
+  cancel-in-progress: false
+
 jobs:
   testflight:
     name: Archive and upload to TestFlight
@@ -32,6 +74,10 @@ jobs:
       IOS_EXPORT_PATH: ${{ github.workspace }}/ios/build/export-ios
       MAC_EXPORT_PATH: ${{ github.workspace }}/ios/build/export-macos
       EXPORT_OPTIONS: ${{ github.workspace }}/ios/ExportOptions.plist
+      # Written by `xcodegen generate` from ios/project.yml.
+      ENTITLEMENTS: ${{ github.workspace }}/ios/GhostCrab/Resources/GhostCrab.entitlements
+      TEAM_ID: QJW4S8BDFX
+      BUNDLE_ID: com.qavren.ghostcrab
       # Identifiers only; scripts read them as shell variables, never as
       # inline expressions. The private key (ASC_KEY_P8) stays scoped to the
       # one step that writes it to disk.
@@ -77,17 +123,102 @@ jobs:
         env:
           ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
         run: |
+          missing=""
+          [ -n "$ASC_KEY_P8" ]    || missing="$missing ASC_KEY_P8"
+          [ -n "$ASC_KEY_ID" ]    || missing="$missing ASC_KEY_ID"
+          [ -n "$ASC_ISSUER_ID" ] || missing="$missing ASC_ISSUER_ID"
+          if [ -n "$missing" ]; then
+            echo "::error::Missing repository secret(s):$missing"
+            exit 1
+          fi
           mkdir -p ~/.appstoreconnect/private_keys
+          chmod 700 ~/.appstoreconnect/private_keys
+          umask 077
           printf '%s' "$ASC_KEY_P8" > "$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8"
           chmod 600 "$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8"
 
+      - name: Create the job keychain and import the signing identity
+        env:
+          DIST_P12: ${{ vars.IOS_DIST_P12_PATH || '/Users/steve/.haulcall-ci/dist.p12' }}
+        run: |
+          KC="$RUNNER_TEMP/ghostcrab-ci.keychain-db"
+          KC_PW="$(openssl rand -base64 24 | tr -d '\n')"
+          echo "::add-mask::$KC_PW"
+          STASH="$HOME/.ghostcrab-ci"
+
+          # Record what to restore before touching anything, so the restore
+          # step can put it back even if this step dies halfway.
+          security list-keychains -d user | sed -e 's/^ *"//' -e 's/"$//' \
+            > "$RUNNER_TEMP/orig-keychains.txt"
+          ORIG_DEFAULT="$(security default-keychain -d user | sed -e 's/^ *"//' -e 's/"$//')"
+          echo "Original default keychain: $ORIG_DEFAULT"
+          {
+            echo "KC=$KC"
+            echo "KC_PW=$KC_PW"
+            echo "ORIG_DEFAULT=$ORIG_DEFAULT"
+            echo "KEYCHAIN_TOUCHED=1"
+          } >> "$GITHUB_ENV"
+
+          rm -f "$KC"
+          security create-keychain -p "$KC_PW" "$KC"
+          # No flags = no auto-lock timeout, so a long archive keeps the key.
+          security set-keychain-settings "$KC"
+          security unlock-keychain -p "$KC_PW" "$KC"
+          # Only the job keychain (+ System, for Apple's roots): Xcode must not
+          # pick an identity from the locked login keychain again.
+          security list-keychains -d user -s "$KC" /Library/Keychains/System.keychain
+          # Default, so anything Xcode mints (a Mac installer certificate on
+          # the first Catalyst export) lands where this job can use it.
+          security default-keychain -d user -s "$KC"
+
+          # Apple Distribution certificates chain through WWDR G3, which
+          # System.keychain does not carry. Public CA file, no auth.
+          curl -fsS -o "$RUNNER_TEMP/AppleWWDRCAG3.cer" \
+            https://www.apple.com/certificateauthority/AppleWWDRCAG3.cer
+          security import "$RUNNER_TEMP/AppleWWDRCAG3.cer" -k "$KC" -T /usr/bin/codesign \
+            || echo "::warning::WWDR G3 import reported an error (already present?); continuing"
+
+          # Identities an earlier run of this workflow stashed (distribution +
+          # Mac installer, see "Stash the Mac installer identity").
+          if [ -f "$STASH/identities.p12" ] && [ -f "$STASH/identities.p12.pw" ]; then
+            echo "Importing identities stashed by an earlier run from $STASH"
+            security import "$STASH/identities.p12" -k "$KC" -f pkcs12 \
+              -P "$(cat "$STASH/identities.p12.pw")" \
+              -T /usr/bin/codesign -T /usr/bin/security -T /usr/bin/productbuild -T /usr/bin/xcodebuild \
+              || echo "::warning::Could not import $STASH/identities.p12; falling back to $DIST_P12"
+          fi
+
+          if ! security find-identity -p codesigning -v "$KC" | grep -q '"Apple Distribution: '; then
+            if [ ! -r "$DIST_P12" ] || [ ! -r "$DIST_P12.pw" ]; then
+              echo "::error::No team distribution identity on this runner: $DIST_P12 (and $DIST_P12.pw) must exist. It is the .p12 of \"Apple Distribution: Steven Ackley (QJW4S8BDFX)\" that HaulCall's ios-testflight.yml seeds; point the IOS_DIST_P12_PATH repository variable at another copy if it moved. The membership is at Apple's 3-certificate cap, so Xcode cannot mint one."
+              exit 1
+            fi
+            security import "$DIST_P12" -k "$KC" -f pkcs12 \
+              -P "$(cat "$DIST_P12.pw")" \
+              -T /usr/bin/codesign -T /usr/bin/security -T /usr/bin/productbuild -T /usr/bin/xcodebuild
+          fi
+
+          # A freshly imported private key has no partition list, and codesign
+          # then fails exactly as the login keychain did. We own the password.
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$KC_PW" "$KC" >/dev/null 2>&1 \
+            || echo "::warning::set-key-partition-list reported errors; continuing (codesign will say so loudly if the ACL is wrong)"
+
+          echo "--- identities in the job keychain ---"
+          security find-identity -v "$KC"
+          if ! security find-identity -p codesigning -v "$KC" | grep -q '"Apple Distribution: '; then
+            echo "::error::No VALID Apple Distribution identity in the job keychain (expired or revoked certificate, or a broken chain)."
+            exit 1
+          fi
+
       # ── iOS ────────────────────────────────────────────────────────────────
 
-      - name: Archive (iOS)
+      - name: Archive (iOS, unsigned)
         working-directory: ${{ env.WORKING_DIR }}
         env:
           BUILD_NUMBER: ${{ steps.build_number.outputs.value }}
         run: |
+          rm -rf "${IOS_ARCHIVE_PATH}"
           xcodebuild \
             -project GhostCrab.xcodeproj \
             -scheme GhostCrab \
@@ -95,11 +226,14 @@ jobs:
             -destination "generic/platform=iOS" \
             -archivePath "${IOS_ARCHIVE_PATH}" \
             CURRENT_PROJECT_VERSION="${BUILD_NUMBER}" \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath "$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8" \
-            -authenticationKeyID "${ASC_KEY_ID}" \
-            -authenticationKeyIssuerID "${ASC_ISSUER_ID}" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
             archive
+
+      - name: Carry entitlements into the archive (iOS)
+        run: |
+          bash "$GITHUB_WORKSPACE/.github/scripts/ios-entitle-archive.sh" \
+            "$IOS_ARCHIVE_PATH" ios "$ENTITLEMENTS" "$TEAM_ID" "$BUNDLE_ID"
 
       - name: Export IPA (iOS)
         working-directory: ${{ env.WORKING_DIR }}
@@ -114,6 +248,23 @@ jobs:
             -authenticationKeyID "${ASC_KEY_ID}" \
             -authenticationKeyIssuerID "${ASC_ISSUER_ID}"
 
+      - name: Verify IPA signing (iOS)
+        env:
+          BUILD_NUMBER: ${{ steps.build_number.outputs.value }}
+        run: |
+          IPA="${IOS_EXPORT_PATH}/GhostCrab.ipa"
+          if [ ! -f "$IPA" ]; then
+            echo "::error::No GhostCrab.ipa in ${IOS_EXPORT_PATH}"
+            ls -la "${IOS_EXPORT_PATH}" || true
+            exit 1
+          fi
+          CHECK="$RUNNER_TEMP/ipa-check"
+          rm -rf "$CHECK"
+          mkdir -p "$CHECK"
+          ditto -x -k "$IPA" "$CHECK"
+          bash "$GITHUB_WORKSPACE/.github/scripts/ios-verify-signed-app.sh" \
+            "$CHECK/Payload/GhostCrab.app" ios "$TEAM_ID" "$BUNDLE_ID" "$BUILD_NUMBER"
+
       - name: Upload iOS build to TestFlight
         run: |
           xcrun altool --upload-app \
@@ -124,12 +275,13 @@ jobs:
 
       # ── Mac Catalyst ───────────────────────────────────────────────────────
 
-      - name: Archive (Mac Catalyst)
+      - name: Archive (Mac Catalyst, unsigned)
         if: inputs.skip_macos != true
         working-directory: ${{ env.WORKING_DIR }}
         env:
           BUILD_NUMBER: ${{ steps.build_number.outputs.value }}
         run: |
+          rm -rf "${MAC_ARCHIVE_PATH}"
           xcodebuild \
             -project GhostCrab.xcodeproj \
             -scheme GhostCrab \
@@ -137,11 +289,15 @@ jobs:
             -destination "generic/platform=macOS,variant=Mac Catalyst" \
             -archivePath "${MAC_ARCHIVE_PATH}" \
             CURRENT_PROJECT_VERSION="${BUILD_NUMBER}" \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath "$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8" \
-            -authenticationKeyID "${ASC_KEY_ID}" \
-            -authenticationKeyIssuerID "${ASC_ISSUER_ID}" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
             archive
+
+      - name: Carry entitlements into the archive (Mac Catalyst)
+        if: inputs.skip_macos != true
+        run: |
+          bash "$GITHUB_WORKSPACE/.github/scripts/ios-entitle-archive.sh" \
+            "$MAC_ARCHIVE_PATH" maccatalyst "$ENTITLEMENTS" "$TEAM_ID" "$BUNDLE_ID"
 
       - name: Export PKG (Mac Catalyst)
         if: inputs.skip_macos != true
@@ -156,6 +312,66 @@ jobs:
             -authenticationKeyPath "$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8" \
             -authenticationKeyID "${ASC_KEY_ID}" \
             -authenticationKeyIssuerID "${ASC_ISSUER_ID}"
+
+      - name: Stash the Mac installer identity for later runs
+        if: inputs.skip_macos != true
+        # The .pkg needs a Mac installer certificate as well. The first
+        # Catalyst export has Xcode mint one into the job keychain, which is
+        # deleted at the end of the job; without this, every run would ask
+        # Apple for another. Best effort: a failure here costs the next run a
+        # new certificate, not this upload. `security export -t identities`
+        # takes every identity in the keychain, so the stash holds the
+        # distribution identity too; the keychain step imports it first.
+        run: |
+          STASH="$HOME/.ghostcrab-ci"
+          if [ -f "$STASH/identities.p12" ]; then
+            echo "Identities already stashed at $STASH; nothing to do."
+            exit 0
+          fi
+          if ! security find-identity -v "$KC" | grep -Eq '"(Mac Installer Distribution|3rd Party Mac Developer Installer): '; then
+            echo "::warning::No Mac installer identity in the job keychain after export; nothing to stash."
+            exit 0
+          fi
+          mkdir -p "$STASH"
+          chmod 700 "$STASH"
+          umask 077
+          P12_PW="$(openssl rand -base64 24 | tr -d '\n')"
+          echo "::add-mask::$P12_PW"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$KC_PW" "$KC" >/dev/null 2>&1 || true
+          if security export -k "$KC" -t identities -f pkcs12 -P "$P12_PW" \
+               -o "$STASH/identities.p12.tmp"; then
+            printf '%s' "$P12_PW" > "$STASH/identities.p12.pw"
+            mv "$STASH/identities.p12.tmp" "$STASH/identities.p12"
+            chmod 600 "$STASH/identities.p12" "$STASH/identities.p12.pw"
+            echo "Stashed the job keychain's identities at $STASH/identities.p12"
+          else
+            rm -f "$STASH/identities.p12.tmp"
+            echo "::warning::Could not export the installer identity; the next Mac Catalyst run will ask Xcode for another installer certificate."
+          fi
+
+      - name: Verify PKG signing (Mac Catalyst)
+        if: inputs.skip_macos != true
+        env:
+          BUILD_NUMBER: ${{ steps.build_number.outputs.value }}
+        run: |
+          PKG_PATH=$(find "${MAC_EXPORT_PATH}" -maxdepth 1 -name '*.pkg' | head -n1)
+          if [ -z "$PKG_PATH" ]; then
+            echo "::error::No .pkg found in ${MAC_EXPORT_PATH}"
+            exit 1
+          fi
+          echo "--- installer signature ---"
+          pkgutil --check-signature "$PKG_PATH"
+          CHECK="$RUNNER_TEMP/pkg-check"
+          rm -rf "$CHECK"
+          pkgutil --expand-full "$PKG_PATH" "$CHECK"
+          APP=$(find "$CHECK" -type d -name 'GhostCrab.app' -prune | head -n1)
+          if [ -z "$APP" ]; then
+            echo "::error::No GhostCrab.app inside $PKG_PATH"
+            exit 1
+          fi
+          bash "$GITHUB_WORKSPACE/.github/scripts/ios-verify-signed-app.sh" \
+            "$APP" maccatalyst "$TEAM_ID" "$BUNDLE_ID" "$BUILD_NUMBER"
 
       - name: Upload Mac Catalyst build to TestFlight
         if: inputs.skip_macos != true
@@ -186,6 +402,30 @@ jobs:
             ${{ env.MAC_ARCHIVE_PATH }}/dSYMs
           if-no-files-found: ignore
           retention-days: 14
+
+      - name: Restore the runner's keychain state
+        if: always()
+        # Shared with the other runners on this Mac (see the header), so this
+        # cannot be skipped on a failed build.
+        run: |
+          if [ -z "${KEYCHAIN_TOUCHED:-}" ]; then
+            echo "Keychain state was never changed; nothing to restore."
+            exit 0
+          fi
+          ORIG=()
+          while IFS= read -r K; do
+            if [ -n "$K" ]; then
+              ORIG+=("$K")
+            fi
+          done < "$RUNNER_TEMP/orig-keychains.txt"
+          if [ "${#ORIG[@]}" -gt 0 ]; then
+            security list-keychains -d user -s "${ORIG[@]}"
+          fi
+          if [ -n "${ORIG_DEFAULT:-}" ]; then
+            security default-keychain -d user -s "$ORIG_DEFAULT"
+          fi
+          security delete-keychain "$KC" 2>/dev/null || true
+          echo "Keychain search list restored to: $(security list-keychains -d user | tr -d '\n')"
 
       - name: Wipe ASC API key
         if: always()
