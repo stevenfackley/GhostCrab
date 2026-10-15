@@ -76,7 +76,8 @@ fun ManualEntryScreen(
         }
     }
 
-    val isConnecting = uiState is ManualEntryUiState.Connecting
+    val isConnecting = uiState is ManualEntryUiState.Connecting || uiState is ManualEntryUiState.AwaitingApproval
+    val approval = (uiState as? ManualEntryUiState.AwaitingApproval)?.prompt
     val errorMessage = (uiState as? ManualEntryUiState.Error)?.message
     val showHttpBanner = !form.useHttps
 
@@ -262,25 +263,38 @@ fun ManualEntryScreen(
                 Spacer(Modifier.height(Spacing.md))
             }
 
-            Button(
-                onClick = viewModel::connect,
-                enabled = !isConnecting,
-                modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = BrandTokens.colorCyanPrimary,
-                    contentColor = BrandTokens.colorAbyss,
-                    disabledContainerColor = BrandTokens.colorCyanPrimary.copy(alpha = 0.4f),
-                ),
-            ) {
-                if (isConnecting) {
-                    CircularProgressIndicator(
-                        color = BrandTokens.colorAbyss,
-                        strokeWidth = 2.dp,
-                    )
-                } else {
-                    Text("Connect", style = MaterialTheme.typography.labelLarge)
-                }
+            if (approval != null) {
+                PairingApprovalCard(
+                    prompt = approval,
+                    onCheckNow = viewModel::checkPairingNow,
+                    onCancel = viewModel::cancelPairing,
+                )
+            } else {
+                ConnectButton(isConnecting = isConnecting, onConnect = viewModel::connect)
             }
+        }
+    }
+}
+
+@Composable
+private fun ConnectButton(isConnecting: Boolean, onConnect: () -> Unit) {
+    Button(
+        onClick = onConnect,
+        enabled = !isConnecting,
+        modifier = Modifier.fillMaxWidth(),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = BrandTokens.colorCyanPrimary,
+            contentColor = BrandTokens.colorAbyss,
+            disabledContainerColor = BrandTokens.colorCyanPrimary.copy(alpha = 0.4f),
+        ),
+    ) {
+        if (isConnecting) {
+            CircularProgressIndicator(
+                color = BrandTokens.colorAbyss,
+                strokeWidth = 2.dp,
+            )
+        } else {
+            Text("Connect", style = MaterialTheme.typography.labelLarge)
         }
     }
 }

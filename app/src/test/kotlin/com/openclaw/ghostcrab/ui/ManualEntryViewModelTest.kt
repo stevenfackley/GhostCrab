@@ -1,7 +1,10 @@
 package com.openclaw.ghostcrab.ui
 
 import app.cash.turbine.test
+import com.openclaw.ghostcrab.domain.exception.DeviceCredentialStorageException
+import com.openclaw.ghostcrab.domain.exception.GatewayPairingRequiredException
 import com.openclaw.ghostcrab.domain.exception.ProfileNeedsReauthException
+import com.openclaw.ghostcrab.domain.model.ConnectionWarning
 import com.openclaw.ghostcrab.domain.model.GatewayConnection
 import com.openclaw.ghostcrab.domain.repository.ConnectionProfileRepository
 import com.openclaw.ghostcrab.domain.repository.GatewayConnectionManager
@@ -13,6 +16,8 @@ import com.openclaw.ghostcrab.ui.connection.ManualEntryEvent
 import com.openclaw.ghostcrab.ui.connection.ManualEntryFormState
 import com.openclaw.ghostcrab.ui.connection.ManualEntryUiState
 import com.openclaw.ghostcrab.ui.connection.ManualEntryViewModel
+import com.openclaw.ghostcrab.ui.connection.PAIRING_RETRY_INTERVAL_MS
+import com.openclaw.ghostcrab.ui.connection.PAIRING_TIMEOUT_MS
 import com.openclaw.ghostcrab.ui.connection.PairingHandoff
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -23,7 +28,9 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.jupiter.api.AfterEach
@@ -34,6 +41,7 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import java.security.GeneralSecurityException
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ManualEntryViewModelTest {
@@ -253,6 +261,104 @@ class ManualEntryViewModelTest {
 
         val state = vm.uiState.value as ManualEntryUiState.Error
         assertTrue(state.message.contains("ProfileNeedsReauthException"))
+    }
+
+    // ── Pairing approval (ADR-0007) ───────────────────────────────────────────
+
+    private val pending =
+        GatewayPairingRequiredException("ws://192.168.1.50:18789/ws", "req-1", "not-paired", listOf("operator.read"))
+
+    private fun fillForm() {
+        vm.onHostChange("192.168.1.50")
+        vm.onTokenChange("shared-token")
+    }
+
+    @Test fun `pairing required shows the approval prompt and connects once approved`() = runTest {
+        var calls = 0
+        coEvery { connectionManager.connect(any(), any()) } coAnswers { if (calls++ == 0) throw pending }
+        fillForm()
+        vm.events.test {
+            vm.connect()
+            val waiting = vm.uiState.value as ManualEntryUiState.AwaitingApproval
+            assertEquals("openclaw devices approve req-1", waiting.prompt.approveCommand)
+            advanceTimeBy(PAIRING_RETRY_INTERVAL_MS + 1)
+            assertEquals(ManualEntryEvent.NavigateToDashboard, awaitItem())
+        }
+        assertEquals(ManualEntryUiState.Idle, vm.uiState.value)
+        coVerify(exactly = 2) { connectionManager.connect("http://192.168.1.50:18789", "shared-token") }
+    }
+
+    @Test fun `the profile is saved only once the device is approved`() = runTest {
+        coEvery { connectionManager.connect(any(), any()) } throws pending
+        fillForm()
+        vm.connect()
+        advanceTimeBy(PAIRING_RETRY_INTERVAL_MS * 3)
+        coVerify(exactly = 0) { profileRepository.saveProfile(any(), any()) }
+        coVerify(exactly = 0) { onboardingRepository.markCompleted() }
+        vm.cancelPairing()
+    }
+
+    @Test fun `the approval prompt carries the warnings of the failed connect`() = runTest {
+        every { connectionManager.connectionState } returns MutableStateFlow(
+            GatewayConnection.Error(pending.url, pending, listOf(ConnectionWarning.DeviceIdentityRegenerated)),
+        )
+        coEvery { connectionManager.connect(any(), any()) } throws pending
+        fillForm()
+        vm.connect()
+        val waiting = vm.uiState.value as ManualEntryUiState.AwaitingApproval
+        assertEquals(listOf(ConnectionWarning.DeviceIdentityRegenerated), waiting.prompt.warnings)
+        vm.cancelPairing()
+    }
+
+    @Test fun `cancelPairing stops retrying and returns to Idle`() = runTest {
+        coEvery { connectionManager.connect(any(), any()) } throws pending
+        fillForm()
+        vm.connect()
+        vm.cancelPairing()
+        advanceTimeBy(60_000)
+        assertEquals(ManualEntryUiState.Idle, vm.uiState.value)
+        coVerify(exactly = 1) { connectionManager.connect(any(), any()) }
+    }
+
+    @Test fun `checkPairingNow retries without waiting`() = runTest {
+        var calls = 0
+        coEvery { connectionManager.connect(any(), any()) } coAnswers { if (calls++ == 0) throw pending }
+        fillForm()
+        vm.connect()
+        vm.checkPairingNow()
+        runCurrent()
+        coVerify(exactly = 2) { connectionManager.connect(any(), any()) }
+        assertEquals(ManualEntryUiState.Idle, vm.uiState.value)
+    }
+
+    @Test fun `connect while waiting for approval is ignored`() = runTest {
+        coEvery { connectionManager.connect(any(), any()) } throws pending
+        fillForm()
+        vm.connect()
+        vm.connect()
+        coVerify(exactly = 1) { connectionManager.connect(any(), any()) }
+        vm.cancelPairing()
+    }
+
+    @Test fun `a credential-storage failure during the wait is an error, never retried`() = runTest {
+        var calls = 0
+        val storage = DeviceCredentialStorageException("open the device identity", GeneralSecurityException("ks"))
+        coEvery { connectionManager.connect(any(), any()) } coAnswers {
+            if (calls++ == 0) throw pending else throw storage
+        }
+        fillForm()
+        vm.connect()
+        advanceTimeBy(PAIRING_RETRY_INTERVAL_MS * 4)
+        assertTrue((vm.uiState.value as ManualEntryUiState.Error).message.contains("DeviceCredentialStorageException"))
+        coVerify(exactly = 2) { connectionManager.connect(any(), any()) }
+    }
+
+    @Test fun `an expired approval window is an explicit error`() = runTest {
+        coEvery { connectionManager.connect(any(), any()) } throws pending
+        fillForm()
+        vm.connect()
+        advanceTimeBy(PAIRING_TIMEOUT_MS + 1)
+        assertTrue((vm.uiState.value as ManualEntryUiState.Error).message.contains("PAIRING_REQUIRED"))
     }
 
     @Test

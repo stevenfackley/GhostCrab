@@ -1,6 +1,8 @@
 package com.openclaw.ghostcrab.ui.connection
 
 import com.openclaw.ghostcrab.domain.exception.GatewayPairingRequiredException
+import com.openclaw.ghostcrab.domain.model.ConnectionWarning
+import com.openclaw.ghostcrab.domain.model.GatewayConnection
 import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -21,14 +23,28 @@ const val PAIRING_TIMEOUT_MESSAGE: String =
  * @param requestId The pending request, when the gateway sent one.
  * @param reason `not-paired`, `scope-upgrade`, `role-upgrade` or `metadata-upgrade`.
  * @param requestedScopes The scopes this device asked for.
+ * @param warnings What explains the request, e.g. [ConnectionWarning.DeviceIdentityRegenerated] when an
+ *   already-paired phone has to be approved again. Empty when there is nothing to explain.
  */
-data class PairingPrompt(val requestId: String?, val reason: String, val requestedScopes: List<String>) {
+data class PairingPrompt(
+    val requestId: String?,
+    val reason: String,
+    val requestedScopes: List<String>,
+    val warnings: List<ConnectionWarning> = emptyList(),
+) {
     /** The exact command for the gateway host. */
     val approveCommand: String get() = requestId?.let { "openclaw devices approve $it" } ?: "openclaw devices list"
 }
 
 /** @return The prompt for this pairing requirement. */
 fun GatewayPairingRequiredException.toPrompt(): PairingPrompt = PairingPrompt(requestId, reason, requestedScopes)
+
+/**
+ * @param state The connection manager's state right after the refused connect.
+ * @return This prompt with the warnings of that [GatewayConnection.Error]; unchanged for any other state.
+ */
+fun PairingPrompt.withWarningsFrom(state: GatewayConnection): PairingPrompt =
+    (state as? GatewayConnection.Error)?.let { copy(warnings = it.warnings) } ?: this
 
 /** Result of [awaitPairingApproval]. */
 enum class PairingOutcome { Approved, TimedOut }
