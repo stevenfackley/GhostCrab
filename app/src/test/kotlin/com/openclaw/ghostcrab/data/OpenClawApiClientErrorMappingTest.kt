@@ -99,4 +99,21 @@ class OpenClawApiClientErrorMappingTest {
             client.close()
         }
     }
+
+    @Test fun `openWsSession refused upgrade maps to GatewayUnreachableException`() = runTest {
+        val client = OpenClawApiClient.forTest(
+            ERR_BASE,
+            HttpClient(MockEngine { throw ConnectException("refused") }) { install(WebSockets) },
+        )
+        val ex = assertThrows<GatewayUnreachableException> { client.openWsSession() }
+        assertTrue(ex.cause is ConnectException)
+    }
+
+    @Test fun `webSocketUrl maps http to ws and https to wss`() {
+        val engine = MockEngine { error("not called") }
+        val plain = OpenClawApiClient.forTest(ERR_BASE, HttpClient(engine))
+        val tls = OpenClawApiClient.forTest("https://gw.example:443/", HttpClient(engine))
+        assertEquals("ws://192.168.1.50:18789/ws", plain.webSocketUrl)
+        assertEquals("wss://gw.example:443/ws", tls.webSocketUrl)
+    }
 }

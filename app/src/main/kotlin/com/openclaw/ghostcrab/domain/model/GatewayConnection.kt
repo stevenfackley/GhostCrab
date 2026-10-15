@@ -31,6 +31,8 @@ sealed interface GatewayConnection {
      * @param capabilities Capability keys advertised by the gateway (e.g. `"ai.recommend"`).
      * @param hardwareInfo Optional hardware description reported by the gateway's `/status` (e.g. RAM, GPU). `null` if not reported.
      * @param tokenOrNull Bearer token for the active session, or null if auth is not required. Sensitive — never log.
+     * @param warnings Additive (v1.1, ADR-0007): problems that did not fail the connect, e.g. a device token that
+     *   could not be stored or a regenerated device identity. Empty when there are none.
      */
     data class Connected(
         val url: String,
@@ -41,12 +43,13 @@ sealed interface GatewayConnection {
         val capabilities: List<String>,
         val hardwareInfo: String? = null,
         val tokenOrNull: String? = null,
+        val warnings: List<ConnectionWarning> = emptyList(),
     ) : GatewayConnection {
         /** Redacts [tokenOrNull] so logging or dumping the connection state cannot leak a bearer. */
         override fun toString(): String =
             "Connected(url=$url, displayName=$displayName, version=$version, " +
                 "authRequirement=$authRequirement, isHttps=$isHttps, capabilities=$capabilities, " +
-                "hardwareInfo=$hardwareInfo, tokenOrNull=${tokenOrNull?.let { "[REDACTED]" }})"
+                "hardwareInfo=$hardwareInfo, tokenOrNull=${tokenOrNull?.let { "[REDACTED]" }}, warnings=$warnings)"
     }
 
     /**
@@ -54,9 +57,12 @@ sealed interface GatewayConnection {
      *
      * @param url The URL that was being connected to.
      * @param cause The exception that caused the failure.
+     * @param warnings Additive (v1.1, ADR-0007): context for [cause], e.g. a regenerated device identity that
+     *   explains a new pairing request. Empty when there is none.
      */
     data class Error(
         val url: String,
         val cause: GatewayException,
+        val warnings: List<ConnectionWarning> = emptyList(),
     ) : GatewayConnection
 }

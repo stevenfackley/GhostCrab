@@ -7,6 +7,7 @@ import com.openclaw.ghostcrab.data.api.dto.ModelDto
 import com.openclaw.ghostcrab.data.api.dto.StatusResponse
 import com.openclaw.ghostcrab.data.ws.GatewayWsClient
 import com.openclaw.ghostcrab.data.ws.KtorWsSession
+import com.openclaw.ghostcrab.data.ws.WsSession
 import com.openclaw.ghostcrab.domain.exception.CleartextBlockedException
 import com.openclaw.ghostcrab.domain.exception.ConfigValidationException
 import com.openclaw.ghostcrab.domain.exception.GatewayApiException
@@ -249,8 +250,26 @@ class OpenClawApiClient private constructor(
      * @throws GatewayProtocolException if the server refuses the upgrade.
      */
     suspend fun openWebSocket(): GatewayWsClient = safeRequest(baseUrl) {
-        val wsUrl = baseUrl.replaceFirst(Regex("^http"), "ws").trimEnd('/') + "/ws"
-        GatewayWsClient.create(KtorWsSession(httpClient.webSocketSession(wsUrl)), wsUrl)
+        GatewayWsClient.create(KtorWsSession(httpClient.webSocketSession(webSocketUrl)), webSocketUrl)
+    }
+
+    /** `ws(s)://host:port/ws` for [baseUrl] (`https` becomes `wss`): the gateway control-plane endpoint. */
+    val webSocketUrl: String
+        get() = baseUrl.replaceFirst(Regex("^http"), "ws").trimEnd('/') + "/ws"
+
+    /**
+     * Opens the gateway control-plane WebSocket ([webSocketUrl], ADR-0007) on this client's engine, so the
+     * upgrade honours the cleartext policy, timeouts and sanitized logging of every HTTP call. The upgrade
+     * carries no credential: authentication happens in the `connect` frame.
+     *
+     * @return The raw socket. Wrap it in a `GatewayRpcClient`, which then owns and closes it.
+     * @throws GatewayUnreachableException if the host cannot be reached.
+     * @throws GatewayTimeoutException if the upgrade times out.
+     * @throws CleartextBlockedException if app policy blocks cleartext to a public IP.
+     * @throws GatewayProtocolException if the server refuses the upgrade.
+     */
+    suspend fun openWsSession(): WsSession = safeRequest(baseUrl) {
+        KtorWsSession(httpClient.webSocketSession(webSocketUrl))
     }
 
     /** Releases underlying HTTP connections. Call on disconnect. */
