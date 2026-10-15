@@ -232,7 +232,7 @@ private fun installErrorMessage(error: SkillInstallError): String {
         )
         is SkillInstallError.Protocol -> stringResource(
             R.string.ai_skill_install_error_protocol,
-            error.rpcCode,
+            error.code,
             error.message,
         )
         is SkillInstallError.MalformedResponse -> stringResource(

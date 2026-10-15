@@ -30,7 +30,7 @@ import com.openclaw.ghostcrab.domain.repository.ScopeProbe
 import com.openclaw.ghostcrab.domain.repository.SettingsRepository
 import com.openclaw.ghostcrab.data.impl.InstalledSkillRepositoryImpl
 import com.openclaw.ghostcrab.data.impl.ScopeProbeImpl
-import com.openclaw.ghostcrab.data.ws.GatewayWsClient
+import com.openclaw.ghostcrab.data.gateway.GatewayRpcClient
 import org.koin.android.ext.koin.androidContext
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -69,16 +69,16 @@ val dataModule = module {
     single<SettingsRepository> { SettingsRepositoryImpl(androidContext().appSettingsDataStore) }
 
     if (com.openclaw.ghostcrab.BuildConfig.SKILLS_INSTALL_ENABLED) {
-        single<InstalledSkillRepository> { InstalledSkillRepositoryImpl(wsFactory = liveWsFactory()) }
+        single<InstalledSkillRepository> { InstalledSkillRepositoryImpl(session = liveSession()) }
         single<ScopeProbe> { ScopeProbeImpl(scopes = get<GatewayConnectionManagerImpl>()::grantedScopes) }
     }
 }
 
 /**
- * Opens a fresh JSON-RPC WebSocket on the live session client. Shared by every WS-backed
- * repository; throws `GatewayNotConnectedException` while disconnected.
+ * The live session's control-plane socket, shared by every WS-backed repository (ADR-0007). Throws
+ * `GatewayNotConnectedException` while disconnected.
  */
-private fun Scope.liveWsFactory(): suspend () -> GatewayWsClient {
+private fun Scope.liveSession(): () -> GatewayRpcClient {
     val manager = get<GatewayConnectionManagerImpl>()
-    return { manager.requireClient().openWebSocket() }
+    return { manager.requireSession() }
 }
