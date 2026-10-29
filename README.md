@@ -7,7 +7,7 @@
   <img src="https://img.shields.io/badge/Android-8.0%2B-brightgreen" alt="Android 8.0+">
   <img src="https://img.shields.io/badge/iOS-18%2B-007AFF" alt="iOS 18+">
   <img src="https://img.shields.io/badge/Mac%20Catalyst-14%2B-1D1D1F" alt="Mac Catalyst 14+">
-  <img src="https://img.shields.io/badge/Kotlin-2.0-7F52FF" alt="Kotlin 2.0">
+  <img src="https://img.shields.io/badge/Kotlin-2.4-7F52FF" alt="Kotlin 2.4">
   <img src="https://img.shields.io/badge/Swift-6-FA7343" alt="Swift 6">
   <img src="https://img.shields.io/badge/version-0.2.0-blue" alt="v0.2.0">
 </p>
