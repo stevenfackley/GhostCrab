@@ -43,7 +43,7 @@ Output: `app/build/outputs/apk/release/app-release.apk` (signed, v2 scheme).
 Verify:
 
 ```powershell
-& "D:\.android\build-tools\35.0.0\apksigner.bat" verify --verbose `
+& "$env:ANDROID_HOME\build-tools\<version>\apksigner.bat" verify --verbose `
     app\build\outputs\apk\release\app-release.apk
 ```
 

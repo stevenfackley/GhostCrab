@@ -14,12 +14,14 @@ on:
     paths:
       - "site/**"
       - "wrangler.jsonc"
+      - "docs/PRIVACY_POLICY_IOS.md"
       - ".github/workflows/site-deploy.yml"
   push:
     branches: [main]
     paths:
       - "site/**"
       - "wrangler.jsonc"
+      - "docs/PRIVACY_POLICY_IOS.md"
       - ".github/workflows/site-deploy.yml"
   workflow_dispatch:
 
@@ -51,7 +53,13 @@ jobs:
         run: npm run build
 
       - name: Deploy to Cloudflare Workers
-        if: github.event_name != 'pull_request'
+        # Skip Dependabot auto-merge pushes (fleet guardrail): a merged dep bump
+        # should not ship a production deploy on its own.
+        if: >-
+          github.event_name != 'pull_request' &&
+          (github.event_name != 'push' ||
+           (github.event.head_commit.author.username != 'dependabot[bot]' &&
+            github.actor != 'dependabot[bot]'))
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: "7c2523de841058b55de07942589f8bf5"

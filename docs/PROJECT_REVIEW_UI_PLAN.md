@@ -11,9 +11,9 @@ Date: April 15, 2026
 Severity: High
 
 Files:
-- [app/src/main/kotlin/com/openclaw/ghostcrab/di/AppModule.kt](/C:/Users/steve/projects/GhostCrab/app/src/main/kotlin/com/openclaw/ghostcrab/di/AppModule.kt:10)
-- [app/src/main/kotlin/com/openclaw/ghostcrab/di/DomainModule.kt](/C:/Users/steve/projects/GhostCrab/app/src/main/kotlin/com/openclaw/ghostcrab/di/DomainModule.kt:9)
-- [app/src/main/kotlin/com/openclaw/ghostcrab/di/DataModule.kt](/C:/Users/steve/projects/GhostCrab/app/src/main/kotlin/com/openclaw/ghostcrab/di/DataModule.kt:19)
+- [app/src/main/kotlin/com/openclaw/ghostcrab/di/AppModule.kt](../app/src/main/kotlin/com/openclaw/ghostcrab/di/AppModule.kt#L10)
+- `app/src/main/kotlin/com/openclaw/ghostcrab/di/DomainModule.kt` (since deleted in 1490692)
+- [app/src/main/kotlin/com/openclaw/ghostcrab/di/DataModule.kt](../app/src/main/kotlin/com/openclaw/ghostcrab/di/DataModule.kt#L19)
 
 `appModule` includes both `domainModule` and `dataModule`, but `domainModule` still registers:
 - `TODO("Phase 6")` for `ConfigRepository`
@@ -32,7 +32,7 @@ Recommended update:
 Severity: High
 
 File:
-- [app/src/main/kotlin/com/openclaw/ghostcrab/data/api/OpenClawApiClient.kt](/C:/Users/steve/projects/GhostCrab/app/src/main/kotlin/com/openclaw/ghostcrab/data/api/OpenClawApiClient.kt:244)
+- [app/src/main/kotlin/com/openclaw/ghostcrab/data/api/OpenClawApiClient.kt](../app/src/main/kotlin/com/openclaw/ghostcrab/data/api/OpenClawApiClient.kt#L244)
 
 `safeRequest` already has specific catches for `HttpRequestTimeoutException`, `SSLException`, `UnknownHostException`, and `ConnectException`, but the final `catch (e: Exception)` catch-all has two gaps:
 - `CancellationException` is not re-thrown — coroutine cancellation is silently swallowed
@@ -48,8 +48,8 @@ Recommended update:
 Severity: Medium
 
 Files:
-- [app/src/main/kotlin/com/openclaw/ghostcrab/ui/connection/ConnectionPickerViewModel.kt](/C:/Users/steve/projects/GhostCrab/app/src/main/kotlin/com/openclaw/ghostcrab/ui/connection/ConnectionPickerViewModel.kt:38)
-- [app/src/main/kotlin/com/openclaw/ghostcrab/ui/connection/ConnectionPickerScreen.kt](/C:/Users/steve/projects/GhostCrab/app/src/main/kotlin/com/openclaw/ghostcrab/ui/connection/ConnectionPickerScreen.kt:68)
+- [app/src/main/kotlin/com/openclaw/ghostcrab/ui/connection/ConnectionPickerViewModel.kt](../app/src/main/kotlin/com/openclaw/ghostcrab/ui/connection/ConnectionPickerViewModel.kt#L38)
+- [app/src/main/kotlin/com/openclaw/ghostcrab/ui/connection/ConnectionPickerScreen.kt](../app/src/main/kotlin/com/openclaw/ghostcrab/ui/connection/ConnectionPickerScreen.kt#L68)
 
 The first-launch navigation event uses `MutableSharedFlow(replay = 0)`. Because the event may emit before the composable starts collecting, onboarding navigation can be dropped. The use of `stateIn(..., emptyList())` makes this more likely because `profiles.first()` can complete immediately from the initial empty state.
 
@@ -63,8 +63,8 @@ Recommended update:
 Severity: Medium
 
 Files:
-- [app/src/main/kotlin/com/openclaw/ghostcrab/di/UiModule.kt](/C:/Users/steve/projects/GhostCrab/app/src/main/kotlin/com/openclaw/ghostcrab/di/UiModule.kt:18)
-- [app/src/main/kotlin/com/openclaw/ghostcrab/ui/dashboard/DashboardViewModel.kt](/C:/Users/steve/projects/GhostCrab/app/src/main/kotlin/com/openclaw/ghostcrab/ui/dashboard/DashboardViewModel.kt:66)
+- [app/src/main/kotlin/com/openclaw/ghostcrab/di/UiModule.kt](../app/src/main/kotlin/com/openclaw/ghostcrab/di/UiModule.kt#L18)
+- [app/src/main/kotlin/com/openclaw/ghostcrab/ui/dashboard/DashboardViewModel.kt](../app/src/main/kotlin/com/openclaw/ghostcrab/ui/dashboard/DashboardViewModel.kt#L66)
 
 The injected `healthChecker` creates a new unauthenticated `OpenClawApiClient` on every poll and never closes it.
 
@@ -78,7 +78,7 @@ Recommended update:
 Severity: Medium
 
 File:
-- [app/src/main/kotlin/com/openclaw/ghostcrab/ui/model/ModelManagerViewModel.kt](/C:/Users/steve/projects/GhostCrab/app/src/main/kotlin/com/openclaw/ghostcrab/ui/model/ModelManagerViewModel.kt:94)
+- [app/src/main/kotlin/com/openclaw/ghostcrab/ui/model/ModelManagerViewModel.kt](../app/src/main/kotlin/com/openclaw/ghostcrab/ui/model/ModelManagerViewModel.kt#L94)
 
 On failure, the ViewModel emits `Error(...)` and immediately overwrites it with `Ready(...)` — both assignments are synchronous with no suspension point between them. Because `StateFlow` only delivers the final value, the `Error` state is guaranteed not to render.
 
@@ -92,9 +92,9 @@ Recommended update:
 ### 1. Detekt is documented but not actually wired
 
 Files:
-- [README.md](/C:/Users/steve/projects/GhostCrab/README.md:62)
-- [build.gradle.kts](/C:/Users/steve/projects/GhostCrab/build.gradle.kts:1)
-- [app/build.gradle.kts](/C:/Users/steve/projects/GhostCrab/app/build.gradle.kts:1)
+- [README.md](../README.md#L62)
+- [build.gradle.kts](../build.gradle.kts#L1)
+- [app/build.gradle.kts](../app/build.gradle.kts#L1)
 
 The repo says `./gradlew lint detekt` is part of the workflow, but the app module does not apply the Detekt plugin. Running `./gradlew detekt --no-configuration-cache` currently fails because the task does not exist.
 
@@ -106,7 +106,7 @@ Recommended update:
 ### 2. CI only runs unit tests
 
 File:
-- [.github/workflows/ci.yml](/C:/Users/steve/projects/GhostCrab/.github/workflows/ci.yml:1)
+- [.github/workflows/ci.yml](../.github/workflows/ci.yml#L1)
 
 CI currently runs unit tests only. That is not enough for the app state it has reached.
 
@@ -118,9 +118,9 @@ Recommended update:
 ### 3. Documentation is stale
 
 Files:
-- [README.md](/C:/Users/steve/projects/GhostCrab/README.md:24)
-- [README.md](/C:/Users/steve/projects/GhostCrab/README.md:113)
-- [IMPLEMENTATION_PLAN.md](/C:/Users/steve/projects/GhostCrab/docs/IMPLEMENTATION_PLAN.md:47)
+- [README.md](../README.md#L24)
+- [README.md](../README.md#L113)
+- [IMPLEMENTATION_PLAN.md](../docs/IMPLEMENTATION_PLAN.md#L47)
 
 README still says the model manager is in progress, while the implementation plan marks Phase 7 done.
 
@@ -131,7 +131,7 @@ Recommended update:
 ### 4. Config save flow has fragile ETag state
 
 File:
-- [app/src/main/kotlin/com/openclaw/ghostcrab/data/impl/ConfigRepositoryImpl.kt](/C:/Users/steve/projects/GhostCrab/app/src/main/kotlin/com/openclaw/ghostcrab/data/impl/ConfigRepositoryImpl.kt:19)
+- [app/src/main/kotlin/com/openclaw/ghostcrab/data/impl/ConfigRepositoryImpl.kt](../app/src/main/kotlin/com/openclaw/ghostcrab/data/impl/ConfigRepositoryImpl.kt#L19)
 
 `lastEtag` is refreshed on `getConfig()` only. The current flow is safe because the screen re-fetches after save, but the repository contract is fragile if a future screen does consecutive writes without reloading first.
 

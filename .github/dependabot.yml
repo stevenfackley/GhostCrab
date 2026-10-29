@@ -7,18 +7,31 @@ updates:
     groups:
       androidx:
         patterns: ["androidx.*"]
+        update-types: ["minor", "patch"]
       kotlin:
         patterns: ["org.jetbrains.kotlin*", "org.jetbrains.kotlinx:*"]
+        update-types: ["minor", "patch"]
       testing:
         patterns: ["*junit*", "*mockk*", "*espresso*", "androidx.test*"]
+        update-types: ["minor", "patch"]
 
   - package-ecosystem: docker
     directory: /docker/tunnel-qr
     schedule: { interval: monthly }
+    open-pull-requests-limit: 3
+    groups:
+      docker-minor-and-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
 
   - package-ecosystem: github-actions
     directory: /
     schedule: { interval: monthly }
+    open-pull-requests-limit: 3
+    groups:
+      actions-minor-and-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
 
   # ── Added by the project-wide Dependabot sweep ──────────────────────────
   # Ecosystems present in the repo that no existing entry covered.

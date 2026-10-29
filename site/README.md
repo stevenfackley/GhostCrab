@@ -1,6 +1,7 @@
 # getghostcrab.com — marketing site
 
-Astro v5 static site. Three pages: `/`, `/privacy`, `/support`. Deployed to **Cloudflare Pages**.
+Astro 7 static site. Three pages: `/`, `/privacy`, `/support`. Deployed to **Cloudflare Workers Static Assets** by
+`.github/workflows/site-deploy.yml`.
 
 ## Develop
 
@@ -67,27 +68,16 @@ GitHub renders.
 Validate schema before pushing meaningful changes:
 https://search.google.com/test/rich-results — paste your dev URL or a staging deploy URL.
 
-## Deploy to Cloudflare Pages
+## Deploy
 
-One-time setup (in the Cloudflare dashboard):
+The site is a Worker serving `site/dist` through Workers Static Assets (`wrangler.jsonc` at the repo
+root: `assets.directory: ./site/dist`, plus a `custom_domain` route for `getghostcrab.com` that
+provisions the DNS record on deploy). It is not a Cloudflare Pages project.
 
-1. **Workers & Pages → Create application → Pages → Connect to Git**
-2. Select the `stevenfackley/GhostCrab` repo
-3. Build settings:
-   - Production branch: `main`
-   - Framework preset: `Astro`
-   - Build command: `cd site && npm install && npm run build`
-   - Build output directory: `site/dist`
-   - Root directory: `/` (leave blank)
-4. Environment variables: none needed
-5. **Save and Deploy** — first build takes ~2 min
-
-Custom domain:
-
-6. After the first successful deploy, **Custom Domains → Set up a custom domain → `getghostcrab.com`**
-7. Cloudflare auto-detects the domain is on Cloudflare DNS and wires the CNAME — no manual record needed
-
-Preview deploys per PR happen automatically once connected.
+One-time setup: add the `CLOUDFLARE_API_TOKEN` repo secret (Cloudflare "Edit Cloudflare Workers"
+token template). The `site-deploy` workflow then runs `npx wrangler@4 deploy` on pushes to `main`;
+pull requests run the build only. Cloudflare's dashboard Git integration never produced a green
+deploy and should stay disconnected so the two paths don't race.
 
 ## Updating
 

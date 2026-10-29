@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 GhostCrab — Android-native remote client for OpenClaw Gateway.  
 Stack: **Kotlin 2.0+ · Jetpack Compose · Ktor · Koin · NsdManager · DataStore + EncryptedSharedPreferences**  
-Target SDK 35, min SDK 26 (Android 8.0), JVM 17, `compileSdk = 35`.
+Target SDK 36, min SDK 26 (Android 8.0), JVM 17, `compileSdk = 37`.
 
 ## Commands
 
@@ -101,11 +101,12 @@ Current status: **v0.2.0** (2026-10-14, hardening + refactor release) — Phases
 ## Docs
 
 Always `find docs/ -name "*.md"` before cross-cutting changes. Key files:
-- `docs/adr/0001-0005*.md` — architecture decisions (frozen; new ADRs for new decisions)
+- `docs/adr/*.md` (0001-0007) — architecture decisions (frozen; new ADRs for new decisions)
 - `docs/RELEASE_SIGNING.md` — signing config (env vars: `KEYSTORE_PATH`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD`)
 - `docs/TUNNEL_SETUP.md` — Cloudflare tunnel + QR connect flow
 - `docs/PRIVACY_POLICY.md` / `docs/DATA_SAFETY.md` / `docs/PLAY_STORE_LISTING.md` — Play Store artifacts
-- `scripts/lan-bridge.js` — local dev helper (Node, bridges LAN to gateway)
+- `scripts/mock-gateway/` — protocol mock gateway + conformance tests (Node; `probe-real.mjs` probes a real gateway)
+- `scripts/store-screenshots/` — store screenshot capture helpers
 
 ## Out of Scope (v1.0)
 
