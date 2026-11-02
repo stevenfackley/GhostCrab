@@ -24,7 +24,7 @@ espresso = "3.7.0"
 leakcanary = "2.14"
 camerax = "1.6.1"
 mlkit-barcode = "17.3.0"
-guava = "33.7.1-android"
+guava = "33.7.2-android"
 tink = "1.8.0"
 
 [libraries]
