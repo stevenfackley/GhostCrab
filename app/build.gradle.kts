@@ -146,6 +146,18 @@ configurations.all {
             // not trail it: the stale 1.84 pin is what kept alerts 66/67 open.
             requested.group == "org.bouncycastle" && requested.name.endsWith("-jdk18on") ->
                 useVersion("1.85")
+            // guava <= 33.7.1 (-jre flavour): GHSA-xxph-c9ww-hj94, uncontrolled memory
+            // allocation when deserializing CompactHashMap/CompactHashSet/MapMakerInternalMap
+            // (high, alert 89). The app's own Guava is 33.7.2-android from the version
+            // catalog; this rule only catches the 33.4.0-jre that AGP 9.4.1's lint and
+            // test tooling (com.android.tools.lint:*, com.android.tools:common, jimfs,
+            // protobuf-java-util) request into lintClassPath and the UTP configurations.
+            // Host-side only, never packaged into the APK. The root build.gradle.kts
+            // carries the same floor for the plugin classpath, which this block cannot
+            // reach. This pin sets the resolved version, so it must lead the advisory.
+            requested.group == "com.google.guava" && requested.name == "guava" &&
+                requested.version?.endsWith("-jre") == true ->
+                useVersion("33.7.2-jre")
             // jose4j < 0.9.6: DoS via compressed JWE
             requested.group == "org.bitbucket.b_c" && requested.name == "jose4j" ->
                 useVersion("0.9.6")
