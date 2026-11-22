@@ -105,7 +105,7 @@ public final class ConfigEditorViewModel {
 
     /// Fetches (or re-fetches) the config from the gateway.
     ///
-    /// From any state but ``ConfigEditorUiState/ready(config:pendingChanges:fieldErrors:pendingSaveSection:saveSuccess:concurrentEditSection:)``:
+    /// From any state but ``ConfigEditorUiState/ready(_:)``:
     /// transitions through ``ConfigEditorUiState/loading`` then resolves to ready,
     /// ``ConfigEditorUiState/noConfigApi``, or ``ConfigEditorUiState/error(message:)``.
     /// A reload of a ready editor (a new session after a reconnect, or Retry) keeps it on screen with its unsaved
@@ -141,18 +141,19 @@ public final class ConfigEditorViewModel {
     private func applyLoaded(_ config: OpenClawConfig) {
         if config.sections.isEmpty {
             state = .noConfigApi
-        } else if case .ready(_, let pending, let fieldErrors, let saveSection, let saveSuccess, let concurrent) = state {
-            state = .ready(
-                config: config,
-                pendingChanges: pending,
-                fieldErrors: fieldErrors,
-                pendingSaveSection: saveSection,
-                saveSuccess: saveSuccess,
-                concurrentEditSection: concurrent
-            )
+        } else if isReady {
+            updateReady { $0.config = config }
         } else {
-            state = .ready(config: config)
+            state = .ready(ConfigEditorUiState.Ready(config: config))
         }
+    }
+
+    /// Applies `edit` to the ready editor and publishes the result; a no-op unless the state is
+    /// ``ConfigEditorUiState/ready(_:)``.
+    private func updateReady(_ edit: (inout ConfigEditorUiState.Ready) -> Void) {
+        guard case .ready(var ready) = state else { return }
+        edit(&ready)
+        state = .ready(ready)
     }
 
     /// Records a user edit to a section. Does not write to the gateway.
@@ -161,20 +162,11 @@ public final class ConfigEditorViewModel {
     ///   - section: Top-level section key.
     ///   - value: Full edited section as an ``AnyCodable``.
     public func editSection(_ section: String, value: AnyCodable) {
-        guard case .ready(let config, var pending, var fieldErrors, let saveSection, let saveSuccess, let concurrent) = state else {
-            return
+        updateReady { ready in
+            ready.pendingChanges[section] = value
+            // Clear any field errors scoped under this section.
+            ready.fieldErrors = ready.fieldErrors.filter { !$0.key.hasPrefix("\(section).") }
         }
-        pending[section] = value
-        // Clear any field errors scoped under this section.
-        fieldErrors = fieldErrors.filter { !$0.key.hasPrefix("\(section).") }
-        state = .ready(
-            config: config,
-            pendingChanges: pending,
-            fieldErrors: fieldErrors,
-            pendingSaveSection: saveSection,
-            saveSuccess: saveSuccess,
-            concurrentEditSection: concurrent
-        )
     }
 
     /// Records or clears a client-side validation error for a specific field path.
@@ -183,55 +175,22 @@ public final class ConfigEditorViewModel {
     ///   - fieldPath: Dot-separated path, e.g. `"gateway.http.port"`.
     ///   - error: Human-readable error message, or `nil` to clear.
     public func setFieldError(_ fieldPath: String, error: String?) {
-        guard case .ready(let config, let pending, var fieldErrors, let saveSection, let saveSuccess, let concurrent) = state else {
-            return
-        }
-        if let error {
-            fieldErrors[fieldPath] = error
-        } else {
-            fieldErrors.removeValue(forKey: fieldPath)
-        }
-        state = .ready(
-            config: config,
-            pendingChanges: pending,
-            fieldErrors: fieldErrors,
-            pendingSaveSection: saveSection,
-            saveSuccess: saveSuccess,
-            concurrentEditSection: concurrent
-        )
+        updateReady { $0.fieldErrors[fieldPath] = error }
     }
 
     /// Opens the diff confirmation sheet for a section that has pending changes.
     ///
     /// No-op if the section has no pending changes.
     public func requestSave(_ section: String) {
-        guard case .ready(let config, let pending, let fieldErrors, _, let saveSuccess, let concurrent) = state,
-              pending[section] != nil else {
+        guard case .ready(let ready) = state, ready.pendingChanges[section] != nil else {
             return
         }
-        state = .ready(
-            config: config,
-            pendingChanges: pending,
-            fieldErrors: fieldErrors,
-            pendingSaveSection: section,
-            saveSuccess: saveSuccess,
-            concurrentEditSection: concurrent
-        )
+        updateReady { $0.pendingSaveSection = section }
     }
 
     /// Dismisses the diff sheet without writing to the gateway.
     public func cancelSave() {
-        guard case .ready(let config, let pending, let fieldErrors, _, let saveSuccess, let concurrent) = state else {
-            return
-        }
-        state = .ready(
-            config: config,
-            pendingChanges: pending,
-            fieldErrors: fieldErrors,
-            pendingSaveSection: nil,
-            saveSuccess: saveSuccess,
-            concurrentEditSection: concurrent
-        )
+        updateReady { $0.pendingSaveSection = nil }
     }
 
     /// Writes the pending change for `section` to the gateway, then re-reads
@@ -249,8 +208,8 @@ public final class ConfigEditorViewModel {
     /// Ignored while a save is already in flight.
     public func confirmSave(_ section: String) {
         guard saveTask == nil,
-              case .ready(_, let pending, _, _, _, _) = state,
-              let newValue = pending[section] else {
+              case .ready(let ready) = state,
+              let newValue = ready.pendingChanges[section] else {
             return
         }
         // Clear the pending-save flag immediately so the sheet closes.
@@ -268,21 +227,17 @@ public final class ConfigEditorViewModel {
                 // state's edits survive, including any made while the save was in flight.
                 do {
                     let reloaded = try await self.configRepository.getConfig()
-                    if case .ready(_, let pending, let fieldErrors, let saveSection, let saveSuccess, _) = self.state {
-                        self.state = .ready(
-                            config: reloaded,
-                            pendingChanges: pending,
-                            fieldErrors: fieldErrors,
-                            pendingSaveSection: saveSection,
-                            saveSuccess: saveSuccess,
-                            concurrentEditSection: section
-                        )
+                    if self.isReady {
+                        self.updateReady { ready in
+                            ready.config = reloaded
+                            ready.concurrentEditSection = section
+                        }
                     } else {
-                        self.state = .ready(
+                        self.state = .ready(ConfigEditorUiState.Ready(
                             config: reloaded,
                             pendingChanges: [section: newValue],
                             concurrentEditSection: section
-                        )
+                        ))
                     }
                 } catch {
                     let reason = (error as? GatewayError)?.errorDescription ?? body ?? "HTTP 412"
@@ -290,16 +245,8 @@ public final class ConfigEditorViewModel {
                 }
             } catch GatewayError.configValidation(let field, let reason) {
                 // Inline field error if still ready, otherwise surface as full error.
-                if case .ready(let config, let pending, var fieldErrors, let saveSection, let saveSuccess, let concurrent) = self.state {
-                    fieldErrors[field] = reason
-                    self.state = .ready(
-                        config: config,
-                        pendingChanges: pending,
-                        fieldErrors: fieldErrors,
-                        pendingSaveSection: saveSection,
-                        saveSuccess: saveSuccess,
-                        concurrentEditSection: concurrent
-                    )
+                if self.isReady {
+                    self.updateReady { $0.fieldErrors[field] = reason }
                 } else {
                     self.state = .error(message: "Validation error: \(field): \(reason)")
                 }
@@ -334,72 +281,39 @@ public final class ConfigEditorViewModel {
     /// Publishes a successful save of `savedValue` to `section`, re-read as `updated` (port of Android's `afterSave`).
     /// The section's pending edit and field errors are dropped only while the edit still equals what was saved, so a
     /// re-edit made during the save survives; other sections' edits, the diff sheet and the conflict dialog are kept.
-    /// No-op unless the editor is ``ConfigEditorUiState/ready(config:pendingChanges:fieldErrors:pendingSaveSection:saveSuccess:concurrentEditSection:)``
+    /// No-op unless the editor is ``ConfigEditorUiState/ready(_:)``
     /// (e.g. it went ``ConfigEditorUiState/disconnected`` during the save).
     private func applySaved(section: String, savedValue: AnyCodable, updated: OpenClawConfig) {
-        guard case .ready(_, var pending, var fieldErrors, let saveSection, _, let concurrent) = state else {
-            return
+        updateReady { ready in
+            if ready.pendingChanges[section] == savedValue {
+                ready.pendingChanges.removeValue(forKey: section)
+                ready.fieldErrors = ready.fieldErrors.filter { !$0.key.hasPrefix("\(section).") }
+            }
+            ready.config = updated
+            ready.saveSuccess = true
         }
-        if pending[section] == savedValue {
-            pending.removeValue(forKey: section)
-            fieldErrors = fieldErrors.filter { !$0.key.hasPrefix("\(section).") }
-        }
-        state = .ready(
-            config: updated,
-            pendingChanges: pending,
-            fieldErrors: fieldErrors,
-            pendingSaveSection: saveSection,
-            saveSuccess: true,
-            concurrentEditSection: concurrent
-        )
     }
 
     /// Discards all pending edits for a section, including associated field
     /// errors.
     public func discardSection(_ section: String) {
-        guard case .ready(let config, var pending, var fieldErrors, let saveSection, let saveSuccess, let concurrent) = state else {
-            return
+        updateReady { ready in
+            ready.pendingChanges.removeValue(forKey: section)
+            ready.fieldErrors = ready.fieldErrors.filter { !$0.key.hasPrefix("\(section).") }
         }
-        pending.removeValue(forKey: section)
-        fieldErrors = fieldErrors.filter { !$0.key.hasPrefix("\(section).") }
-        state = .ready(
-            config: config,
-            pendingChanges: pending,
-            fieldErrors: fieldErrors,
-            pendingSaveSection: saveSection,
-            saveSuccess: saveSuccess,
-            concurrentEditSection: concurrent
-        )
     }
 
     /// Discards every pending edit across all sections.
     public func discardChanges() {
-        guard case .ready(let config, _, _, let saveSection, let saveSuccess, let concurrent) = state else {
-            return
+        updateReady { ready in
+            ready.pendingChanges = [:]
+            ready.fieldErrors = [:]
         }
-        state = .ready(
-            config: config,
-            pendingChanges: [:],
-            fieldErrors: [:],
-            pendingSaveSection: saveSection,
-            saveSuccess: saveSuccess,
-            concurrentEditSection: concurrent
-        )
     }
 
     /// Clears the save-success flag after the snackbar/banner has been shown.
     public func clearSaveSuccess() {
-        guard case .ready(let config, let pending, let fieldErrors, let saveSection, _, let concurrent) = state else {
-            return
-        }
-        state = .ready(
-            config: config,
-            pendingChanges: pending,
-            fieldErrors: fieldErrors,
-            pendingSaveSection: saveSection,
-            saveSuccess: false,
-            concurrentEditSection: concurrent
-        )
+        updateReady { $0.saveSuccess = false }
     }
 
     /// The concurrent-edit dialog's "Reload and discard": the failed save already loaded the latest config, so this
@@ -419,16 +333,6 @@ public final class ConfigEditorViewModel {
 
     /// Dismisses the concurrent-edit warning dialog; pending edits stay.
     public func acknowledgeConflict() {
-        guard case .ready(let config, let pending, let fieldErrors, let saveSection, let saveSuccess, _) = state else {
-            return
-        }
-        state = .ready(
-            config: config,
-            pendingChanges: pending,
-            fieldErrors: fieldErrors,
-            pendingSaveSection: saveSection,
-            saveSuccess: saveSuccess,
-            concurrentEditSection: nil
-        )
+        updateReady { $0.concurrentEditSection = nil }
     }
 }

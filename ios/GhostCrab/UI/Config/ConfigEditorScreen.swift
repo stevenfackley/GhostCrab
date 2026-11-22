@@ -105,8 +105,8 @@ public struct ConfigEditorScreen: View {
             )
             .frame(maxHeight: .infinity)
 
-        case .ready(let config, let pending, let fieldErrors, _, _, _):
-            readyContent(config: config, pending: pending, fieldErrors: fieldErrors)
+        case .ready(let ready):
+            readyContent(config: ready.config, pending: ready.pendingChanges, fieldErrors: ready.fieldErrors)
         }
     }
 
@@ -213,7 +213,7 @@ public struct ConfigEditorScreen: View {
 
     @ViewBuilder
     private var saveSuccessBanner: some View {
-        if case .ready(_, _, _, _, true, _) = vm.state {
+        if case .ready(let ready) = vm.state, ready.saveSuccess {
             HStack(spacing: DesignTokens.Spacing.sm) {
                 Image(systemName: "checkmark.seal.fill")
                     .foregroundStyle(DesignTokens.Color.cyanPrimary)
@@ -239,8 +239,8 @@ public struct ConfigEditorScreen: View {
     // MARK: - Conflict-alert plumbing
 
     private var concurrentEditSection: String? {
-        if case .ready(_, _, _, _, _, let conflict) = vm.state {
-            return conflict
+        if case .ready(let ready) = vm.state {
+            return ready.concurrentEditSection
         }
         return nil
     }
