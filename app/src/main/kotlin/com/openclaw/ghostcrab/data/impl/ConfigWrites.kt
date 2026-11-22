@@ -13,8 +13,6 @@ import kotlinx.serialization.json.put
 /** `config.patch` answers once the gateway applied the write (hot reload), which can take a while. */
 internal const val CONFIG_PATCH_TIMEOUT_MS: Long = 60_000L
 
-private const val STATUS_PRECONDITION_FAILED = 412
-private const val STATUS_UNPROCESSABLE = 422
 private const val CODE_INVALID_REQUEST = "INVALID_REQUEST"
 
 /**
@@ -62,14 +60,14 @@ internal fun GatewayRpcException.toModelWriteException(): GatewayException = map
 
 /** @param inlineScope Path prefix whose single issue becomes a [ConfigValidationException]; `null` for none. */
 private fun GatewayRpcException.mapConfigWrite(inlineScope: String?): GatewayException = when {
-    isStaleBaseHash() -> GatewayApiException(url, STATUS_PRECONDITION_FAILED, rpcMessage)
+    isStaleBaseHash() -> GatewayApiException(url, GatewayApiException.STATUS_STALE_CONFIG_HASH, rpcMessage)
     code == CODE_INVALID_REQUEST -> {
         val issues = issues()
         val only = issues.singleOrNull()
         if (inlineScope != null && only?.path != null && only.path.startsWith(inlineScope)) {
             ConfigValidationException(only.path, only.message)
         } else {
-            GatewayApiException(url, STATUS_UNPROCESSABLE, withIssues(issues))
+            GatewayApiException(url, GatewayApiException.STATUS_CONFIG_REJECTED, withIssues(issues))
         }
     }
     else -> this

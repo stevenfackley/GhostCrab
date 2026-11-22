@@ -22,7 +22,7 @@ public sealed interface ModelManagerUiState {
 
     /**
      * The gateway has no model API: `models.list` is an unknown method on the session socket
-     * (`GatewayMethodUnsupportedException`, ADR-0007), or a legacy REST gateway answered 404.
+     * (`GatewayMethodUnsupportedException`, ADR-0007).
      */
     public data object NotSupported : ModelManagerUiState
 

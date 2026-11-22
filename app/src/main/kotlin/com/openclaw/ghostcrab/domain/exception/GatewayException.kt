@@ -44,6 +44,9 @@ class GatewayAuthException(
 /**
  * The gateway returned an unexpected HTTP error.
  *
+ * Also the frozen repositories' carrier for some session-socket RPC rejections, which have no HTTP status of their
+ * own: those use the HTTP-style codes in the companion ([STATUS_STALE_CONFIG_HASH], [STATUS_CONFIG_REJECTED]).
+ *
  * @param url The URL that returned the error.
  * @param statusCode HTTP status code.
  * @param body Response body excerpt, if available.
@@ -54,6 +57,21 @@ class GatewayApiException(
     val body: String? = null,
 ) : GatewayException("Gateway API error at $url: HTTP $statusCode${body?.let { " — $it" } ?: ""}") {
     override val isRetryable: Boolean = false
+
+    /**
+     * `true` when a config write was refused because the config changed since it was read (a stale or missing
+     * `baseHash`): reload with `ConfigRepository.getConfig`, then retry.
+     */
+    val isStaleConfigHash: Boolean
+        get() = statusCode == STATUS_STALE_CONFIG_HASH
+
+    companion object {
+        /** [statusCode] of a config write refused for a stale or missing `baseHash` (412, Precondition Failed). */
+        const val STATUS_STALE_CONFIG_HASH: Int = 412
+
+        /** [statusCode] of a config write the gateway refused as invalid for any other reason (422, Unprocessable). */
+        const val STATUS_CONFIG_REJECTED: Int = 422
+    }
 }
 
 /**

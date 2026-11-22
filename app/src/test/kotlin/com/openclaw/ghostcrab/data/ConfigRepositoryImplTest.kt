@@ -25,6 +25,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -125,6 +126,7 @@ class ConfigRepositoryImplTest {
         val repo = ConfigRepositoryImpl { socket }
         val e = assertThrows<GatewayApiException> { repo.updateConfig("gateway", JsonObject(emptyMap())) }
         assertEquals(412, e.statusCode)
+        assertTrue(e.isStaleConfigHash)
         assertEquals("config changed since last load; re-run config.get and retry", e.body)
     }
 
@@ -133,6 +135,7 @@ class ConfigRepositoryImplTest {
         val repo = ConfigRepositoryImpl { socket }
         val e = assertThrows<GatewayApiException> { repo.updateConfig("gateway", JsonObject(emptyMap())) }
         assertEquals(412, e.statusCode)
+        assertTrue(e.isStaleConfigHash)
     }
 
     @Test fun `a validation rejection names the field from details issues`() = runTest {
@@ -151,6 +154,7 @@ class ConfigRepositoryImplTest {
             ConfigRepositoryImpl { socket }.updateConfig("agents", JsonObject(emptyMap()))
         }
         assertEquals(422, e.statusCode)
+        assertFalse(e.isStaleConfigHash)
         assertEquals("invalid config: gateway.port: Too big: expected number to be <=65535 (maximum: 65535)", e.body)
     }
 
