@@ -6,7 +6,6 @@ import com.openclaw.ghostcrab.domain.model.DiscoveredGateway
 import com.openclaw.ghostcrab.domain.repository.ConnectionProfileRepository
 import com.openclaw.ghostcrab.domain.repository.DiscoveryService
 import com.openclaw.ghostcrab.domain.repository.GatewayConnectionManager
-import com.openclaw.ghostcrab.domain.util.suspendRunCatching
 import com.openclaw.ghostcrab.ui.toUserMessage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -185,18 +184,12 @@ class ScanViewModel(
             val match = profiles.find { it.url == gateway.url }
 
             if (match != null) {
-                // Read once, before the wait: a Keystore read per retry is wasteful, and a failure mid-wait would
-                // leave a stale PAIRING_REQUIRED error. getToken() fails with ProfileNeedsReauthException after a
-                // Keystore reset; nothing has connected yet, so there is nothing to disconnect.
-                val token = suspendRunCatching { if (match.hasToken) profileRepository.getToken(match.id) else null }
-                    .getOrElse { e ->
-                        _state.value = ScanState.Error(e.toUserMessage())
-                        return@launch
-                    }
-                pairing.start(
-                    url = match.url,
+                pairing.startSavedProfileConnect(
+                    profile = match,
+                    profileRepository = profileRepository,
+                    connectionManager = connectionManager,
                     onPrompt = { _pairingPrompt.value = it },
-                    connect = { connectionManager.connect(match.url, token) },
+                    onTokenUnreadable = { e -> _state.value = ScanState.Error(e.toUserMessage()) },
                     onFinished = ::onConnectFinished,
                 )
             } else {
