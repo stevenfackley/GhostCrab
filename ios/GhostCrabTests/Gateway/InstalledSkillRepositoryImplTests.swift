@@ -66,6 +66,89 @@ struct InstalledSkillRepositoryImplTests {
         }
     }
 
+    // ── observeInstalled across sockets ──────────────────────────────────────
+
+    /// The list a new `observeInstalled()` subscriber gets first.
+    private func firstObserved(_ repo: InstalledSkillRepositoryImpl) async -> [InstalledSkill] {
+        for await list in repo.observeInstalled() { return list }
+        Issue.record("observeInstalled() ended without a list")
+        return []
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func aSubscriberSeesTheLiveSocketsListOnceItIsRead() async throws {
+        let (repo, _) = try await makeRepo(try .fixtures(["skills.status": "res-skills-status"]))
+        var lists = repo.observeInstalled().makeAsyncIterator()
+        let initial = await lists.next()
+        #expect(initial?.isEmpty == true)
+
+        _ = try await repo.refreshFromGateway().get()
+
+        let refreshed = await lists.next() ?? []
+        #expect(refreshed.map(\.slug) == ["1password", "browser-automation", "weather"])
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func aListReadOnAnEarlierSocketIsNotObservedOnTheNextOne() async throws {
+        let listing = try ScriptedGatewayWebSocket(challenge: false, replies: try .fixtures(["skills.status": "res-skills-status"]))
+        let refusing = try ScriptedGatewayWebSocket(challenge: false, replies: try .fixtures(["skills.status": "err-missing-scope"]))
+        let first = await startedRPC(listing, endpoint: "ws://gw-a/ws")
+        let next = await startedRPC(refusing, endpoint: "ws://gw-b/ws")
+        let live = LiveSocket(first)
+        let repo = InstalledSkillRepositoryImpl(session: { try await live.require() })
+        _ = try await repo.refreshFromGateway().get()
+        let whileLive = await firstObserved(repo)
+        #expect(whileLive.map(\.slug) == ["1password", "browser-automation", "weather"])
+
+        await live.become(next)
+        let onTheNext = await firstObserved(repo)
+        #expect(onTheNext.isEmpty)
+        // The new socket's own read failing does not bring the earlier gateway's list back.
+        guard case .failure(let error) = await repo.refreshFromGateway(),
+              case .missingScope? = error as? GatewayError else {
+            Issue.record("expected missingScope")
+            return
+        }
+        let afterTheFailedRead = await firstObserved(repo)
+        #expect(afterTheFailedRead.isEmpty)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func aListIsNotObservedOnceItsSessionHasEnded() async throws {
+        let socket = try ScriptedGatewayWebSocket(challenge: false, replies: try .fixtures(["skills.status": "res-skills-status"]))
+        let rpc = await startedRPC(socket)
+        let live = LiveSocket(rpc)
+        let repo = InstalledSkillRepositoryImpl(session: { try await live.require() })
+        _ = try await repo.refreshFromGateway().get()
+
+        await live.become(nil)
+        let observed = await firstObserved(repo)
+        #expect(observed.isEmpty)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func aStandInEntryDoesNotJoinAListReadOnAnEarlierSocket() async throws {
+        let listing = try ScriptedGatewayWebSocket(challenge: false, replies: try .fixtures(["skills.status": "res-skills-status"]))
+        // The next gateway installs, then refuses the re-read: the install ends with a stand-in entry.
+        var replies = try [String: [String]].fixtures(["skills.install": "res-skills-install"])
+        replies["skills.status"] = [try GatewayFixtures.text("err-missing-scope")]
+        let installing = try ScriptedGatewayWebSocket(challenge: false, replies: replies)
+        let first = await startedRPC(listing, endpoint: "ws://gw-a/ws")
+        let next = await startedRPC(installing, endpoint: "ws://gw-b/ws")
+        let live = LiveSocket(first)
+        let repo = InstalledSkillRepositoryImpl(session: { try await live.require() })
+        _ = try await repo.refreshFromGateway().get()
+
+        await live.become(next)
+        let progress = await events(repo.install(slug: "@steipete/weather", version: nil))
+        guard case .succeeded? = progress.last else {
+            Issue.record("expected succeeded, got \(progress)")
+            return
+        }
+        let observed = await firstObserved(repo)
+        #expect(observed.map(\.slug) == ["weather"])
+    }
+
     // ── skills.install ───────────────────────────────────────────────────────
 
     @Test func installSendsTheClawHubParamsAndEndsSucceeded() async throws {
@@ -311,5 +394,27 @@ struct InstalledSkillRepositoryImplTests {
         #expect(SkillSource.from(statusSource: "openclaw-extra", bundled: false, clawhub: false) == .local)
         #expect(SkillSource.from(statusSource: "workspace", bundled: false, clawhub: false) == .unknown)
         #expect(SkillSource.from(statusSource: nil, bundled: false, clawhub: false) == .unknown)
+    }
+}
+
+/// The socket a test says is live, read the way the repository reads `GatewayConnectionManagerImpl.requireSession()`.
+private actor LiveSocket {
+    private var socket: GatewayRPCClient?
+
+    init(_ socket: GatewayRPCClient?) {
+        self.socket = socket
+    }
+
+    /// - Parameter next: The socket that is live from now on; `nil` for a session that ended.
+    func become(_ next: GatewayRPCClient?) {
+        socket = next
+    }
+
+    /// - Throws: ``GatewayError/unreachable(url:underlying:)`` while no socket is live.
+    func require() throws -> GatewayRPCClient {
+        guard let socket else {
+            throw GatewayError.unreachable(url: "<no active connection>", underlying: nil)
+        }
+        return socket
     }
 }
