@@ -153,13 +153,11 @@ public class ConnectionPickerViewModel(
 
     private fun startConnect(profile: ConnectionProfile, first: GatewayPairingRequiredException?) {
         _uiState.value = ConnectionPickerUiState(connectingProfileId = profile.id)
-        pairing.start(
-            url = profile.url,
+        pairing.startSavedProfileConnect(
+            profile = profile,
+            profileRepository = profileRepository,
+            connectionManager = connectionManager,
             onPrompt = { prompt -> _uiState.update { it.copy(pairingPrompt = prompt) } },
-            connect = {
-                val token = if (profile.hasToken) profileRepository.getToken(profile.id) else null
-                connectionManager.connect(profile.url, token)
-            },
             first = first,
             onFinished = ::onConnectFinished,
         )

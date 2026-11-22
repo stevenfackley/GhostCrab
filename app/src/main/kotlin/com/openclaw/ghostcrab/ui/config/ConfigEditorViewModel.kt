@@ -159,7 +159,7 @@ class ConfigEditorViewModel(
                 val updated = configRepository.getConfig()
                 _state.updateReady { it.afterSave(section, newValue, updated) }
             } catch (e: GatewayApiException) {
-                if (e.statusCode == 412) {
+                if (e.isStaleConfigHash) {
                     val reloaded = suspendRunCatching { configRepository.getConfig() }
                     _state.updateReady { ready ->
                         reloaded.fold(

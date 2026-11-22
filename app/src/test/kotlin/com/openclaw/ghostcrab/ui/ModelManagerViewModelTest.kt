@@ -121,6 +121,16 @@ class ModelManagerViewModelTest {
     }
 
     @Test
+    fun `only the unknown-method error means NotSupported, an HTTP-style 404 is an Error`() = runTest {
+        // Nothing on the models.list path throws GatewayApiException; a 404 here is not a missing model API.
+        val repo = FakeMMRepository().apply { getError = GatewayApiException("ws://192.168.1.50:18789/ws", 404) }
+        val (vm, _) = makeVm(initialConnection = connectedState, repo = repo)
+
+        val state = assertInstanceOf(ModelManagerUiState.Error::class.java, vm.state.value)
+        assertTrue(state.message.contains("404"))
+    }
+
+    @Test
     fun `loading models after the session dropped shows Error instead of crashing`() = runTest {
         val repo = FakeMMRepository().apply { getError = GatewayNotConnectedException() }
         val (vm, _) = makeVm(initialConnection = connectedState, repo = repo)

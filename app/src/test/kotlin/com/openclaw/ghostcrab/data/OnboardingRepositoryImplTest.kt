@@ -9,6 +9,7 @@ import com.openclaw.ghostcrab.data.impl.OnboardingRepositoryImpl
 import com.openclaw.ghostcrab.domain.model.OnboardingStep
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.test.runTest
@@ -63,5 +64,50 @@ class OnboardingRepositoryImplTest {
         val store = newStore()
         store.edit { it[stringPreferencesKey("current_step")] = "StepFromTheFuture" }
         assertEquals(OnboardingStep.Welcome, OnboardingRepositoryImpl(store).getSavedStep())
+    }
+
+    @Test
+    fun `every step is stored under its persisted name and reads back unchanged`() = runTest {
+        assertEquals(OnboardingStep.entries.toList(), PERSISTED_NAMES.map { it.first })
+        PERSISTED_NAMES.forEach { (step, name) ->
+            val store = newStore()
+            val repo = OnboardingRepositoryImpl(store)
+
+            repo.saveStep(step)
+
+            assertEquals(name, store.data.first()[CURRENT_STEP], "stored name of $step")
+            assertEquals(step, repo.getSavedStep(), "read back of $name")
+        }
+    }
+
+    @Test
+    fun `a stored name written by an earlier install reads back as that step`() = runTest {
+        PERSISTED_NAMES.forEach { (step, name) ->
+            val store = newStore()
+            store.edit { it[CURRENT_STEP] = name }
+            assertEquals(step, OnboardingRepositoryImpl(store).getSavedStep(), "read of $name")
+        }
+    }
+
+    @Test
+    fun `stored names are matched case-sensitively`() = runTest {
+        val store = newStore()
+        store.edit { it[CURRENT_STEP] = "verifyrunning" }
+        assertEquals(OnboardingStep.Welcome, OnboardingRepositoryImpl(store).getSavedStep())
+    }
+
+    private companion object {
+        val CURRENT_STEP = stringPreferencesKey("current_step")
+
+        /** The strings already on users' devices: changing one strands that user's progress. */
+        val PERSISTED_NAMES = listOf(
+            OnboardingStep.Welcome to "Welcome",
+            OnboardingStep.WhatIsOpenClaw to "WhatIsOpenClaw",
+            OnboardingStep.InstallGateway to "InstallGateway",
+            OnboardingStep.StartGateway to "StartGateway",
+            OnboardingStep.VerifyRunning to "VerifyRunning",
+            OnboardingStep.FindOnNetwork to "FindOnNetwork",
+            OnboardingStep.Completed to "Completed",
+        )
     }
 }

@@ -24,26 +24,39 @@ public enum ConfigEditorUiState: Sendable {
     ///   exception class where applicable.
     case error(message: String)
 
-    /// Config loaded and ready for display / editing.
-    ///
-    /// - Parameters:
-    ///   - config: Authoritative config as returned by the gateway.
-    ///   - pendingChanges: Section key → full edited `AnyCodable`. Only sections
-    ///     with unsaved edits are present.
-    ///   - fieldErrors: Field path → error message
-    ///     (e.g. `"gateway.http.port"` → `"Must be 1–65535"`).
-    ///   - pendingSaveSection: When non-nil, the diff sheet is shown for this
-    ///     section key.
-    ///   - saveSuccess: When `true`, show a success snackbar/banner; call
-    ///     `ConfigEditorViewModel.clearSaveSuccess()` to dismiss.
-    ///   - concurrentEditSection: When non-nil, show a concurrent-edit warning
-    ///     dialog for this section.
-    case ready(
-        config: OpenClawConfig,
-        pendingChanges: [String: AnyCodable] = [:],
-        fieldErrors: [String: String] = [:],
-        pendingSaveSection: String? = nil,
-        saveSuccess: Bool = false,
-        concurrentEditSection: String? = nil
-    )
+    /// Config loaded and ready for display / editing. See ``Ready`` for the fields.
+    case ready(Ready)
+
+    /// The loaded editor: one record, so a mutator changes only the field it means to (the port of Android's
+    /// `ConfigEditorUiState.Ready` data class and its `copy`).
+    public struct Ready: Sendable {
+        /// Authoritative config as returned by the gateway.
+        public var config: OpenClawConfig
+        /// Section key → full edited `AnyCodable`. Only sections with unsaved edits are present.
+        public var pendingChanges: [String: AnyCodable]
+        /// Field path → error message (e.g. `"gateway.http.port"` → `"Must be 1–65535"`).
+        public var fieldErrors: [String: String]
+        /// When non-nil, the diff sheet is shown for this section key.
+        public var pendingSaveSection: String?
+        /// When `true`, show a success snackbar/banner; call `ConfigEditorViewModel.clearSaveSuccess()` to dismiss.
+        public var saveSuccess: Bool
+        /// When non-nil, show a concurrent-edit warning dialog for this section.
+        public var concurrentEditSection: String?
+
+        public init(
+            config: OpenClawConfig,
+            pendingChanges: [String: AnyCodable] = [:],
+            fieldErrors: [String: String] = [:],
+            pendingSaveSection: String? = nil,
+            saveSuccess: Bool = false,
+            concurrentEditSection: String? = nil
+        ) {
+            self.config = config
+            self.pendingChanges = pendingChanges
+            self.fieldErrors = fieldErrors
+            self.pendingSaveSection = pendingSaveSection
+            self.saveSuccess = saveSuccess
+            self.concurrentEditSection = concurrentEditSection
+        }
+    }
 }

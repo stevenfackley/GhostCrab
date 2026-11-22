@@ -3,6 +3,7 @@ package com.openclaw.ghostcrab.ui
 import app.cash.turbine.test
 import com.openclaw.ghostcrab.domain.exception.GatewayPairingRequiredException
 import com.openclaw.ghostcrab.domain.exception.GatewayUnreachableException
+import com.openclaw.ghostcrab.domain.exception.ProfileNeedsReauthException
 import com.openclaw.ghostcrab.domain.model.AuthRequirement
 import com.openclaw.ghostcrab.domain.model.ConnectionProfile
 import com.openclaw.ghostcrab.domain.model.ConnectionWarning
@@ -16,12 +17,14 @@ import com.openclaw.ghostcrab.ui.connection.ConnectionPickerUiState
 import com.openclaw.ghostcrab.ui.connection.ConnectionPickerViewModel
 import com.openclaw.ghostcrab.ui.connection.PAIRING_RETRY_INTERVAL_MS
 import com.openclaw.ghostcrab.ui.connection.PAIRING_TIMEOUT_MS
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -139,6 +142,33 @@ class ConnectionPickerViewModelTest {
         assertNull(vm.uiState.value.errorMessage)
     }
 
+    @Test
+    fun `an unreadable token surfaces errorMessage, clears connecting state and connects nothing`() = runTest {
+        val p = profile(hasToken = true)
+        val (vm, repo, manager) = makeVm(profiles = listOf(p))
+        repo.tokenError = ProfileNeedsReauthException(p.id)
+
+        vm.connect(p)
+
+        val state = vm.uiState.value
+        assertNull(state.connectingProfileId)
+        assertNull(state.pairingPrompt)
+        assertTrue(state.errorMessage.orEmpty().contains("ProfileNeedsReauthException"))
+        assertTrue(manager.connectCalls.isEmpty())
+    }
+
+    @Test
+    fun `a profile without a token never touches the keystore`() = runTest {
+        val p = profile(hasToken = false)
+        val (vm, repo, manager) = makeVm(profiles = listOf(p))
+        repo.tokenError = ProfileNeedsReauthException(p.id)
+
+        vm.connect(p)
+
+        assertEquals(0, repo.getTokenCalls)
+        assertEquals(listOf(Pair(p.url, null as String?)), manager.connectCalls)
+    }
+
     // ── Pairing approval (ADR-0007) ───────────────────────────────────────────
 
     /** Refuses every connect for approval, like a gateway that has not approved this device yet. */
@@ -246,6 +276,122 @@ class ConnectionPickerViewModelTest {
     }
 
     @Test
+    fun `the token is read once, before the approval wait, and every retry sends it`() = runTest {
+        val p = profile(hasToken = true)
+        val repo = FakeCpProfileRepo(listOf(p)).apply { tokens[p.id] = "fake-profile-token" }
+        val sent = mutableListOf<String?>()
+        val manager = object : FakeCpConnectionManager() {
+            override suspend fun connect(url: String, token: String?) {
+                sent += token
+                if (sent.size <= 3) refuse(url)
+            }
+        }
+        val vm = ConnectionPickerViewModel(repo, manager, FakeCpOnboardingRepo(true))
+
+        vm.events.test {
+            vm.connect(p)
+            advanceTimeBy(PAIRING_RETRY_INTERVAL_MS * 3 + 1)
+            assertEquals(ConnectionPickerEvent.NavigateToDashboard, awaitItem())
+        }
+        assertEquals(List(4) { "fake-profile-token" }, sent)
+        assertEquals(1, repo.getTokenCalls)
+    }
+
+    @Test
+    fun `resuming a refused reconnect reads the token once, at the first retry, and connects with it`() = runTest {
+        val p = profile(hasToken = true)
+        val repo = FakeCpProfileRepo(listOf(p)).apply { tokens[p.id] = "fake-profile-token" }
+        val manager = FakeCpConnectionManager()
+        manager.state.value = GatewayConnection.Error(p.url, pairingRefusal())
+
+        val vm = ConnectionPickerViewModel(repo, manager, FakeCpOnboardingRepo(true))
+
+        assertEquals(0, repo.getTokenCalls)
+        assertTrue(manager.connectCalls.isEmpty())
+        vm.events.test {
+            advanceTimeBy(PAIRING_RETRY_INTERVAL_MS + 1)
+            assertEquals(ConnectionPickerEvent.NavigateToDashboard, awaitItem())
+        }
+        assertEquals(listOf(Pair(p.url, "fake-profile-token" as String?)), manager.connectCalls)
+        assertEquals(1, repo.getTokenCalls)
+    }
+
+    @Test
+    fun `resuming with an unreadable token shows the card, then the error at the first retry`() = runTest {
+        val p = profile(hasToken = true)
+        val repo = FakeCpProfileRepo(listOf(p)).apply { tokenError = ProfileNeedsReauthException(p.id) }
+        val manager = FakeCpConnectionManager()
+        manager.state.value = GatewayConnection.Error(p.url, pairingRefusal())
+
+        val vm = ConnectionPickerViewModel(repo, manager, FakeCpOnboardingRepo(true))
+
+        assertEquals("req-9", vm.uiState.value.pairingPrompt?.requestId)
+        assertEquals(0, repo.getTokenCalls)
+
+        advanceTimeBy(PAIRING_RETRY_INTERVAL_MS + 1)
+
+        val state = vm.uiState.value
+        assertNull(state.pairingPrompt)
+        assertNull(state.connectingProfileId)
+        assertTrue(state.errorMessage.orEmpty().contains("ProfileNeedsReauthException"))
+        assertTrue(manager.connectCalls.isEmpty())
+        // As before the shared helper: nothing disconnects the dashboard's refusal, so it stays the manager's state.
+        assertEquals(0, manager.disconnects)
+    }
+
+    @Test
+    fun `leaving the list while the token read is in flight starts no connect and no wait`() = runTest {
+        val p = profile(hasToken = true)
+        val repo = FakeCpProfileRepo(listOf(p)).apply {
+            tokens[p.id] = "fake-profile-token"
+            tokenGate = CompletableDeferred()
+        }
+        val manager = RefusingManager()
+        val vm = ConnectionPickerViewModel(repo, manager, FakeCpOnboardingRepo(true))
+
+        vm.events.test {
+            vm.connect(p)
+            vm.pairing.cancel() // what leaving the list (QR, Scan LAN, +) does first
+            repo.tokenGate?.complete(Unit)
+            advanceTimeBy(PAIRING_RETRY_INTERVAL_MS * 3)
+            expectNoEvents()
+        }
+        assertEquals(0, manager.calls)
+        assertEquals(ConnectionPickerUiState(), vm.uiState.value)
+        assertFalse(vm.pairing.isRunning)
+    }
+
+    @Test
+    fun `a cancel during the token read is honoured and the next tap connects`() = runTest {
+        val p = profile(hasToken = true)
+        val repo = FakeCpProfileRepo(listOf(p)).apply {
+            tokens[p.id] = "fake-profile-token"
+            tokenGate = CompletableDeferred()
+        }
+        val manager = FakeCpConnectionManager()
+        val vm = ConnectionPickerViewModel(repo, manager, FakeCpOnboardingRepo(true))
+
+        vm.connect(p)
+        assertTrue(vm.pairing.isRunning)
+        assertEquals(p.id, vm.uiState.value.connectingProfileId)
+
+        vm.pairing.cancel()
+
+        assertFalse(vm.pairing.isRunning)
+        assertNull(vm.uiState.value.connectingProfileId)
+        repo.tokenGate?.complete(Unit)
+        advanceUntilIdle()
+        assertTrue(manager.connectCalls.isEmpty())
+
+        repo.tokenGate = null
+        vm.events.test {
+            vm.connect(p)
+            assertEquals(ConnectionPickerEvent.NavigateToDashboard, awaitItem())
+        }
+        assertEquals(listOf(Pair(p.url, "fake-profile-token" as String?)), manager.connectCalls)
+    }
+
+    @Test
     fun `back from the dashboard after a reconnect refused for pairing, the list shows the panel`() = runTest {
         val p = profile()
         var calls = 0
@@ -293,6 +439,14 @@ private class FakeCpProfileRepo(
     val deletedIds = mutableListOf<String>()
     val tokens = mutableMapOf<String, String>()
 
+    /** Thrown by [getToken] while set, as a Keystore reset does. */
+    var tokenError: Exception? = null
+
+    /** Awaited by [getToken] while set, to hold the Keystore read in flight. */
+    var tokenGate: CompletableDeferred<Unit>? = null
+    var getTokenCalls = 0
+        private set
+
     override fun getProfiles() = _profiles
     override suspend fun saveProfile(profile: ConnectionProfile, token: String?) {
         _profiles.value = _profiles.value + profile
@@ -301,7 +455,12 @@ private class FakeCpProfileRepo(
         deletedIds += profileId
         _profiles.value = _profiles.value.filter { it.id != profileId }
     }
-    override suspend fun getToken(profileId: String): String? = tokens[profileId]
+    override suspend fun getToken(profileId: String): String? {
+        getTokenCalls++
+        tokenGate?.await()
+        tokenError?.let { throw it }
+        return tokens[profileId]
+    }
     override suspend fun clearAll() {
         _profiles.value = emptyList()
     }

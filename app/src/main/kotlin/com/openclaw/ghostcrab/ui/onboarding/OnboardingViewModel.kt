@@ -91,26 +91,7 @@ public class OnboardingViewModel(
     private suspend fun advance(forward: Boolean) {
         if (completing) return
         val current = _step.value
-        val next = when {
-            forward -> when (current) {
-                OnboardingStep.Welcome -> OnboardingStep.WhatIsOpenClaw
-                OnboardingStep.WhatIsOpenClaw -> OnboardingStep.InstallGateway
-                OnboardingStep.InstallGateway -> OnboardingStep.StartGateway
-                OnboardingStep.StartGateway -> OnboardingStep.VerifyRunning
-                OnboardingStep.VerifyRunning -> OnboardingStep.FindOnNetwork
-                OnboardingStep.FindOnNetwork -> OnboardingStep.Completed
-                OnboardingStep.Completed -> OnboardingStep.Completed
-            }
-            else -> when (current) {
-                OnboardingStep.Welcome -> OnboardingStep.Welcome
-                OnboardingStep.WhatIsOpenClaw -> OnboardingStep.Welcome
-                OnboardingStep.InstallGateway -> OnboardingStep.WhatIsOpenClaw
-                OnboardingStep.StartGateway -> OnboardingStep.InstallGateway
-                OnboardingStep.VerifyRunning -> OnboardingStep.StartGateway
-                OnboardingStep.FindOnNetwork -> OnboardingStep.VerifyRunning
-                OnboardingStep.Completed -> OnboardingStep.FindOnNetwork
-            }
-        }
+        val next = if (forward) current.next else current.previous
         if (next == OnboardingStep.Completed) {
             complete()
             return
