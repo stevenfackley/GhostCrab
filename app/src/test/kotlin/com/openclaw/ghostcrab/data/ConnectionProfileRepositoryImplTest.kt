@@ -3,6 +3,7 @@ package com.openclaw.ghostcrab.data
 import com.openclaw.ghostcrab.data.impl.ConnectionProfileRepositoryImpl
 import com.openclaw.ghostcrab.data.storage.ConnectionProfileStore
 import com.openclaw.ghostcrab.data.storage.StoredProfile
+import com.openclaw.ghostcrab.domain.exception.ProfileNeedsReauthException
 import com.openclaw.ghostcrab.domain.model.ConnectionProfile
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -16,6 +17,8 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertThrows
+import java.io.IOException
 
 class ConnectionProfileRepositoryImplTest {
 
@@ -101,6 +104,22 @@ class ConnectionProfileRepositoryImplTest {
             assertEquals(1_700_000_000L, sp.lastConnectedAt)
             assertTrue(sp.hasToken)
         }
+    }
+
+    @Test fun `a token that cannot be stored leaves no profile claiming it`() = runTest {
+        coEvery { store.saveToken("id1", "secret") } throws ProfileNeedsReauthException("id1")
+
+        assertThrows<ProfileNeedsReauthException> { repo.saveProfile(domainProfile(), token = "secret") }
+
+        coVerify(exactly = 0) { store.saveProfile(any()) }
+    }
+
+    @Test fun `a token is cleared only after the profile stops claiming it`() = runTest {
+        coEvery { store.saveProfile(any()) } throws IOException("profile write failed")
+
+        assertThrows<IOException> { repo.saveProfile(domainProfile().copy(hasToken = false), token = null) }
+
+        coVerify(exactly = 0) { store.saveToken(any(), any()) }
     }
 
     // ── deleteProfile ─────────────────────────────────────────────────────────

@@ -21,9 +21,9 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -61,10 +61,16 @@ class InstalledSkillRepositoryImpl(
     private val session: () -> GatewayRpcClient,
 ) : InstalledSkillRepository {
 
-    private val installedFlow = MutableStateFlow<List<InstalledSkill>>(emptyList())
+    /** The last list and the socket it was read on; this repository outlives sessions. */
+    private val installedFlow = MutableStateFlow<Listed?>(null)
 
-    /** Hot list; starts empty, updated by every `skills.status` read and by a successful install. */
-    override fun observeInstalled(): Flow<List<InstalledSkill>> = installedFlow.asStateFlow()
+    /**
+     * Hot list of the live session; updated by every `skills.status` read and by a successful install. Empty until
+     * the live socket's first read: a list read on an earlier socket (another gateway, or a session that ended) is
+     * never emitted.
+     */
+    override fun observeInstalled(): Flow<List<InstalledSkill>> =
+        installedFlow.map { listed -> listed?.takeIf { it.socket === liveSocketOrNull() }?.skills.orEmpty() }
 
     /**
      * One-shot `skills.status`.
@@ -158,7 +164,7 @@ class InstalledSkillRepositoryImpl(
     private suspend fun fetchStatus(rpc: GatewayRpcClient): List<InstalledSkill> {
         val skills = (rpc.request(METHOD_STATUS) as? JsonObject)?.get("skills") as? JsonArray
             ?: throw GatewayProtocolException(rpc.endpoint, "skills.status without a skills array")
-        return skills.map { it.toInstalledSkill(rpc.endpoint) }.also { installedFlow.value = it }
+        return skills.map { it.toInstalledSkill(rpc.endpoint) }.also { installedFlow.value = Listed(rpc, it) }
     }
 
     /**
@@ -177,7 +183,10 @@ class InstalledSkillRepositoryImpl(
         refreshed?.firstOrNull { it.slug == key }?.let { return it }
         val synthetic =
             InstalledSkill(key, result?.stringOrNull("version").orEmpty(), SkillSource.ClawHub, installedAt = 0L)
-        if (refreshed == null) installedFlow.value = installedFlow.value.filterNot { it.slug == key } + synthetic
+        if (refreshed == null) {
+            val current = installedFlow.value?.takeIf { it.socket === rpc }?.skills.orEmpty()
+            installedFlow.value = Listed(rpc, current.filterNot { it.slug == key } + synthetic)
+        }
         return synthetic
     }
 
@@ -186,6 +195,14 @@ class InstalledSkillRepositoryImpl(
     } catch (ignored: GatewayNotConnectedException) {
         NOT_CONNECTED_URL
     }
+
+    private fun liveSocketOrNull(): GatewayRpcClient? = try {
+        session()
+    } catch (ignored: GatewayNotConnectedException) {
+        null
+    }
+
+    private data class Listed(val socket: GatewayRpcClient, val skills: List<InstalledSkill>)
 }
 
 private fun installParams(slug: String, version: String?) = buildJsonObject {

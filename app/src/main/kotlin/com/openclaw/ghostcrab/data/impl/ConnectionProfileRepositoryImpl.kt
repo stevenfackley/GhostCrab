@@ -16,8 +16,11 @@ class ConnectionProfileRepositoryImpl(
         store.getProfilesFlow().map { list -> list.map { it.toDomain() } }
 
     override suspend fun saveProfile(profile: ConnectionProfile, token: String?) {
+        // A failed write must not leave hasToken claiming a token that is not stored: a new token goes in before the
+        // profile that points at it, a cleared one comes out only after the profile stops pointing at it.
+        if (token != null) store.saveToken(profile.id, token)
         store.saveProfile(profile.toStored())
-        store.saveToken(profile.id, token)
+        if (token == null) store.saveToken(profile.id, null)
     }
 
     override suspend fun getToken(profileId: String): String? =
