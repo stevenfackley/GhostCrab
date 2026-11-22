@@ -82,6 +82,45 @@ class OnboardingViewModelTest {
     }
 
     @Test
+    fun `next() walks every visible step in order, persisting each, then completes`() = runTest {
+        val vm = makeVm()
+
+        VISIBLE_STEPS.drop(1).forEach { expected ->
+            vm.next()
+            assertEquals(expected, vm.step.value)
+            assertEquals(expected, fakeRepo.savedStep)
+        }
+        assertFalse(fakeRepo.completedCalled)
+
+        vm.next()
+
+        assertEquals(OnboardingStep.Completed, vm.step.value)
+        assertTrue(fakeRepo.completedCalled)
+    }
+
+    @Test
+    fun `back() walks every visible step in reverse order, persisting each, and stops at Welcome`() = runTest {
+        val vm = makeVm(savedStep = OnboardingStep.FindOnNetwork)
+
+        VISIBLE_STEPS.reversed().drop(1).forEach { expected ->
+            vm.back()
+            assertEquals(expected, vm.step.value)
+            assertEquals(expected, fakeRepo.savedStep)
+        }
+
+        vm.back()
+
+        assertEquals(OnboardingStep.Welcome, vm.step.value)
+        assertFalse(fakeRepo.completedCalled)
+    }
+
+    @Test
+    fun `a saved Completed step is not restored, so the walkthrough starts at Welcome`() = runTest {
+        val vm = makeVm(savedStep = OnboardingStep.Completed)
+        assertEquals(OnboardingStep.Welcome, vm.step.value)
+    }
+
+    @Test
     fun `next() from FindOnNetwork emits Completed`() = runTest {
         val vm = makeVm(savedStep = OnboardingStep.FindOnNetwork)
         vm.next()
@@ -190,12 +229,24 @@ class OnboardingViewModelTest {
         assertEquals(43, second.length)
         assertTrue(first != second)
     }
+
+    private companion object {
+        /** The walkthrough's order as the user sees it; [OnboardingStep.Completed] is not a page. */
+        val VISIBLE_STEPS = listOf(
+            OnboardingStep.Welcome,
+            OnboardingStep.WhatIsOpenClaw,
+            OnboardingStep.InstallGateway,
+            OnboardingStep.StartGateway,
+            OnboardingStep.VerifyRunning,
+            OnboardingStep.FindOnNetwork,
+        )
+    }
 }
 
 // ── Fake ─────────────────────────────────────────────────────────────────────
 
 private class FakeOnboardingRepository(
-    private var savedStep: OnboardingStep = OnboardingStep.Welcome,
+    var savedStep: OnboardingStep = OnboardingStep.Welcome,
     private var completed: Boolean = false,
 ) : OnboardingRepository {
 

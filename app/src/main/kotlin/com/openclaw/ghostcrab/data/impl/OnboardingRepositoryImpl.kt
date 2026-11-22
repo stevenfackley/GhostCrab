@@ -64,25 +64,10 @@ public class OnboardingRepositoryImpl(
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-/** Maps a stored step name back to an [OnboardingStep], defaulting to [OnboardingStep.Welcome]. */
-private val OnboardingStep.name: String
-    get() = when (this) {
-        OnboardingStep.Welcome -> "Welcome"
-        OnboardingStep.WhatIsOpenClaw -> "WhatIsOpenClaw"
-        OnboardingStep.InstallGateway -> "InstallGateway"
-        OnboardingStep.StartGateway -> "StartGateway"
-        OnboardingStep.VerifyRunning -> "VerifyRunning"
-        OnboardingStep.FindOnNetwork -> "FindOnNetwork"
-        OnboardingStep.Completed -> "Completed"
-    }
-
-private fun stepFromName(name: String): OnboardingStep = when (name) {
-    "WhatIsOpenClaw" -> OnboardingStep.WhatIsOpenClaw
-    "InstallGateway" -> OnboardingStep.InstallGateway
-    "StartGateway" -> OnboardingStep.StartGateway
-    "VerifyRunning" -> OnboardingStep.VerifyRunning
-    "FindOnNetwork" -> OnboardingStep.FindOnNetwork
-    "Completed" -> OnboardingStep.Completed
-    // Unknown name means DataStore has a future/corrupted value — restart from Welcome rather than crash.
-    else -> OnboardingStep.Welcome
-}
+/**
+ * Maps a stored step name (the entry's [OnboardingStep.name]) back to an [OnboardingStep].
+ * An unknown name means DataStore has a future/corrupted value: restart from
+ * [OnboardingStep.Welcome] rather than crash.
+ */
+private fun stepFromName(name: String): OnboardingStep =
+    OnboardingStep.entries.firstOrNull { it.name == name } ?: OnboardingStep.Welcome
