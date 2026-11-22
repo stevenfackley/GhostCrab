@@ -189,7 +189,6 @@ class ScanViewModel(
                     profileRepository = profileRepository,
                     connectionManager = connectionManager,
                     onPrompt = { _pairingPrompt.value = it },
-                    onTokenUnreadable = { e -> _state.value = ScanState.Error(e.toUserMessage()) },
                     onFinished = ::onConnectFinished,
                 )
             } else {

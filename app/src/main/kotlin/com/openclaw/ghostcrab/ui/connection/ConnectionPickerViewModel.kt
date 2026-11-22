@@ -151,20 +151,16 @@ public class ConnectionPickerViewModel(
         }
     }
 
-    /** Marks [profile] connecting at once (so a second tap is ignored while its token is read), then connects. */
     private fun startConnect(profile: ConnectionProfile, first: GatewayPairingRequiredException?) {
         _uiState.value = ConnectionPickerUiState(connectingProfileId = profile.id)
-        viewModelScope.launch {
-            pairing.startSavedProfileConnect(
-                profile = profile,
-                profileRepository = profileRepository,
-                connectionManager = connectionManager,
-                onPrompt = { prompt -> _uiState.update { it.copy(pairingPrompt = prompt) } },
-                onTokenUnreadable = { e -> onConnectFinished(Result.failure(e)) },
-                first = first,
-                onFinished = ::onConnectFinished,
-            )
-        }
+        pairing.startSavedProfileConnect(
+            profile = profile,
+            profileRepository = profileRepository,
+            connectionManager = connectionManager,
+            onPrompt = { prompt -> _uiState.update { it.copy(pairingPrompt = prompt) } },
+            first = first,
+            onFinished = ::onConnectFinished,
+        )
     }
 
     /** Navigates on success; otherwise shows the expired approval window or the failure. */

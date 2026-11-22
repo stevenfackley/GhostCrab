@@ -21,6 +21,7 @@ import com.openclaw.ghostcrab.ui.connection.PAIRING_TIMEOUT_MS
 import com.openclaw.ghostcrab.ui.connection.ScanEvent
 import com.openclaw.ghostcrab.ui.connection.ScanState
 import com.openclaw.ghostcrab.ui.connection.ScanViewModel
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -353,6 +354,37 @@ class ScanViewModelTest {
     }
 
     @Test
+    fun `Cancel while the token read is in flight starts no connect and no wait`() = runTest {
+        val gw = gateway()
+        val repo = FakeProfileRepository(listOf(profile(gw.url).copy(hasToken = true)))
+        repo.tokenGate = CompletableDeferred()
+        val manager = FakeScanPairingManager()
+        val vm = ScanViewModel(FakeDiscoveryService(), repo, manager)
+
+        vm.onGatewaySelected(gw)
+        vm.pairing.cancel() // what leaving the screen ("Enter URL manually") does first
+        repo.tokenGate?.complete(Unit)
+        advanceTimeBy(PAIRING_RETRY_INTERVAL_MS * 3)
+
+        assertEquals(0, manager.calls)
+        assertNull(vm.pairingPrompt.value)
+    }
+
+    @Test
+    fun `a second tap while a connect runs is ignored without reading the keystore`() = runTest {
+        val gw = gateway()
+        val repo = FakeProfileRepository(listOf(profile(gw.url).copy(hasToken = true)))
+        val manager = FakeScanPairingManager()
+        val vm = ScanViewModel(FakeDiscoveryService(), repo, manager)
+
+        vm.onGatewaySelected(gw)
+        vm.onGatewaySelected(gw)
+
+        assertEquals(1, repo.getTokenCalls)
+        assertEquals(1, manager.calls)
+        vm.pairing.cancel()
+    }
+    @Test
     fun `the token is read once across all retry intervals`() = runTest {
         val gw = gateway()
         val repo = FakeProfileRepository(listOf(profile(gw.url).copy(hasToken = true)))
@@ -408,10 +440,14 @@ private class FakeProfileRepository(
     private val tokenError: GatewayException? = null,
 ) : ConnectionProfileRepository {
     var getTokenCalls = 0
+
+    /** Awaited by [getToken] while set, to hold the Keystore read in flight. */
+    var tokenGate: CompletableDeferred<Unit>? = null
     override fun getProfiles(): Flow<List<ConnectionProfile>> = flowOf(profiles)
     override suspend fun saveProfile(profile: ConnectionProfile, token: String?) {}
     override suspend fun getToken(profileId: String): String? {
         getTokenCalls++
+        tokenGate?.await()
         tokenError?.let { throw it }
         return null
     }
