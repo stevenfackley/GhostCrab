@@ -76,6 +76,38 @@ class InstalledSkillRepositoryImplTest {
         assertEquals(skills, repo.observeInstalled().first())
     }
 
+    @Test fun `a list read on an earlier socket is not observed on the next one`() = runTest {
+        val dispatcher = UnconfinedTestDispatcher(testScheduler)
+        val listed = ScriptedWsSession(respond = fixtures("skills.status" to "res-skills-status"))
+        val silent = ScriptedWsSession(respond = { _, _ -> null })
+        val first = GatewayRpcClient.create(listed, "ws://gw-a/ws", dispatcher)
+        val next = GatewayRpcClient.create(silent, "ws://gw-b/ws", dispatcher, requestTimeoutMs = 1_000)
+        var live = first
+        val repo = InstalledSkillRepositoryImpl { live }
+        repo.refreshFromGateway().getOrThrow()
+
+        live = next
+        assertTrue(repo.observeInstalled().first().isEmpty())
+        // The new socket's own read failing does not bring the earlier gateway's list back.
+        assertInstanceOf(GatewayTimeoutException::class.java, repo.refreshFromGateway().exceptionOrNull())
+        assertTrue(repo.observeInstalled().first().isEmpty())
+    }
+
+    @Test fun `a list is not observed once its session has ended`() = runTest {
+        val dispatcher = UnconfinedTestDispatcher(testScheduler)
+        val rpc = GatewayRpcClient.create(
+            ScriptedWsSession(respond = fixtures("skills.status" to "res-skills-status")),
+            "ws://gw/ws",
+            dispatcher,
+        )
+        var connected = true
+        val repo = InstalledSkillRepositoryImpl { if (connected) rpc else throw GatewayNotConnectedException() }
+        repo.refreshFromGateway().getOrThrow()
+
+        connected = false
+        assertTrue(repo.observeInstalled().first().isEmpty())
+    }
+
     @Test fun `a status without a skills array is a protocol error`() = runTest {
         val bad = buildJsonObject {
             put("type", "res")
