@@ -3,7 +3,8 @@ import Foundation
 /// ``InstalledSkillRepository`` over the live session socket (ADR-0007): `skills.status` lists, `skills.install`
 /// installs from ClawHub (one `res`, no progress events), `skills.update` enables or disables. The gateway has no
 /// `skills.uninstall`, so ``uninstall(slug:)`` fails with ``GatewayError/methodUnsupported(url:method:)`` without
-/// a call. State is held in a lock-protected box and fanned out to every ``observeInstalled()`` stream.
+/// a call. The last list is held, with the socket it was read on, in a lock-protected box and fanned out to every
+/// ``observeInstalled()`` stream.
 public final class InstalledSkillRepositoryImpl: InstalledSkillRepository, Sendable {
 
     /// Sent as `skills.install.timeoutMs`: the gateway downloads and verifies before it answers.
@@ -34,9 +35,26 @@ public final class InstalledSkillRepositoryImpl: InstalledSkillRepository, Senda
         self.init(session: { try await connectionManager.requireSession() })
     }
 
-    /// Hot list; starts empty, updated by every `skills.status` read and by an install whose re-read failed.
+    /// Hot list of the live session; updated by every `skills.status` read and by an install whose re-read failed.
+    /// Empty until the live socket's first read: a list read on an earlier socket (another gateway, or a session
+    /// that ended) is never emitted. This repository outlives sessions, so each list is checked against the live
+    /// socket when it is emitted.
     public func observeInstalled() -> AsyncStream<[InstalledSkill]> {
-        stateBox.subscribe()
+        let listings = stateBox.subscribe()
+        let session = self.session
+        return AsyncStream { continuation in
+            let task = Task {
+                for await listing in listings {
+                    if let listing, let live = try? await session(), listing.socket === live {
+                        continuation.yield(listing.skills)
+                    } else {
+                        continuation.yield([])
+                    }
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
     }
 
     /// One-shot `skills.status`.
@@ -164,14 +182,14 @@ public final class InstalledSkillRepositoryImpl: InstalledSkillRepository, Senda
             throw GatewayError.protocolViolation(url: rpc.endpoint, detail: "skills.status without a skills array")
         }
         let list = try entries.map { try Self.installedSkill(from: $0, url: rpc.endpoint) }
-        stateBox.set(list)
+        stateBox.set(InstalledSkillListing(socket: rpc, skills: list))
         return list
     }
 
     /// The install already succeeded; this only finds its entry. `skills.install` answers with the bare key and the
     /// installed version (`{ok, message, slug, version, targetDir, …}`). A failed or incomplete refresh falls back
     /// to a synthetic entry rather than reporting a successful install as failed; when the refresh failed, that
-    /// entry also joins the observed list.
+    /// entry also joins the observed list of this socket (a list read on another socket is dropped, not extended).
     ///
     /// - Throws: `CancellationError` only, when the caller was cancelled during the refresh: nothing is added then.
     private func installedSkill(after rpc: GatewayRPCClient, requested: String, result: [String: AnyCodable]?) async throws -> InstalledSkill {
@@ -190,7 +208,7 @@ public final class InstalledSkillRepositoryImpl: InstalledSkillRepository, Senda
             source: .clawHub,
             installedAt: Date(timeIntervalSince1970: 0)
         )
-        if refreshed == nil { stateBox.upsert(synthetic) }
+        if refreshed == nil { stateBox.upsert(synthetic, on: rpc) }
         return synthetic
     }
 
@@ -233,16 +251,22 @@ public final class InstalledSkillRepositoryImpl: InstalledSkillRepository, Senda
 
 // ── State box ────────────────────────────────────────────────────────────────
 
-/// Lock-protected mutable list of installed skills with multi-subscriber fan-out.
+/// A list of installed skills and the socket it was read on.
+private struct InstalledSkillListing: Sendable {
+    let socket: GatewayRPCClient
+    let skills: [InstalledSkill]
+}
+
+/// Lock-protected latest listing of installed skills (`nil` until the first one) with multi-subscriber fan-out.
 ///
-/// Replays the latest list on subscribe and yields every change to all live
-/// subscribers — same semantics as Kotlin's `MutableStateFlow<List<InstalledSkill>>`.
+/// Replays the latest listing on subscribe and yields every change to all live
+/// subscribers — same semantics as Kotlin's `MutableStateFlow<Listed?>`.
 private final class InstalledSkillStateBox: @unchecked Sendable {
-    private var stored: [InstalledSkill] = []
-    private var subscribers: [UUID: AsyncStream<[InstalledSkill]>.Continuation] = [:]
+    private var stored: InstalledSkillListing?
+    private var subscribers: [UUID: AsyncStream<InstalledSkillListing?>.Continuation] = [:]
     private let lock = NSLock()
 
-    func subscribe() -> AsyncStream<[InstalledSkill]> {
+    func subscribe() -> AsyncStream<InstalledSkillListing?> {
         AsyncStream { continuation in
             let id = UUID()
             self.lock.lock()
@@ -261,7 +285,7 @@ private final class InstalledSkillStateBox: @unchecked Sendable {
         }
     }
 
-    func set(_ next: [InstalledSkill]) {
+    func set(_ next: InstalledSkillListing) {
         lock.lock()
         stored = next
         let snapshot = next
@@ -272,11 +296,16 @@ private final class InstalledSkillStateBox: @unchecked Sendable {
         }
     }
 
-    func upsert(_ skill: InstalledSkill) {
+    /// Adds `skill` to the list read on `socket`, replacing an entry with its slug. A list read on another socket
+    /// is not extended: the listing restarts with `skill` alone.
+    func upsert(_ skill: InstalledSkill, on socket: GatewayRPCClient) {
         lock.lock()
-        stored.removeAll { $0.slug == skill.slug }
-        stored.append(skill)
-        let snapshot = stored
+        var skills: [InstalledSkill] = []
+        if let current = stored, current.socket === socket { skills = current.skills }
+        skills.removeAll { $0.slug == skill.slug }
+        skills.append(skill)
+        let snapshot = InstalledSkillListing(socket: socket, skills: skills)
+        stored = snapshot
         let subs = subscribers.values
         lock.unlock()
         for cont in subs {
