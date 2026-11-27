@@ -156,7 +156,11 @@ fun NavGraph(pairRequest: Int = 0) {
         }
         if (BuildConfig.SKILLS_INSTALL_ENABLED) {
             composable("installed_skills") {
-                InstalledSkillsScreen(onNavigateBack = { navController.popBackStack() })
+                InstalledSkillsScreen(
+                    onNavigateBack = { navController.popBackStack() },
+                    // As the dashboard does when its session ends: the picker becomes the only screen.
+                    onPickGateway = { navController.navigateAsOnlyEntry("connection_picker") },
+                )
             }
         }
     }

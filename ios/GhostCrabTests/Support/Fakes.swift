@@ -567,10 +567,27 @@ final class FakeInstalledSkillRepository: InstalledSkillRepository, @unchecked S
     private var refreshCalls = 0
     private var enabledLog: [String] = []
     private var refreshError: (any Error)?
+    private var holdsRefreshes = false
+    private var heldRefreshes: [CheckedContinuation<Void, Never>] = []
 
     /// Makes every `refreshFromGateway()` fail with `error`, or succeed again for `nil`.
     func setRefreshError(_ error: (any Error)?) {
         lock.withLock { refreshError = error }
+    }
+
+    /// From now on every `refreshFromGateway()` waits (after counting itself) until ``releaseRefreshes()``.
+    func holdRefreshes() {
+        lock.withLock { holdsRefreshes = true }
+    }
+
+    /// Lets every held `refreshFromGateway()` answer, and stops holding new ones.
+    func releaseRefreshes() {
+        let held: [CheckedContinuation<Void, Never>] = lock.withLock {
+            holdsRefreshes = false
+            defer { heldRefreshes.removeAll() }
+            return heldRefreshes
+        }
+        for continuation in held { continuation.resume() }
     }
 
     /// - Parameters:
@@ -606,10 +623,16 @@ final class FakeInstalledSkillRepository: InstalledSkillRepository, @unchecked S
     }
 
     func refreshFromGateway() async -> Result<[InstalledSkill], any Error> {
-        let (snapshot, failure): ([InstalledSkill], (any Error)?) = lock.withLock {
-            refreshCalls += 1
-            return (skills, refreshError)
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let resumeNow: Bool = lock.withLock {
+                refreshCalls += 1
+                if holdsRefreshes { heldRefreshes.append(continuation) }
+                return !holdsRefreshes
+            }
+            if resumeNow { continuation.resume() }
         }
+        // Read after the hold, so a test can change the answer while the read is in flight.
+        let (snapshot, failure): ([InstalledSkill], (any Error)?) = lock.withLock { (skills, refreshError) }
         if let failure { return .failure(failure) }
         return .success(snapshot)
     }

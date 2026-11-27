@@ -57,12 +57,14 @@ import java.util.Date
  * Only reachable when `BuildConfig.SKILLS_INSTALL_ENABLED` is true.
  *
  * @param onNavigateBack Called to pop back to Settings.
+ * @param onPickGateway Called by the disconnected state's "Pick a gateway": opens the connection picker.
  * @param viewModel Injected via Koin by default.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun InstalledSkillsScreen(
     onNavigateBack: () -> Unit,
+    onPickGateway: () -> Unit,
     viewModel: InstalledSkillsViewModel = koinViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -88,7 +90,13 @@ fun InstalledSkillsScreen(
     Scaffold(
         containerColor = BrandTokens.colorAbyss,
         snackbarHost = { SnackbarHost(snackbarHostState) },
-        topBar = { InstalledSkillsTopBar(onNavigateBack, onRefresh = viewModel::refresh) },
+        topBar = {
+            // Without a live session there is nothing to refresh: the disconnected state offers the way back.
+            InstalledSkillsTopBar(
+                onNavigateBack = onNavigateBack,
+                onRefresh = if (state is InstalledSkillsUiState.Disconnected) null else viewModel::refresh,
+            )
+        },
     ) { innerPadding ->
         InstalledSkillsBody(
             state = state,
@@ -96,13 +104,15 @@ fun InstalledSkillsScreen(
             onUninstallRequest = { viewModel.requestUninstall(it.slug) },
             onConfirmUninstall = viewModel::confirmUninstall,
             onCancelUninstall = viewModel::cancelUninstall,
+            onRetry = viewModel::refresh,
+            onPickGateway = onPickGateway,
         )
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun InstalledSkillsTopBar(onNavigateBack: () -> Unit, onRefresh: () -> Unit) {
+private fun InstalledSkillsTopBar(onNavigateBack: () -> Unit, onRefresh: (() -> Unit)?) {
     TopAppBar(
         title = {
             Text(
@@ -120,12 +130,14 @@ private fun InstalledSkillsTopBar(onNavigateBack: () -> Unit, onRefresh: () -> U
             }
         },
         actions = {
-            IconButton(onClick = onRefresh) {
-                Icon(
-                    imageVector = Icons.Default.Refresh,
-                    contentDescription = stringResource(R.string.installed_skills_refresh_cd),
-                    tint = BrandTokens.colorCyanPrimary,
-                )
+            if (onRefresh != null) {
+                IconButton(onClick = onRefresh) {
+                    Icon(
+                        imageVector = Icons.Default.Refresh,
+                        contentDescription = stringResource(R.string.installed_skills_refresh_cd),
+                        tint = BrandTokens.colorCyanPrimary,
+                    )
+                }
             }
         },
         colors = TopAppBarDefaults.topAppBarColors(containerColor = BrandTokens.colorAbyss),
@@ -139,6 +151,8 @@ private fun InstalledSkillsBody(
     onUninstallRequest: (InstalledSkill) -> Unit,
     onConfirmUninstall: () -> Unit,
     onCancelUninstall: () -> Unit,
+    onRetry: () -> Unit,
+    onPickGateway: () -> Unit,
 ) {
     when (val s = state) {
         is InstalledSkillsUiState.Loading -> {
@@ -149,6 +163,24 @@ private fun InstalledSkillsBody(
                 CircularProgressIndicator(color = BrandTokens.colorCyanPrimary)
             }
         }
+        is InstalledSkillsUiState.Disconnected -> InstalledSkillsMessageState(
+            title = stringResource(R.string.installed_skills_disconnected_title),
+            titleColor = BrandTokens.colorAmberWarn,
+            body = stringResource(R.string.installed_skills_disconnected_body),
+            detail = s.reason,
+            actionLabel = stringResource(R.string.installed_skills_pick_gateway),
+            onAction = onPickGateway,
+            modifier = Modifier.padding(innerPadding),
+        )
+        is InstalledSkillsUiState.LoadFailed -> InstalledSkillsMessageState(
+            title = stringResource(R.string.installed_skills_load_failed_title),
+            titleColor = BrandTokens.colorTextPrimary,
+            body = null,
+            detail = s.message,
+            actionLabel = stringResource(R.string.installed_skills_retry),
+            onAction = onRetry,
+            modifier = Modifier.padding(innerPadding),
+        )
         is InstalledSkillsUiState.Ready -> {
             if (s.skills.isEmpty()) {
                 EmptyState(modifier = Modifier.padding(innerPadding))
