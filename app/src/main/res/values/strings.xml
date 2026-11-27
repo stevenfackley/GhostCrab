@@ -172,6 +172,11 @@
     <string name="installed_skills_empty_title">No skills installed</string>
     <string name="installed_skills_empty_body">The gateway reports no skills. Install one on the gateway host:</string>
     <string name="installed_skills_empty_command" translatable="false">openclaw skills install &lt;slug&gt;</string>
+    <string name="installed_skills_disconnected_title">Disconnected</string>
+    <string name="installed_skills_disconnected_body">Skills are listed only while GhostCrab is connected to the gateway.</string>
+    <string name="installed_skills_pick_gateway">Pick a gateway</string>
+    <string name="installed_skills_load_failed_title">Couldn\'t load skills</string>
+    <string name="installed_skills_retry">Retry</string>
     <string name="installed_skills_source_clawhub">ClawHub</string>
     <string name="installed_skills_source_local">Local</string>
     <string name="installed_skills_source_unknown">Unknown source</string>

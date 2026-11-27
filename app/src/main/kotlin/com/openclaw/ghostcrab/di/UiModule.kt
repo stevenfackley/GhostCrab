@@ -44,6 +44,6 @@ val uiModule = module {
     viewModel { SettingsViewModel(get(), get(), get(), get()) }
     viewModel { QrScanViewModel(get()) }
     if (com.openclaw.ghostcrab.BuildConfig.SKILLS_INSTALL_ENABLED) {
-        viewModel { InstalledSkillsViewModel(get()) }
+        viewModel { InstalledSkillsViewModel(get(), get()) }
     }
 }

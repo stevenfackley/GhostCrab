@@ -567,10 +567,71 @@ final class FakeInstalledSkillRepository: InstalledSkillRepository, @unchecked S
     private var refreshCalls = 0
     private var enabledLog: [String] = []
     private var refreshError: (any Error)?
+    private var holdsRefreshes = false
+    private var heldRefreshes: [CheckedContinuation<Void, Never>] = []
+    private var disableError: (any Error)?
+    private var holdsDisables = false
+    private var heldDisables: [CheckedContinuation<Void, Never>] = []
 
     /// Makes every `refreshFromGateway()` fail with `error`, or succeed again for `nil`.
     func setRefreshError(_ error: (any Error)?) {
         lock.withLock { refreshError = error }
+    }
+
+    /// From now on every `refreshFromGateway()` waits (after counting itself) until ``releaseRefreshes()``.
+    func holdRefreshes() {
+        lock.withLock { holdsRefreshes = true }
+    }
+
+    /// Lets every held `refreshFromGateway()` answer, and stops holding new ones.
+    func releaseRefreshes() {
+        let held: [CheckedContinuation<Void, Never>] = lock.withLock {
+            holdsRefreshes = false
+            defer { heldRefreshes.removeAll() }
+            return heldRefreshes
+        }
+        for continuation in held { continuation.resume() }
+    }
+
+    /// Lets the oldest held `refreshFromGateway()` answer; later ones stay held.
+    func releaseOldestRefresh() {
+        let next: CheckedContinuation<Void, Never>? = lock.withLock {
+            heldRefreshes.isEmpty ? nil : heldRefreshes.removeFirst()
+        }
+        next?.resume()
+    }
+
+    /// Lets the newest held `refreshFromGateway()` answer; earlier ones stay held.
+    func releaseNewestRefresh() {
+        let next: CheckedContinuation<Void, Never>? = lock.withLock { heldRefreshes.popLast() }
+        next?.resume()
+    }
+
+    /// Replaces the list the next answers return (what `observeInstalled()` already replayed is unchanged).
+    func setSkills(_ list: [InstalledSkill]) {
+        lock.withLock { skills = list }
+    }
+
+    /// Makes every `setSkillEnabled(skillKey:enabled:)` fail with `error` (the skill is left as it is), or succeed
+    /// again for `nil`.
+    func setDisableError(_ error: (any Error)?) {
+        lock.withLock { disableError = error }
+    }
+
+    /// From now on every `setSkillEnabled(skillKey:enabled:)` waits (after logging itself) until
+    /// ``releaseDisables()``.
+    func holdDisables() {
+        lock.withLock { holdsDisables = true }
+    }
+
+    /// Lets every held `setSkillEnabled(skillKey:enabled:)` answer, and stops holding new ones.
+    func releaseDisables() {
+        let held: [CheckedContinuation<Void, Never>] = lock.withLock {
+            holdsDisables = false
+            defer { heldDisables.removeAll() }
+            return heldDisables
+        }
+        for continuation in held { continuation.resume() }
     }
 
     /// - Parameters:
@@ -606,10 +667,16 @@ final class FakeInstalledSkillRepository: InstalledSkillRepository, @unchecked S
     }
 
     func refreshFromGateway() async -> Result<[InstalledSkill], any Error> {
-        let (snapshot, failure): ([InstalledSkill], (any Error)?) = lock.withLock {
-            refreshCalls += 1
-            return (skills, refreshError)
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let resumeNow: Bool = lock.withLock {
+                refreshCalls += 1
+                if holdsRefreshes { heldRefreshes.append(continuation) }
+                return !holdsRefreshes
+            }
+            if resumeNow { continuation.resume() }
         }
+        // Read after the hold, so a test can change the answer while the read is in flight.
+        let (snapshot, failure): ([InstalledSkill], (any Error)?) = lock.withLock { (skills, refreshError) }
         if let failure { return .failure(failure) }
         return .success(snapshot)
     }
@@ -633,8 +700,16 @@ final class FakeInstalledSkillRepository: InstalledSkillRepository, @unchecked S
     }
 
     func setSkillEnabled(skillKey: String, enabled: Bool) async -> Result<Void, any Error> {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let resumeNow: Bool = lock.withLock {
+                enabledLog.append("\(skillKey)=\(enabled)")
+                if holdsDisables { heldDisables.append(continuation) }
+                return !holdsDisables
+            }
+            if resumeNow { continuation.resume() }
+        }
+        if let failure = lock.withLock({ disableError }) { return .failure(failure) }
         lock.withLock {
-            enabledLog.append("\(skillKey)=\(enabled)")
             skills = skills.map {
                 $0.slug == skillKey
                     ? InstalledSkill(

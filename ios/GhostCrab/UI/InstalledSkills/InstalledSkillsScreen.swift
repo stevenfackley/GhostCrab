@@ -37,6 +37,8 @@ public struct InstalledSkillsScreen: View {
                     Label("Install skill", systemImage: "plus")
                 }
                 .tint(DesignTokens.Color.cyanPrimary)
+                // Without a live session an install cannot start, and its row would sit under the disconnected state.
+                .disabled(isDisconnected)
             }
         }
         .alert(
@@ -80,20 +82,56 @@ public struct InstalledSkillsScreen: View {
 
     @ViewBuilder
     private var content: some View {
-        if vm.isFirstLoad && vm.skills.isEmpty && vm.installProgress.isEmpty && vm.installErrors.isEmpty {
-            ProgressView()
-                .tint(DesignTokens.Color.cyanPrimary)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if vm.skills.isEmpty && vm.installProgress.isEmpty && vm.installErrors.isEmpty {
+        switch vm.phase {
+        case .loading:
+            if hasInstallRows {
+                skillsList
+            } else {
+                ProgressView()
+                    .tint(DesignTokens.Color.cyanPrimary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        case .disconnected(let reason):
             EmptyState(
-                icon: "puzzlepiece.extension",
-                title: "No skills installed",
-                message: "Skills extend the gateway with new features. Install one from ClawHub with the + button."
+                icon: "wifi.slash",
+                title: "Disconnected",
+                message: ["Skills are listed only while GhostCrab is connected to the gateway.", reason]
+                    .compactMap { $0 }
+                    .joined(separator: "\n\n"),
+                action: ("Pick a gateway", { navigate.toPicker() })
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else {
-            skillsList
+        case .loadFailed(let message):
+            EmptyState(
+                icon: "exclamationmark.triangle",
+                title: "Couldn't load skills",
+                message: message,
+                action: ("Retry", { Task { await vm.refresh() } })
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        case .ready:
+            // Only a live session's answer gets here, so an empty list really is "no skills installed".
+            if vm.skills.isEmpty && !hasInstallRows {
+                EmptyState(
+                    icon: "puzzlepiece.extension",
+                    title: "No skills installed",
+                    message: "Skills extend the gateway with new features. Install one from ClawHub with the + button."
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                skillsList
+            }
         }
+    }
+
+    /// In-flight or failed installs, shown as rows of their own.
+    private var hasInstallRows: Bool {
+        !vm.installProgress.isEmpty || !vm.installErrors.isEmpty
+    }
+
+    private var isDisconnected: Bool {
+        if case .disconnected = vm.phase { return true }
+        return false
     }
 
     private var skillsList: some View {
