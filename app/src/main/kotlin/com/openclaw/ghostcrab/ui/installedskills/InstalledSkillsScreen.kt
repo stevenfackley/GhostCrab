@@ -68,6 +68,7 @@ fun InstalledSkillsScreen(
     viewModel: InstalledSkillsViewModel = koinViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val canRefresh by viewModel.canRefresh.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val readyState = remember(state) { state as? InstalledSkillsUiState.Ready }
     val uninstallSuccessTemplate = stringResource(R.string.installed_skills_uninstall_success)
@@ -91,10 +92,10 @@ fun InstalledSkillsScreen(
         containerColor = BrandTokens.colorAbyss,
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
-            // Without a live session there is nothing to refresh: the disconnected state offers the way back.
+            // Without a live session (reconnecting, connecting, disconnected) there is nothing to refresh.
             InstalledSkillsTopBar(
                 onNavigateBack = onNavigateBack,
-                onRefresh = if (state is InstalledSkillsUiState.Disconnected) null else viewModel::refresh,
+                onRefresh = if (canRefresh) viewModel::refresh else null,
             )
         },
     ) { innerPadding ->

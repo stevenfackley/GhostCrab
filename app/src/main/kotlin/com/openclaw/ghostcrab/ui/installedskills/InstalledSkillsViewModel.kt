@@ -2,6 +2,9 @@ package com.openclaw.ghostcrab.ui.installedskills
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.openclaw.ghostcrab.domain.exception.GatewayConnectionClosedException
+import com.openclaw.ghostcrab.domain.exception.GatewayNotConnectedException
+import com.openclaw.ghostcrab.domain.exception.GatewayUnreachableException
 import com.openclaw.ghostcrab.domain.model.GatewayConnection
 import com.openclaw.ghostcrab.domain.model.InstalledSkill
 import com.openclaw.ghostcrab.domain.repository.GatewayConnectionManager
@@ -9,11 +12,23 @@ import com.openclaw.ghostcrab.domain.repository.InstalledSkillRepository
 import com.openclaw.ghostcrab.ui.toUserMessage
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
+
+/**
+ * How long a read or a disable that failed with an end-of-socket error waits for the connection state to leave its
+ * session before the failure is shown. The socket's end fails pending requests first; the manager publishes the
+ * silent reconnect (or Error) right after, so this only bounds a socket that failed a request without ending.
+ */
+internal const val SOCKET_END_GRACE_MS: Long = 5_000L
 
 /**
  * ViewModel for [InstalledSkillsScreen].
@@ -28,6 +43,9 @@ import kotlinx.coroutines.launch
  * - Error (the connect or the silent reconnect failed) and Disconnected show [InstalledSkillsUiState.Disconnected],
  *   without rows; Connecting shows Loading.
  * - Lists from [InstalledSkillRepository.observeInstalled] and read results count only while their session is live.
+ * - A read or a disable that fails because the socket ended (the failure arrives before the state that follows) shows
+ *   no failure: the next connection state decides. Only if the state stays on that session for
+ *   [SOCKET_END_GRACE_MS] is the failure shown.
  *
  * @param repo Frozen v1.1 skill repository — only registered in Koin when
  *   `BuildConfig.SKILLS_INSTALL_ENABLED` is true.
@@ -54,7 +72,16 @@ class InstalledSkillsViewModel(
 
     /** The live session's `sessionGeneration`, or `null` while there is none (reconnecting included). */
     private val liveGeneration: Long?
-        get() = (connection as? GatewayConnection.Connected)?.takeUnless { it.reconnecting }?.sessionGeneration
+        get() = connection.liveGeneration()
+
+    /** Whether a refresh would read anything (a session is live); the screen offers Refresh only then. */
+    val canRefresh: StateFlow<Boolean> = connectionManager.connectionState
+        .map { it.liveGeneration() != null }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.Eagerly,
+            initialValue = connectionManager.connectionState.value.liveGeneration() != null,
+        )
 
     init {
         viewModelScope.launch { connectionManager.connectionState.collect(::onConnection) }
@@ -106,19 +133,27 @@ class InstalledSkillsViewModel(
      * Confirms the pending skill's removal, which on OpenClaw means disabling it
      * ([InstalledSkillRepository.setSkillEnabled] with `enabled = false`; there is no removal RPC). Closes the
      * dialog, emits an in-flight indicator, and sets [InstalledSkillsUiState.Ready.uninstallSuccessSlug]
-     * on success or [InstalledSkillsUiState.Ready.errorMessage] on failure.
+     * on success or [InstalledSkillsUiState.Ready.errorMessage] on failure. A failure from the end of the session it
+     * started on is not reported: the connection state that follows says it, and the next session's list shows
+     * whether the skill was disabled.
      */
     fun confirmUninstall() {
         val slug = (_state.value as? InstalledSkillsUiState.Ready)?.pendingUninstallSlug ?: return
+        val startedOn = liveGeneration
         withReady { it.copy(pendingUninstallSlug = null, uninstallingSlug = slug) }
         viewModelScope.launch {
             // OpenClaw has no skill removal (ADR-0007): the confirm action disables the skill.
+            // A newer disable, or a new session's list, owns the row spinner otherwise.
+            fun InstalledSkillsUiState.Ready.done() =
+                copy(uninstallingSlug = uninstallingSlug.takeUnless { it == slug })
             repo.setSkillEnabled(slug, enabled = false)
                 .onSuccess {
-                    withReady { s -> s.copy(uninstallingSlug = null, uninstallSuccessSlug = slug) }
+                    withReady { s -> s.done().copy(uninstallSuccessSlug = slug) }
                 }
                 .onFailure { e ->
-                    withReady { s -> s.copy(uninstallingSlug = null, errorMessage = e.toUserMessage()) }
+                    val cutOff = startedOn != null && e.endsTheSocket() &&
+                        connectionManager.connectionState.leavesSession(startedOn)
+                    withReady { s -> if (cutOff) s.done() else s.done().copy(errorMessage = e.toUserMessage()) }
                 }
         }
     }
@@ -182,6 +217,12 @@ class InstalledSkillsViewModel(
                         ?: InstalledSkillsUiState.Ready(skills = list)
                 }
             }.onFailure { e ->
+                // The socket's end fails this read before the manager publishes what follows (the silent reconnect,
+                // Error): that state, not this failure, is what the screen shows.
+                if (e.endsTheSocket() && connectionManager.connectionState.leavesSession(generation)) {
+                    withReady { it.copy(isRefreshing = false) }
+                    return@launch
+                }
                 _state.update {
                     (it as? InstalledSkillsUiState.Ready)?.copy(isRefreshing = false, errorMessage = e.toUserMessage())
                         ?: InstalledSkillsUiState.LoadFailed(e.toUserMessage())
@@ -201,3 +242,25 @@ class InstalledSkillsViewModel(
         _state.update { if (it is InstalledSkillsUiState.Ready) block(it) else it }
     }
 }
+
+/** The live session's `sessionGeneration`, or `null` unless Connected and not reconnecting. */
+private fun GatewayConnection.liveGeneration(): Long? =
+    (this as? GatewayConnection.Connected)?.takeUnless { it.reconnecting }?.sessionGeneration
+
+/**
+ * Whether this failure is the session socket ending: a drop or failed send ([GatewayUnreachableException]), the
+ * gateway's 1008 close ([GatewayConnectionClosedException]), or a closed or missing session
+ * ([GatewayNotConnectedException]). A timeout or an error answer comes from a live socket and is not one.
+ */
+private fun Throwable.endsTheSocket(): Boolean =
+    this is GatewayUnreachableException || this is GatewayConnectionClosedException ||
+        this is GatewayNotConnectedException
+
+/**
+ * @receiver The connection state.
+ * @param generation The session a request ran on.
+ * @return `true` once the state is no longer that live session (reconnecting, Error, Disconnected, Connecting or a
+ *   newer session), `false` if it still is after [SOCKET_END_GRACE_MS].
+ */
+private suspend fun StateFlow<GatewayConnection>.leavesSession(generation: Long): Boolean =
+    withTimeoutOrNull(SOCKET_END_GRACE_MS) { first { it.liveGeneration() != generation } } != null

@@ -33,6 +33,9 @@ public enum InstalledSkillsPhase: Equatable, Sendable {
 /// - `.error` (the connect or the silent reconnect failed) and `.disconnected` show `.disconnected`, without rows;
 ///   `.connecting` shows `.loading`.
 /// - Lists from the repository and read results count only while their session is live.
+/// - A read or a disable that fails because the socket ended (`.unreachable`, `.connectionClosed`: the failure
+///   arrives before the state that follows) shows no failure: the next connection state decides. Only if the state
+///   stays on that session for `socketEndGrace` is the failure shown.
 ///
 /// Without a gateway (tests) every read counts and nothing else drives the phase.
 @MainActor
@@ -90,15 +93,31 @@ public final class InstalledSkillsViewModel {
     @ObservationIgnored private var connection: GatewayConnection?
     /// The session last read (or being read).
     @ObservationIgnored private var sessions = SessionTracker()
+    /// How long a read or disable that failed because the socket ended waits for the connection state to leave its
+    /// session before the failure is shown (Android: `SOCKET_END_GRACE_MS`).
+    private let socketEndGrace: Duration
+
+    // MARK: - Test records
+
+    /// Every ``phase`` set, oldest first: lets tests prove a state never showed in between. A few entries per visit.
+    @ObservationIgnored private(set) var phaseLog: [InstalledSkillsPhase] = []
+    /// Every message set on ``lastError``, oldest first (for the same tests).
+    @ObservationIgnored private(set) var errorLog: [String] = []
 
     // MARK: - Init / lifecycle
 
     /// - Parameters:
     ///   - skills: The installed-skill repository.
     ///   - gateway: Connection state source; it drives ``phase``, and a new session reads the list.
-    public init(skills: any InstalledSkillRepository, gateway: (any GatewayConnectionManager)? = nil) {
+    ///   - socketEndGrace: How long an end-of-socket failure waits for the state that follows; tests shorten it.
+    public init(
+        skills: any InstalledSkillRepository,
+        gateway: (any GatewayConnectionManager)? = nil,
+        socketEndGrace: Duration = .seconds(5)
+    ) {
         self.repo = skills
         self.gateway = gateway
+        self.socketEndGrace = socketEndGrace
         self.connection = gateway?.currentState
     }
 
@@ -160,20 +179,20 @@ public final class InstalledSkillsViewModel {
                 // The silent reconnect ends in a new session (read below) or in `.error`: rows on screen stay meanwhile.
                 if phase != .ready {
                     sessions = SessionTracker()
-                    phase = .loading
+                    show(.loading)
                 }
             } else if sessions.isNewSession(state), let generation = state.sessionGeneration {
                 startRead(generation)
             }
         case .connecting:
             endSession()
-            phase = .loading
+            show(.loading)
         case .error(_, let cause):
             endSession()
-            phase = .disconnected(reason: Self.userMessage(cause))
+            show(.disconnected(reason: Self.userMessage(cause)))
         case .disconnected:
             endSession()
-            phase = .disconnected(reason: nil)
+            show(.disconnected(reason: nil))
         }
     }
 
@@ -188,14 +207,15 @@ public final class InstalledSkillsViewModel {
             // answer decides.
             guard !list.isEmpty else { return }
             skills = list
-            phase = .ready
+            show(.ready)
         case .disconnected:
             break
         }
     }
 
-    /// No session is live any more: the read in flight is dropped, the rows and a pending confirmation go, and the
-    /// next session is read.
+    /// No session is live any more: the read in flight is dropped; the rows, a pending confirmation, a disable's row
+    /// spinner and an alert go (nothing may sit on top of "Disconnected"); the next session is read. As on Android,
+    /// where the list state with all of these is replaced.
     private func endSession() {
         loadTask?.cancel()
         loadTask = nil
@@ -203,6 +223,8 @@ public final class InstalledSkillsViewModel {
         sessions = SessionTracker()
         skills = []
         pendingUninstallSlug = nil
+        uninstallingSlug = nil
+        lastError = nil
     }
 
     /// The live session's generation, `nil` while none is live (reconnecting included). Without a gateway every read
@@ -217,7 +239,7 @@ public final class InstalledSkillsViewModel {
     @discardableResult
     private func startRead(_ generation: Int) -> Task<Void, Never> {
         loadTask?.cancel()
-        if phase != .ready { phase = .loading }
+        if phase != .ready { show(.loading) }
         isRefreshing = true
         let task = Task { [weak self] in
             guard let self else { return }
@@ -239,18 +261,61 @@ public final class InstalledSkillsViewModel {
         case .success(let list):
             skills = list
             lastError = nil
-            phase = .ready
+            show(.ready)
         case .failure(let error):
+            // The socket's end fails this read before the manager publishes what follows (the silent reconnect,
+            // `.error`): that state, not this failure, is what the screen shows.
+            if Self.endsTheSocket(error), await sessionEnds(generation) { return }
             if phase == .ready {
-                lastError = Self.userMessage(error)
+                report(Self.userMessage(error))
             } else {
-                phase = .loadFailed(message: Self.userMessage(error))
+                show(.loadFailed(message: Self.userMessage(error)))
             }
+        }
+    }
+
+    /// - Parameter generation: The session a request ran on.
+    /// - Returns: `true` once the connection state is no longer that live session (reconnecting, `.error`,
+    ///   `.disconnected`, `.connecting` or a newer session) or the caller was cancelled; `false` if it still is after
+    ///   `socketEndGrace`, and at once without a gateway (nothing can end then).
+    private func sessionEnds(_ generation: Int) async -> Bool {
+        guard gateway != nil else { return false }
+        let step = Duration.milliseconds(50)
+        var waited = Duration.zero
+        while waited < socketEndGrace {
+            if liveGeneration != generation { return true }
+            try? await Task.sleep(for: step)
+            if Task.isCancelled { return true }
+            waited += step
+        }
+        return liveGeneration != generation
+    }
+
+    /// Whether `error` is the session socket ending: a drop, a failed send, a closed or missing session
+    /// (`.unreachable`) or the gateway's 1008 close (`.connectionClosed`). A timeout or an error answer comes from a
+    /// live socket and is not one. `.protocolViolation` is left out: it also reports a malformed `skills.status`
+    /// payload on a live socket.
+    private static func endsTheSocket(_ error: any Error) -> Bool {
+        switch error as? GatewayError {
+        case .unreachable?, .connectionClosed?: return true
+        default: return false
         }
     }
 
     private static func userMessage(_ error: any Error) -> String {
         (error as? GatewayError)?.errorDescription ?? error.localizedDescription
+    }
+
+    /// Sets ``phase`` and records it in ``phaseLog``.
+    private func show(_ next: InstalledSkillsPhase) {
+        phase = next
+        phaseLog.append(next)
+    }
+
+    /// Sets ``lastError`` (an alert) and records it in ``errorLog``.
+    private func report(_ message: String) {
+        lastError = message
+        errorLog.append(message)
     }
 
     // MARK: - Row formatting
@@ -327,20 +392,31 @@ public final class InstalledSkillsViewModel {
 
     /// Confirm removal of the currently-pending slug, which on OpenClaw means
     /// disabling it (`skills.update`, `enabled = false`; there is no removal
-    /// RPC). Surfaces errors via ``lastError``.
+    /// RPC). Surfaces errors via ``lastError`` while the rows are shown. A failure from the end of the session it
+    /// started on is not reported: the connection state that follows says it, and the next session's list shows
+    /// whether the skill was disabled.
     public func confirmUninstall() {
         guard let slug = pendingUninstallSlug else { return }
         pendingUninstallSlug = nil
         uninstallingSlug = slug
+        let startedOn = liveGeneration
 
         Task { [weak self, repo] in
             // OpenClaw has no skill removal: disable it (skills.update, enabled = false). ADR-0007.
             let result = await repo.setSkillEnabled(skillKey: slug, enabled: false)
             guard let self else { return }
-            self.uninstallingSlug = nil
             if case .failure(let error) = result {
-                self.lastError = (error as? GatewayError)?.errorDescription ?? error.localizedDescription
+                var cutOff = false
+                if let startedOn, Self.endsTheSocket(error) {
+                    cutOff = await self.sessionEnds(startedOn)
+                }
+                // Android shows it only while its list state is up, which is `.ready` here.
+                if !cutOff, self.phase == .ready {
+                    self.report(Self.userMessage(error))
+                }
             }
+            // A newer disable, or a new session, owns the row spinner otherwise.
+            if self.uninstallingSlug == slug { self.uninstallingSlug = nil }
         }
     }
 
